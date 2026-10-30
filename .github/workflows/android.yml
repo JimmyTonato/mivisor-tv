@@ -1,0 +1,235 @@
+name: MiVisor TV (APK)
+
+# APK privada de prueba: se compila en cada push y a mano. No se publica en ninguna tienda.
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # solo para adjuntar la APK a una release cuando se sube una etiqueta v* (repositorio privado)
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Motor P2P Outpace (AGPL-3.0-or-later): el MISMO commit fijado que la APK v18; se verifica antes de compilar.
+      OUTPACE_REPO: https://github.com/jamezrin/outpace.git
+      OUTPACE_COMMIT: 7d77f410c9bde453cb5f5816ab37f5e571d6e5f0
+      NDK_VERSION: 27.2.12479018
+      # Firma: los MISMOS secretos y el MISMO procedimiento que la APK v18 (clave compatible con WARP).
+      SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+      SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sin secretos en el repositorio
+        run: bash tools/check-no-secrets.sh
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle (con caché)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: NDK para Outpace
+        shell: bash
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" >/dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Rust 1.99.1 (ARM64 + ARMv7)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - name: Código de Outpace (commit fijado)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none "$OUTPACE_REPO" "$RUNNER_TEMP/outpace"
+          cd "$RUNNER_TEMP/outpace"
+          git checkout --detach "$OUTPACE_COMMIT"
+          test "$(git rev-parse HEAD)" = "$OUTPACE_COMMIT"
+          # La licencia incluida en la app debe ser la del commit compilado.
+          cmp LICENSE "$GITHUB_WORKSPACE/app/src/main/assets/licenses/outpace-LICENSE.txt"
+
+      - name: Caché de Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ runner.temp }}/outpace -> target
+
+      - name: Compilar Outpace (ARM64 + ARMv7)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$TOOLCHAIN/aarch64-linux-android23-clang"
+          export CC_aarch64_linux_android="$TOOLCHAIN/aarch64-linux-android23-clang"
+          export CXX_aarch64_linux_android="$TOOLCHAIN/aarch64-linux-android23-clang++"
+          export AR_aarch64_linux_android="$TOOLCHAIN/llvm-ar"
+          export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$TOOLCHAIN/armv7a-linux-androideabi23-clang"
+          export CC_armv7_linux_androideabi="$TOOLCHAIN/armv7a-linux-androideabi23-clang"
+          export CXX_armv7_linux_androideabi="$TOOLCHAIN/armv7a-linux-androideabi23-clang++"
+          export AR_armv7_linux_androideabi="$TOOLCHAIN/llvm-ar"
+          # Rust pide -lgcc en Android; los NDK modernos traen compiler-rt: alias local (sin parchear binarios).
+          SHIM="$RUNNER_TEMP/android-gcc-shim"
+          mkdir -p "$SHIM/aarch64" "$SHIM/armv7"
+          A64="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/lib/clang" -name 'libclang_rt.builtins-aarch64-android.a' | head -1)"
+          ARM="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/lib/clang" -name 'libclang_rt.builtins-arm-android.a' | head -1)"
+          test -n "$A64" && test -n "$ARM"
+          ln -sf "$A64" "$SHIM/aarch64/libgcc.a"
+          ln -sf "$ARM" "$SHIM/armv7/libgcc.a"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="-L native=$SHIM/aarch64"
+          export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_RUSTFLAGS="-L native=$SHIM/armv7"
+          cd "$RUNNER_TEMP/outpace"
+          cargo build --locked -p ace-engine --bin outpace --release --target aarch64-linux-android
+          cargo build --locked -p ace-engine --bin outpace --release --target armv7-linux-androideabi
+          J="$GITHUB_WORKSPACE/app/src/main/jniLibs"
+          mkdir -p "$J/arm64-v8a" "$J/armeabi-v7a"
+          cp target/aarch64-linux-android/release/outpace "$J/arm64-v8a/liboutpace.so"
+          cp target/armv7-linux-androideabi/release/outpace "$J/armeabi-v7a/liboutpace.so"
+          # Sin símbolos: menos espacio y menos RAM al cargar (TVs de 1 GB).
+          "$TOOLCHAIN/llvm-strip" "$J/arm64-v8a/liboutpace.so" "$J/armeabi-v7a/liboutpace.so"
+          chmod 755 "$J/arm64-v8a/liboutpace.so" "$J/armeabi-v7a/liboutpace.so"
+          file "$J/arm64-v8a/liboutpace.so" "$J/armeabi-v7a/liboutpace.so"
+          ls -l "$J/arm64-v8a/liboutpace.so" "$J/armeabi-v7a/liboutpace.so"
+
+      # Igual que la v18:
+      #  - Con los cuatro secretos: el keystore llega en base64, se decodifica en un fichero temporal del runner y su
+      #    ruta se pasa a Gradle en SIGNING_KEYSTORE_PATH.
+      #  - Sin ellos: Gradle firma con app/debug.keystore, la MISMA clave de desarrollo de la v18 (no se genera otra).
+      - name: Preparar firma
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          chmod +x gradlew
+          missing=""
+          [ -n "$KEYSTORE_BASE64" ] || missing="$missing SIGNING_KEYSTORE_BASE64"
+          [ -n "$SIGNING_STORE_PASSWORD" ] || missing="$missing SIGNING_STORE_PASSWORD"
+          [ -n "$SIGNING_KEY_ALIAS" ] || missing="$missing SIGNING_KEY_ALIAS"
+          [ -n "$SIGNING_KEY_PASSWORD" ] || missing="$missing SIGNING_KEY_PASSWORD"
+          if [ -z "$missing" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "Firmando con la clave de GitHub Secrets"
+          else
+            test -f app/debug.keystore || { echo "::error::No están los secretos de firma ni app/debug.keystore (la clave de desarrollo de la v18)."; exit 1; }
+            if [ "$missing" != " SIGNING_KEYSTORE_BASE64 SIGNING_STORE_PASSWORD SIGNING_KEY_ALIAS SIGNING_KEY_PASSWORD" ]; then
+              echo "::warning::Secretos de firma incompletos (faltan:$missing): se usa app/debug.keystore."
+            fi
+            echo "Firmando con app/debug.keystore (clave de desarrollo de la v18)"
+          fi
+
+      - name: Tests unitarios (núcleo y módulos Android)
+        run: ./gradlew test --stacktrace
+
+      - name: Compilar APK release (R8)
+        run: ./gradlew :app:assembleRelease :app:lintDebug --stacktrace
+
+      - name: Comprobar Outpace empaquetado
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK"
+          unzip -l "$APK" | grep "lib/arm64-v8a/liboutpace.so"
+          unzip -l "$APK" | grep "lib/armeabi-v7a/liboutpace.so"
+          unzip -l "$APK" | grep "assets/licenses/outpace-LICENSE.txt"
+          unzip -l "$APK" | grep "assets/licenses/NOTICE-outpace.txt"
+          # Nada de claves dentro de la APK.
+          if unzip -l "$APK" | grep -Ei '\.(jks|keystore|p12|pem|key)$'; then echo "::error::La APK contiene un fichero de clave"; exit 1; fi
+
+      # MiVisor TV solo puede controlar la WARP modificada si está firmada con la MISMA clave (permiso "signature"
+      # com.mivisor.permission.CONTROL_WARP). Se compara la huella SHA-256 completa del certificado (no el CN).
+      # Huella esperada: la misma que en la v18 (se puede cambiar con la variable de repositorio WARP_SIGNER_SHA256).
+      #  - Coincide: OK.
+      #  - No coincide y se firmó con los secretos: error (la clave configurada no es la de WARP).
+      #  - No coincide y se firmó con app/debug.keystore: la APK se entrega, marcada como INCOMPATIBLE con WARP.
+      - name: Comprobar firma compatible con WARP
+        env:
+          WARP_SIGNER_SHA256: ${{ vars.WARP_SIGNER_SHA256 || 'B2:9F:F0:71:C5:03:95:D6:6F:17:CE:3A:5B:C2:42:A6:EF:C0:04:88:F6:57:F5:43:7E:51:5D:C7:24:E0:46:32' }}
+        run: |
+          set -euo pipefail
+          APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          "$APKSIGNER" verify --verbose app/build/outputs/apk/release/app-release.apk | grep -E "Verified using|Verifies"
+          GOT=$("$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk \
+                | grep -m1 "certificate SHA-256 digest" | awk '{print $NF}' | tr 'a-f' 'A-F')
+          WANT=$(echo "$WARP_SIGNER_SHA256" | tr -d ': ' | tr 'a-f' 'A-F')
+          echo "Firma de la release: $GOT"
+          echo "Huella de WARP:      $WANT"
+          if [ "$GOT" = "$WANT" ]; then
+            echo "OK: misma huella que WARP (MiVisor TV podrá controlarla)"
+            echo "WARP_COMPAT=si" >> "$GITHUB_ENV"
+            echo "### Firma: compatible con WARP ✅" >> "$GITHUB_STEP_SUMMARY"
+          elif [ -n "${SIGNING_KEYSTORE_PATH:-}" ]; then
+            echo "::error::La APK está firmada con la clave de GitHub Secrets, pero su huella NO es la de WARP: no podrá controlarla. Revisa SIGNING_KEYSTORE_BASE64 o la variable WARP_SIGNER_SHA256."
+            exit 1
+          else
+            echo "::warning::APK firmada con app/debug.keystore (clave de desarrollo de la v18). Su huella NO coincide con la de WARP: esta APK NO podrá controlar WARP. Todo lo demás funciona. Para controlar WARP hay que configurar los cuatro secretos de firma."
+            echo "WARP_COMPAT=no" >> "$GITHUB_ENV"
+            {
+              echo "### Firma: NO compatible con WARP ⚠️"
+              echo "Firmada con app/debug.keystore (clave de desarrollo de la v18). Esta APK no podrá controlar WARP."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Preparar APK
+        id: apk
+        run: |
+          SUFFIX=""
+          [ "$WARP_COMPAT" = "si" ] || SUFFIX="-sin-control-WARP"
+          NAME="MiVisor-TV-1.0.${{ github.run_number }}${SUFFIX}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$NAME"
+          sha256sum "$NAME" | tee "$NAME.sha256"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Subir APK (artefacto privado del repositorio)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiVisor-TV-1.0.${{ github.run_number }}${{ env.WARP_COMPAT != 'si' && '-sin-control-WARP' || '' }}
+          path: |
+            ${{ steps.apk.outputs.name }}
+            ${{ steps.apk.outputs.name }}.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Subir informes (tests y lint)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: informes-${{ github.run_number }}
+          path: |
+            **/build/reports/
+            **/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Release (solo etiquetas v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MiVisor TV ${{ github.ref_name }} (1.0.${{ github.run_number }})
+          files: |
+            ${{ steps.apk.outputs.name }}
+            ${{ steps.apk.outputs.name }}.sha256
+          prerelease: true
+          body: |
+            APK de prueba de MiVisor TV (Android TV 6.0+, ARM).
+            Control de WARP: ${{ env.WARP_COMPAT == 'si' && 'sí (misma firma que WARP)' || 'NO (firmada con la clave de desarrollo de la v18)' }}
+            Commit: ${{ github.sha }} · Outpace @ ${{ env.OUTPACE_COMMIT }}

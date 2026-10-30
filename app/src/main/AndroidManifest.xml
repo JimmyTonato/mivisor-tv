@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Saber si hay Internet (no culpar a una fuente sin red) y elegir la IP de casa para escribir con el móvil. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!--
+      Control de la WARP modificada. Es un permiso "signature": Android solo lo concede si MiVisor TV está firmado con
+      la MISMA clave que WARP (el procedimiento de firma de la v18). La declaración del permiso se añade solo en las
+      releases firmadas con esa clave (src/warpSigned).
+    -->
+    <uses-permission android:name="com.mivisor.permission.CONTROL_WARP" />
+
+    <!-- TV primero, sin dejar de funcionar en móvil o tablet. -->
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
+    <queries>
+        <!-- Servicios rápidos: la WARP modificada. -->
+        <package android:name="com.cloudflare.onedotonedotonedotone" />
+    </queries>
+
+    <application
+        android:name=".MiVisorTvApp"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:banner="@drawable/tv_banner"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MiVisor"
+        android:networkSecurityConfig="@xml/network_security_config">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="unspecified"
+            android:windowSoftInputMode="adjustPan"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|fontScale">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+            <!-- mivisor:<código> abre «Añadir proveedor» con el código ya escrito (no se guarda sin confirmar). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="mivisor" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

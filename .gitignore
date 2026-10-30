@@ -1,0 +1,18 @@
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+# Claves: nunca en el repositorio (la firma llega de GitHub Secrets).
+*.jks
+*.keystore
+# Excepción (como en la v18): la clave de DESARROLLO, que se usa cuando no hay secretos de firma.
+!app/debug.keystore
+*.p12
+.env
+# Outpace: lo compila la CI desde el commit fijado (no se versionan binarios).
+app/src/main/jniLibs/

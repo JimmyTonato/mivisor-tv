@@ -1,0 +1,255 @@
+[
+ {
+  "nombre": "normal",
+  "pasos": [
+   [
+    "ok",
+    "a",
+    1793000000.0,
+    3000
+   ],
+   [
+    "ok",
+    "b",
+    1793000010.0,
+    9000
+   ],
+   [
+    "fail",
+    "c",
+    1793000020.0,
+    "no_peers",
+    "c1"
+   ]
+  ],
+  "resultados": [
+   "ok",
+   "ok",
+   "source"
+  ],
+  "ordenEn": 1793000060.0,
+  "fuentes": [
+   "c",
+   "b",
+   "a"
+  ],
+  "orden": [
+   "a",
+   "b",
+   "c"
+  ],
+  "puntuaciones": {
+   "c": 0.198512,
+   "b": 0.583508,
+   "a": 0.595228
+  },
+  "estados": {
+   "c": "normal",
+   "b": "normal",
+   "a": "normal"
+  }
+ },
+ {
+  "nombre": "pausa",
+  "pasos": [
+   [
+    "fail",
+    "a",
+    1793000000.0,
+    "no_video",
+    "c1"
+   ],
+   [
+    "fail",
+    "a",
+    1793000001.0,
+    "no_video",
+    "c1"
+   ],
+   [
+    "fail",
+    "a",
+    1793000002.0,
+    "no_video",
+    "c1"
+   ],
+   [
+    "ok",
+    "b",
+    1793000005.0,
+    4000
+   ]
+  ],
+  "resultados": [
+   "source",
+   "source",
+   "source",
+   "ok"
+  ],
+  "ordenEn": 1793000060.0,
+  "fuentes": [
+   "a",
+   "b"
+  ],
+  "orden": [
+   "b",
+   "a"
+  ],
+  "puntuaciones": {
+   "a": 0.014993,
+   "b": 0.595229
+  },
+  "estados": {
+   "a": "pausa",
+   "b": "normal"
+  }
+ },
+ {
+  "nombre": "red-caida",
+  "pasos": [
+   [
+    "fail",
+    "a",
+    1793000000.0,
+    "no_video",
+    "c1",
+    {
+     "online": false
+    }
+   ],
+   [
+    "fail",
+    "b",
+    1793000001.0,
+    "no_video",
+    "c1",
+    {
+     "online": false
+    }
+   ],
+   [
+    "fail",
+    "c",
+    1793000002.0,
+    "no_video",
+    "c1",
+    {
+     "online": false
+    }
+   ]
+  ],
+  "resultados": [
+   "offline",
+   "offline",
+   "offline"
+  ],
+  "ordenEn": 1793000060.0,
+  "fuentes": [
+   "a",
+   "b",
+   "c"
+  ],
+  "orden": [
+   "a",
+   "b",
+   "c"
+  ],
+  "puntuaciones": {
+   "a": 0.105801,
+   "b": 0.105801,
+   "c": 0.105801
+  },
+  "estados": {
+   "a": "normal",
+   "b": "normal",
+   "c": "normal"
+  }
+ },
+ {
+  "nombre": "fallo-general",
+  "pasos": [
+   [
+    "fail",
+    "a",
+    1793000000.0,
+    "no_video",
+    "c1"
+   ],
+   [
+    "fail",
+    "b",
+    1793000030.0,
+    "no_video",
+    "c2"
+   ],
+   [
+    "fail",
+    "c",
+    1793000060.0,
+    "no_video",
+    "c3"
+   ]
+  ],
+  "resultados": [
+   "source",
+   "source",
+   "global"
+  ],
+  "ordenEn": 1793000090.0,
+  "fuentes": [
+   "a",
+   "b",
+   "c"
+  ],
+  "orden": [
+   "a",
+   "b",
+   "c"
+  ],
+  "puntuaciones": {
+   "a": 0.105801,
+   "b": 0.105801,
+   "c": 0.105801
+  },
+  "estados": {
+   "a": "normal",
+   "b": "normal",
+   "c": "normal"
+  }
+ },
+ {
+  "nombre": "olvido-7-dias",
+  "pasos": [
+   [
+    "ok",
+    "a",
+    1793000000.0,
+    3000
+   ],
+   [
+    "fail",
+    "a",
+    1793000010.0,
+    "frozen",
+    "c1"
+   ]
+  ],
+  "resultados": [
+   "ok",
+   "source"
+  ],
+  "ordenEn": 1793604800.0,
+  "fuentes": [
+   "a"
+  ],
+  "orden": [
+   "a"
+  ],
+  "puntuaciones": {
+   "a": 0.399362
+  },
+  "estados": {
+   "a": "normal"
+  }
+ }
+]
