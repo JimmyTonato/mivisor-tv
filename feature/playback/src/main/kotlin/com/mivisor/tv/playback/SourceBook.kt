@@ -41,4 +41,7 @@ interface SourceBook {
     /** Idioma de audio elegido la última vez en este canal (multiaudio), o null. */
     fun preferredAudio(channelId: String): String? = null
     fun rememberAudio(channelId: String, language: String?) {}
+
+    /** Ajustes › Audio y subtítulos: mostrar subtítulos al empezar si la fuente los trae. */
+    fun subtitlesByDefault(): Boolean = false
 }

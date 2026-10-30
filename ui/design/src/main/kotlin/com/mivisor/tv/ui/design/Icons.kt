@@ -38,6 +38,12 @@ object MvIcons {
     val Clock = R.drawable.ic_clock
     val Trophy = R.drawable.ic_trophy
     val Link = R.drawable.ic_link
+    val Volume = R.drawable.ic_volume
+    val Tune = R.drawable.ic_tune
+    val Pulse = R.drawable.ic_pulse
+    val Check = R.drawable.ic_check
+    val Box = R.drawable.ic_box
+    val Chip = R.drawable.ic_chip
 }
 
 @Composable

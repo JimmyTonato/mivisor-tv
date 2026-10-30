@@ -43,6 +43,11 @@ class MobileInputManager(
     /** "Editar con móvil": último envío recibido (seq crece en cada envío de la sesión). */
     val edits: StateFlow<FieldEdit?> = _edits.asStateFlow()
 
+    /** Importar copia: fichero y PIN recibidos del móvil (la TV los comprueba antes de cambiar nada). */
+    class Upload(val bytes: ByteArray, val pin: String, val seq: Int)
+    private val _uploads = MutableStateFlow<Upload?>(null)
+    val uploads: StateFlow<Upload?> = _uploads.asStateFlow()
+
     private var server: MobileInputServer? = null
     private var session: RemoteSession? = null
     private var expiryJob: Job? = null
@@ -52,6 +57,18 @@ class MobileInputManager(
 
     /** Mostrar un texto en el móvil (registro de errores), de solo lectura. */
     fun startShow(text: String) = start(RemoteSession.Mode.SHOW, text)
+
+    /** Exportar copia: el móvil abre una página con el botón de descarga del fichero cifrado. */
+    fun startDownload(fileName: String, bytes: ByteArray) {
+        start(RemoteSession.Mode.DOWNLOAD, null)
+        session?.let { it.fileName = fileName; it.fileBytes = bytes }
+    }
+
+    /** Importar copia: el móvil sube el fichero y escribe el PIN. */
+    fun startUpload() {
+        _uploads.value = null
+        start(RemoteSession.Mode.UPLOAD, null)
+    }
 
     /**
      * "Editar con móvil": sesión de 5 min que admite varios envíos de título + código.
@@ -78,7 +95,12 @@ class MobileInputManager(
         }
         var owner: MobileInputServer? = null
         var seq = 0
-        val srv = MobileInputServer(InetAddress.getByName(lan.address), clock, onFields = { title, code ->
+        var uploadSeq = 0
+        val srv = MobileInputServer(InetAddress.getByName(lan.address), clock, onUpload = { bytes, pin ->
+            uploadSeq++
+            log("Remote upload received")                          // nunca el contenido ni el PIN
+            _uploads.value = Upload(bytes, pin, uploadSeq)
+        }, onFields = { title, code ->
             seq++
             log("Remote edit received")                          // nunca el contenido
             _edits.value = FieldEdit(title, code, seq)            // la sesión sigue abierta: se puede volver a enviar
@@ -104,7 +126,13 @@ class MobileInputManager(
         srv.session = session
         server = srv
         this.session = session
-        val path = when (mode) { RemoteSession.Mode.INPUT -> "pair"; RemoteSession.Mode.SHOW -> "log"; RemoteSession.Mode.EDIT -> "edit" }
+        val path = when (mode) {
+            RemoteSession.Mode.INPUT -> "pair"
+            RemoteSession.Mode.SHOW -> "log"
+            RemoteSession.Mode.EDIT -> "edit"
+            RemoteSession.Mode.DOWNLOAD -> "copy"
+            RemoteSession.Mode.UPLOAD -> "restore"
+        }
         val url = "http://${lan.address}:$port/$path/${session.token}"
         _state.value = RemoteState.Waiting(url, QrGenerator.encode(url), session.expiresAt, mode)
         log("Remote input: session started on ${lan.interfaceName} port $port")
@@ -126,6 +154,7 @@ class MobileInputManager(
     /** Cancelar o salir del formulario: invalida el token, cierra el servidor y no toca el campo. */
     fun cancel() {
         _edits.value = null
+        _uploads.value = null
         stop()
         _state.value = RemoteState.Idle
     }

@@ -1,6 +1,12 @@
 package com.mivisor.tv.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -52,12 +58,20 @@ fun MyListScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
     // 0 = Favoritos, 1 = Recordatorios (3c), 2 = Historial.
     var tab by remember { mutableIntStateOf(if (mine.favorites.isEmpty()) (if (reminders.isNotEmpty()) 1 else 2) else 0) }
     val first = remember { FocusRequester() }
-    val favorites = mine.favorites.mapNotNull { lib.library.channel(it.first) }
+    // «Ordenar» del diseño: como los añadiste, A-Z o los que mejor funcionan primero.
+    var order by remember { mutableIntStateOf(0) }
+    val added = mine.favorites.mapNotNull { lib.library.channel(it.first) }
+    val favorites = when (order) {
+        1 -> added.sortedBy { it.name.lowercase() }
+        2 -> added.sortedByDescending { c -> graph.sources.bestScore(c.sources.map { it.contentId }) }
+        else -> added
+    }
 
     if (favorites.isEmpty() && mine.history.isEmpty() && reminders.isEmpty()) {
         EmptyState(
             "Mi lista está vacía",
-            "Mantén pulsado OK sobre un canal para añadirlo a Mi lista. Los recordatorios de la Agenda y lo que veas también aparecerán aquí."
+            "Mantén pulsado OK sobre un canal para añadirlo a Mi lista. Los recordatorios de la Agenda y lo que veas también aparecerán aquí.",
+            icon = MvIcons.Star
         ) { MvButton("Ir a Canales", { nav.tab(Route.Channels) }, icon = MvIcons.Grid, primary = true, focusRequester = first) }
         InitialFocus(first)
         return
@@ -67,16 +81,20 @@ fun MyListScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
         Column(Modifier.padding(horizontal = MvDims.SafeX)) {
             MvText("Mi lista", MvType.Title)
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Tab("Favoritos · ${favorites.size}", tab == 0, { tab = 0 }, first)
-                Tab("Recordatorios · ${reminders.size}", tab == 1, { tab = 1 }, null)
-                Tab("Historial · ${mine.history.size}", tab == 2, { tab = 2 }, null)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Tab("Favoritos", tab == 0, { tab = 0 }, first)
+                Tab("Recordatorios", tab == 1, { tab = 1 }, null)
+                Tab("Historial", tab == 2, { tab = 2 }, null)
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
+            if (tab == 0 && favorites.size > 1) {
+                Row { MvButton("Ordenar: " + when (order) { 1 -> "A-Z"; 2 -> "los que mejor funcionan"; else -> "como los añadiste" }, { order = (order + 1) % 3 }, icon = MvIcons.Tune) }
+                Spacer(Modifier.height(16.dp))
+            }
         }
         if (tab == 0) {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(200.dp),
+                columns = GridCells.Fixed(4),
                 contentPadding = PaddingValues(start = MvDims.SafeX, end = MvDims.SafeX, bottom = 48.dp),
                 horizontalArrangement = Arrangement.spacedBy(20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -123,14 +141,25 @@ fun MyListScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
             ) {
                 itemsIndexed(mine.history, key = { _, h -> h.channelId }) { _, h ->
                     val ch = lib.library.channel(h.channelId)
-                    MvRow(
-                        title = h.name,
-                        subtitle = "${ago(h.playedAt).replaceFirstChar { it.uppercase() }} · ${h.seconds / 60} min" + if (ch == null) " · ya no está en tus proveedores" else "",
-                        icon = MvIcons.History,
-                        trailing = if (ch != null) "Ver" else null,
-                        enabled = ch != null,
-                        onClick = { ch?.let { nav.go(Route.Player(it.id)) } }
-                    )
+                    TvClickable(
+                        onClick = { ch?.let { nav.go(Route.Player(it.id)) } }, enabled = ch != null, modifier = Modifier.fillMaxWidth(),
+                        focusedScale = 1.02f, color = MvColors.Surface1, focusedColor = MvColors.Text, ringColor = MvColors.Accent2
+                    ) { focused ->
+                        val fg = if (focused) MvColors.Bg else MvColors.Text
+                        Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (ch != null) ChannelLogo(ch, Modifier.size(width = 60.dp, height = 32.dp), 60.dp)
+                            else Box(Modifier.size(width = 60.dp, height = 32.dp).background(MvColors.Surface3, RoundedCornerShape(6.dp)))
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                MvText(h.name, MvType.BodyStrong, color = fg, maxLines = 1)
+                                MvText(
+                                    "${dayAt(h.playedAt)} · ${duration(h.seconds)}" + if (ch == null) " · ya no está en tus proveedores" else "",
+                                    MvType.Small, color = if (focused) MvColors.Bg.copy(alpha = 0.7f) else MvColors.Text2, maxLines = 1
+                                )
+                            }
+                            if (ch != null) com.mivisor.tv.ui.design.MvBadge("Ver", if (focused) MvColors.Bg else MvColors.Text2)
+                        }
+                    }
                 }
                 if (mine.history.isNotEmpty()) item {
                     Row(Modifier.padding(top = 12.dp)) { MvButton("Borrar historial", { graph.mylist.clearHistory() }, icon = MvIcons.Delete) }
@@ -141,13 +170,32 @@ fun MyListScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
     InitialFocus(first)
 }
 
+/** «Hoy, 21:02», «Ayer, 19:10», «Dom, 20:55». */
+private fun dayAt(t: Long): String {
+    val clock = com.mivisor.tv.model.DayClock()
+    val now = System.currentTimeMillis()
+    val d = clock.startOfDay(t)
+    val day = when {
+        d == clock.startOfDay(now) -> "Hoy"
+        d == clock.startOfDay(now, -1) -> "Ayer"
+        now - t < 6 * 86_400_000L -> clock.format("EEE", t).replace(".", "").replaceFirstChar { it.uppercase() }
+        else -> clock.format("d MMM", t).replace(".", "")
+    }
+    return "$day, ${hhmm(t)}"
+}
+
+private fun duration(seconds: Long): String {
+    val m = seconds / 60
+    return if (m >= 60) "${m / 60} h ${"%02d".format(m % 60)} min" else "$m min"
+}
+
 @Composable
 private fun Tab(text: String, selected: Boolean, onClick: () -> Unit, fr: FocusRequester?) {
     TvClickable(
         onClick = onClick, onFocus = onClick, shape = RoundedCornerShape(20.dp), focusRequester = fr, focusedScale = 1.04f,
-        color = if (selected) MvColors.Text else MvColors.Surface2, focusedColor = MvColors.Accent2
+        color = if (selected) MvColors.Surface4 else MvColors.Surface1, focusedColor = MvColors.Text, ringColor = MvColors.Accent2
     ) { focused ->
-        MvText(text, MvType.SmallStrong, color = if (selected || focused) MvColors.Bg else MvColors.Text,
+        MvText(text, MvType.BodyStrong, color = if (focused) MvColors.Bg else if (selected) MvColors.Text else MvColors.Text2,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp), maxLines = 1)
     }
 }

@@ -27,6 +27,12 @@ import com.mivisor.tv.storage.Prefs
  * Los fallos generales (sin Internet, WARP, motor, poca memoria, varios canales a la vez) no se apuntan a la fuente.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
+/** Una fuente que descansa: hasta cuándo y por qué (último motivo apuntado). */
+class RestingSource(val contentId: String, val state: SourceState, val untilMs: Long?, val reason: String?, val trips: Int)
+
+/** Eventos que no son el motivo de un fallo (para «Fuentes que descansan»). */
+private val NOT_REASONS = setOf("excused", "pause", "quarantine", "released", "ok", "freeze", "incompatible")
+
 class SourceBookImpl(
     context: Context,
     private val db: MvDatabase,
@@ -131,9 +137,15 @@ class SourceBookImpl(
         return synchronized(lock) { store.classify(ctx) }
     }
 
-    override fun preferredAudio(channelId: String): String? = prefs.audioFor(channelId)
+    /** El idioma elegido en el canal (si se recuerda) o, si no, el preferido en Ajustes › Audio y subtítulos. */
+    override fun preferredAudio(channelId: String): String? =
+        (if (prefs.rememberAudio) prefs.audioFor(channelId) else null) ?: prefs.audioLanguage.takeIf { it.isNotBlank() }
 
-    override fun rememberAudio(channelId: String, language: String?) = prefs.setAudio(channelId, language)
+    override fun rememberAudio(channelId: String, language: String?) {
+        if (prefs.rememberAudio) prefs.setAudio(channelId, language)
+    }
+
+    override fun subtitlesByDefault(): Boolean = prefs.subtitles
 
     /** Quitar la pausa o la cuarentena de una fuente (Ajustes › fuentes del canal). */
     fun release(contentId: String) {
@@ -151,6 +163,36 @@ class SourceBookImpl(
     fun bestScore(contentIds: List<String>): Double = synchronized(lock) {
         val t = now()
         contentIds.maxOfOrNull { store.score(it, t) } ?: 0.0
+    }
+
+    /** Fuentes que descansan ahora (pausa o cuarentena), para Ajustes › Fuentes y el informe. */
+    fun resting(): List<RestingSource> = synchronized(lock) {
+        val t = now()
+        store.cids().mapNotNull { c ->
+            val st = store.state(c, t)
+            if (st != SourceState.PAUSED && st != SourceState.QUARANTINE && st != SourceState.QUARANTINE_DUE) return@mapNotNull null
+            val h = store.health(c) ?: return@mapNotNull null
+            val until = if (st == SourceState.PAUSED) h.pauseUntil else h.lqNext
+            RestingSource(c, st, until?.let { (it * 1000).toLong() }, h.events.lastOrNull { it.k !in NOT_REASONS }?.k,
+                if (st == SourceState.PAUSED) h.trips else h.lqTries + 1)
+        }.sortedBy { it.untilMs ?: Long.MAX_VALUE }
+    }
+
+    fun releaseAll() {
+        val ids = resting().map { it.contentId }
+        synchronized(lock) { ids.forEach { store.release(it, now()) } }
+        persist(*ids.toTypedArray())
+    }
+
+    /** Lo que suele tardar en dar imagen la mejor fuente conocida (para «arranca en ~3 s»), en segundos. */
+    fun typicalStart(contentIds: List<String>): Int? = synchronized(lock) {
+        contentIds.mapNotNull { store.health(it)?.startMs?.takeIf { ms -> ms > 0 } }.minOrNull()?.let { (it / 1000).toInt().coerceAtLeast(1) }
+    }
+
+    /** El verificador manual (3d) solo apunta lo que funciona: un intento fallido sin ver el canal no penaliza. */
+    fun verifiedOk(contentId: String, startMs: Long) {
+        synchronized(lock) { store.success(contentId, now(), startMs.toDouble()) }
+        persist(contentId)
     }
 
     fun knownSources(): Int = synchronized(lock) { store.cids().size }

@@ -20,7 +20,11 @@ class RemoteSession(
     /** Texto que se muestra en el móvil (solo en modo SHOW, p. ej. el registro de errores). */
     val shownText: String? = null
 ) {
-    enum class Mode { INPUT, SHOW, EDIT }
+    /**
+     * INPUT/EDIT: escribir con el móvil · SHOW: ver un texto (informe) · DOWNLOAD: descargar un fichero (copia cifrada) ·
+     * UPLOAD: subir un fichero y su PIN (importar copia). Los ficheros nunca se guardan en el servidor.
+     */
+    enum class Mode { INPUT, SHOW, EDIT, DOWNLOAD, UPLOAD }
     enum class Check { OK, INVALID, EXPIRED, USED, CANCELLED }
 
     val expiresAt: Long get() = createdAt + ttlMs
@@ -33,6 +37,9 @@ class RemoteSession(
     @Volatile var code: String = ""
     /** EDIT: encabezado de la página ("Editar proveedor", "Añadir proveedor"…). */
     @Volatile var heading: String = "Editar"
+    /** DOWNLOAD: fichero que se ofrece (copia cifrada). */
+    @Volatile var fileName: String = ""
+    @Volatile var fileBytes: ByteArray = ByteArray(0)
     @Volatile private var cancelled = false
 
     /** Comprueba token (en tiempo constante), caducidad, uso y cancelación. */

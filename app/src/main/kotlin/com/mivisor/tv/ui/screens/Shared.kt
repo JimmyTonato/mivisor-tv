@@ -77,8 +77,10 @@ fun channelStatus(ch: TvChannel, book: SourceBookImpl): Pair<String, androidx.co
     val states = ch.sources.map { book.state(it.contentId) }
     val n = ch.sources.size
     val fuentes = if (n == 1) "1 fuente" else "$n fuentes"
+    val start = book.typicalStart(ch.sources.map { it.contentId })
     return when {
-        states.any { it == SourceState.NORMAL } -> "Funciona · $fuentes" to MvColors.Ok
+        states.any { it == SourceState.NORMAL } -> (if (start != null) "Lista · arranca en ~$start s" else "Lista · $fuentes") +
+            (if (ch.multiaudio) " · multiaudio" else "") to MvColors.Ok
         states.all { it == SourceState.NEW } -> "Sin probar · $fuentes" to MvColors.Text3
         states.any { it == SourceState.NEW || it == SourceState.PROBATION || it == SourceState.QUARANTINE_DUE } -> "A prueba · $fuentes" to MvColors.Soon
         states.any { it == SourceState.PAUSED } -> "En pausa · $fuentes" to MvColors.Soon
@@ -95,10 +97,12 @@ fun TvChannelTile(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     width: Dp = 200.dp,
-    focusRequester: androidx.compose.ui.focus.FocusRequester? = null
+    focusRequester: androidx.compose.ui.focus.FocusRequester? = null,
+    /** Texto de estado distinto (p. ej. «Viste hoy, 21:02 · 32 min» en Seguir viendo). */
+    statusOverride: Pair<String, androidx.compose.ui.graphics.Color>? = null
 ) {
     val plate = ch.plate()
-    val (status, color) = channelStatus(ch, book)
+    val (status, color) = statusOverride ?: channelStatus(ch, book)
     ChannelTile(
         name = ch.name, plateTop = plate.top, plateBottom = plate.bottom, tone = plate.tone.ui(), onClick = onClick,
         width = width, status = status, statusColor = color, favorite = favorite, multiaudio = ch.multiaudio,
@@ -141,7 +145,8 @@ fun ChannelRow(
     favorites: Set<String>,
     onOpen: (TvChannel) -> Unit,
     onLong: ((TvChannel) -> Unit)? = null,
-    detail: String? = null
+    detail: String? = null,
+    statusOf: ((TvChannel) -> Pair<String, androidx.compose.ui.graphics.Color>?)? = null
 ) {
     if (channels.isEmpty()) return
     Column(Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
@@ -151,7 +156,8 @@ fun ChannelRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             items(channels, key = { it.id }) { ch ->
-                TvChannelTile(ch, book, favorite = ch.id in favorites, onClick = { onOpen(ch) }, onLongClick = onLong?.let { f -> { f(ch) } })
+                TvChannelTile(ch, book, favorite = ch.id in favorites, onClick = { onOpen(ch) }, onLongClick = onLong?.let { f -> { f(ch) } },
+                    statusOverride = statusOf?.invoke(ch))
             }
         }
     }
@@ -183,9 +189,9 @@ fun EventCard(event: AgendaEvent, now: Long, available: Int, onClick: () -> Unit
 }
 
 @Composable
-fun Banner(text: String, color: androidx.compose.ui.graphics.Color = MvColors.Soon) {
+fun Banner(text: String, color: androidx.compose.ui.graphics.Color = MvColors.Soon, inset: Boolean = true) {
     Row(
-        Modifier.padding(horizontal = MvDims.SafeX).padding(bottom = 16.dp).fillMaxWidth()
+        Modifier.padding(horizontal = if (inset) MvDims.SafeX else 0.dp).padding(bottom = 16.dp).fillMaxWidth()
             .background(color.copy(alpha = 0.14f), RoundedCornerShape(10.dp)).padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

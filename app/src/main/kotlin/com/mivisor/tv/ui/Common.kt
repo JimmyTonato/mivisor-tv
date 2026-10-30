@@ -204,3 +204,50 @@ fun ago(t: Long, now: Long = System.currentTimeMillis()): String {
         else -> "hace ${m / (24 * 60)} días"
     }
 }
+
+/**
+ * Tarjeta «Escribe desde el móvil» del diseño (asistente y Añadir proveedor): QR siempre visible a la derecha.
+ * Cada texto recibido se entrega a [onText] y se abre otra sesión para poder enviar más.
+ */
+@Composable
+fun PhoneQrCard(title: String, body: String, onText: (String) -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val manager = remember { MobileInputManager(scope, { AndroidLan.pick(context) }) }
+    val state by manager.state.collectAsState()
+    DisposableEffect(Unit) {
+        manager.startInput()
+        onDispose { manager.cancel() }
+    }
+    LaunchedEffect(state) {
+        val s = state
+        if (s is RemoteState.Received) {
+            onText(s.text)
+            manager.consume()
+            kotlinx.coroutines.delay(800)
+            manager.startInput()
+        }
+    }
+    MvPanel(modifier, androidx.compose.foundation.layout.PaddingValues(24.dp)) {
+        MvText(title, MvType.Heading, modifier = Modifier.align(Alignment.CenterHorizontally))
+        Spacer(Modifier.height(6.dp))
+        MvText(body, MvType.Small, modifier = Modifier.align(Alignment.CenterHorizontally))
+        Spacer(Modifier.height(16.dp))
+        when (val s = state) {
+            is RemoteState.Waiting -> {
+                QrView(s.qr, Modifier.size(170.dp).align(Alignment.CenterHorizontally))
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.align(Alignment.CenterHorizontally), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    com.mivisor.tv.ui.design.MvBadge("Solo red de casa", MvColors.Ok)
+                    com.mivisor.tv.ui.design.MvBadge("Caduca a las ${hhmm(s.expiresAt)}", MvColors.Text2)
+                }
+            }
+            is RemoteState.Failed -> MvText(
+                if (s.reason == RemoteState.Reason.NO_LAN) "La tele no está en una red de casa (Wi-Fi o cable): no se puede usar el móvil."
+                else "No se pudo abrir el servidor local para el móvil.", MvType.Small
+            )
+            RemoteState.Expired -> MvText("El código ha caducado. Sal y vuelve a entrar para generar otro.", MvType.Small)
+            else -> MvText("Preparando…", MvType.Small)
+        }
+    }
+}

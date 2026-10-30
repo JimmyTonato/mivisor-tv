@@ -44,6 +44,10 @@ import com.mivisor.tv.ui.Nav
 import com.mivisor.tv.ui.Route
 import com.mivisor.tv.ui.Toaster
 import com.mivisor.tv.ui.design.Crest
+import com.mivisor.tv.ui.design.MvIcon
+import com.mivisor.tv.ui.design.MvNotice
+import com.mivisor.tv.ui.ago
+import androidx.compose.runtime.LaunchedEffect
 import com.mivisor.tv.ui.design.EmptyState
 import com.mivisor.tv.ui.design.LiveDot
 import com.mivisor.tv.ui.design.MvButton
@@ -61,19 +65,21 @@ import com.mivisor.tv.ui.design.Spinner
 import com.mivisor.tv.ui.design.TvClickable
 import com.mivisor.tv.ui.hhmm
 
-/** Inicio (como el prototipo): portada con el evento destacado, «En directo», seguir viendo, Mi lista y grupos. */
+/** Inicio (como el diseño): portada con el evento destacado sobre el fondo de sus colores y filas de contenido. */
 @Composable
-fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
+fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.mivisor.tv.ui.Backdrop) {
     val lib by graph.providers.state.collectAsState()
     val agenda by graph.agenda.state.collectAsState()
     val mine by graph.mylist.state.collectAsState()
+    val reminders by graph.reminders.list.collectAsState()
     val first = remember { FocusRequester() }
-    var picking by remember { mutableStateOf<AgendaEvent?>(null) }
 
     if (lib.loadedOnce && lib.providers.isEmpty()) {
+        LaunchedEffect(Unit) { backdrop.colors = null }
         EmptyState(
             "Añade tu primer proveedor",
-            "MiVisor TV junta los canales de tus proveedores y elige sola la fuente que mejor funciona. Necesitas al menos uno para empezar."
+            "MiVisor TV junta los canales de tus proveedores y elige sola la fuente que mejor funciona. Necesitas al menos uno para empezar.",
+            icon = MvIcons.Tv
         ) {
             MvButton("Añadir proveedor", { nav.go(Route.AddProvider()) }, icon = MvIcons.Add, primary = true, focusRequester = first)
         }
@@ -96,32 +102,44 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
         agenda.agenda?.events.orEmpty()
             .filter { val s = it.status(now); s == EventStatus.LIVE || (s == EventStatus.UPCOMING && it.startMillis - now < 3 * 3600_000L) }
             .map { it to channelsFor(it, library) }
-            .sortedWith(compareByDescending<Pair<AgendaEvent, List<TvChannel>>> { it.second.isNotEmpty() }.thenBy { it.first.startMillis })
+            .sortedWith(compareByDescending<Pair<AgendaEvent, List<TvChannel>>> { it.second.isNotEmpty() }
+                .thenByDescending { com.mivisor.tv.model.EventPriority.of(it.first) }.thenBy { it.first.startMillis })
             .take(12)
     }
     val hero = events.firstOrNull { it.second.isNotEmpty() }
-    val favorites = mine.favorites.map { it.first }.toSet()
-    val recent = mine.history.mapNotNull { library.channel(it.channelId) }.take(12)
-    val favChannels = mine.favorites.mapNotNull { library.channel(it.first) }
-    fun open(ev: AgendaEvent, chs: List<TvChannel>) {
-        when (chs.size) {
-            0 -> toaster.show("Ninguno de tus proveedores tiene un canal de este evento")
-            1 -> nav.go(Route.Player(chs.first().id))
-            else -> picking = ev
-        }
+    val heroKey = hero?.first?.id
+    LaunchedEffect(heroKey) {
+        backdrop.colors = hero?.let { (ev, _) -> MvPalette.pair(ev.home ?: ev.title).first to MvPalette.pair(ev.away ?: ev.sport).first }
     }
+    // «Esta noche»: tus recordatorios de hoy y, si no hay, lo más interesante que empieza más tarde.
+    val tonight = remember(agenda.agenda, library, reminders) {
+        val ids = reminders.map { it.eventId }.toSet()
+        val later = agenda.agenda?.events.orEmpty().filter { it.status(now) == EventStatus.UPCOMING && it.startMillis - now in (3 * 3600_000L)..(12 * 3600_000L) }
+        (later.filter { it.id in ids } + later.filter { it.id !in ids }.sortedByDescending { com.mivisor.tv.model.EventPriority.of(it) })
+            .distinctBy { it.id }.take(8).map { it to channelsFor(it, library) }
+    }
+    val favorites = mine.favorites.map { it.first }.toSet()
+    val history = mine.history.filter { library.channel(it.channelId) != null }.take(12)
+    val recent = history.mapNotNull { library.channel(it.channelId) }
+    val favChannels = mine.favorites.mapNotNull { library.channel(it.first) }
     val toggleFav: (TvChannel) -> Unit = { ch ->
         graph.mylist.toggleFavorite(ch.id, ch.name)
         toaster.show(if (ch.id in favorites) "Quitado de Mi lista" else "Añadido a Mi lista")
     }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 48.dp)) {
-        if (lib.offline) item { Banner("Sin conexión: se muestran los canales guardados en esta tele.") }
+        if (lib.offline) item {
+            MvNotice("Sin conexión a Internet.", "Ves la agenda y los canales guardados. Los canales no se pueden abrir hasta que vuelva la red.",
+                Modifier.padding(horizontal = MvDims.SafeX).padding(bottom = 12.dp), MvColors.Soon)
+        }
         lib.providers.filter { it.error != null }.takeIf { it.isNotEmpty() }?.let { bad ->
-            item { Banner("No se pudo actualizar: ${bad.joinToString { it.name }}. Se usa la copia guardada.") }
+            item {
+                MvNotice("No se pudo actualizar:", "${bad.joinToString { it.name }}. Se usa la copia guardada.",
+                    Modifier.padding(horizontal = MvDims.SafeX).padding(bottom = 12.dp), MvColors.Soon)
+            }
         }
         if (hero != null) item {
-            Hero(hero.first, hero.second, now, favorites, first,
+            Hero(hero.first, hero.second, now, favorites, first, graph,
                 onWatch = { nav.go(Route.Player(hero.second.first().id)) },
                 onOptions = { nav.go(Route.Event(hero.first.id)) },
                 onFavorite = { toggleFav(hero.second.first()) })
@@ -129,7 +147,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
         if (events.isNotEmpty()) item {
             Column(Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
                 val live = events.count { it.first.status(now) == EventStatus.LIVE }
-                SectionHeader(if (live > 0) "En directo" else "Próximamente", Modifier.padding(start = MvDims.SafeX), "${events.size} eventos")
+                SectionHeader(if (live > 0) "En directo" else "Empieza pronto", Modifier.padding(start = MvDims.SafeX), "${events.size} eventos")
                 LazyRow(contentPadding = PaddingValues(horizontal = MvDims.SafeX), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                     itemsIndexed(events, key = { _, e -> e.first.id }) { i, (ev, chs) ->
                         EventTile(ev, chs, now, onClick = { nav.go(Route.Event(ev.id)) }, focusRequester = if (hero == null && i == 0) first else null)
@@ -137,24 +155,41 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
                 }
             }
         }
-        item { ChannelRow("Seguir viendo", recent, graph.sources, favorites, onOpen = { nav.go(Route.Player(it.id)) }, onLong = toggleFav) }
-        item { ChannelRow("Mi lista", favChannels, graph.sources, favorites, onOpen = { nav.go(Route.Player(it.id)) }, onLong = toggleFav) }
+        item {
+            ChannelRow("Seguir viendo", recent, graph.sources, favorites, onOpen = { nav.go(Route.Player(it.id)) }, onLong = toggleFav,
+                detail = "por donde lo dejaste",
+                statusOf = { ch ->
+                    history.firstOrNull { it.channelId == ch.id }?.let { h ->
+                        "Viste ${ago(h.playedAt)} · ${h.seconds / 60} min" to MvColors.Ok
+                    }
+                })
+        }
+        if (tonight.isNotEmpty()) item {
+            Column(Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
+                SectionHeader("Esta noche", Modifier.padding(start = MvDims.SafeX), "con recordatorio, la fuente se prepara 5 min antes")
+                LazyRow(contentPadding = PaddingValues(horizontal = MvDims.SafeX), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    itemsIndexed(tonight, key = { _, e -> "n-" + e.first.id }) { _, (ev, chs) ->
+                        EventTile(ev, chs, now, onClick = { nav.go(Route.Event(ev.id)) }, focusRequester = null,
+                            reminded = reminders.any { it.eventId == ev.id })
+                    }
+                }
+            }
+        }
+        item { ChannelRow("Tus favoritos", favChannels, graph.sources, favorites, onOpen = { nav.go(Route.Player(it.id)) }, onLong = toggleFav, detail = "${favChannels.size} canales") }
         itemsIndexed(library.brandSections.take(6), key = { i, sec -> "sec-$i-${sec.key}" }) { _, sec ->
             ChannelRow(sec.name, sec.channels.take(16), graph.sources, favorites, onOpen = { nav.go(Route.Channel(it.id)) }, onLong = toggleFav, detail = "${sec.channels.size} canales")
         }
         item {
             Row(Modifier.padding(horizontal = MvDims.SafeX, vertical = 8.dp)) {
                 MvButton("Ver todos los canales", { nav.tab(Route.Channels) }, icon = MvIcons.Grid,
-                    focusRequester = if (hero == null && events.isEmpty() && recent.isEmpty()) first else null)
+                    focusRequester = if (hero == null && events.isEmpty()) first else null)
             }
         }
     }
     InitialFocus(first)
-
-    picking?.let { ev -> EventChannelsDialog(ev, channelsFor(ev, library), onPick = { picking = null; nav.go(Route.Player(it.id)) }, onClose = { picking = null }) }
 }
 
-/** Portada: evento destacado con fondo de los colores de los equipos, escudos y «Ver ahora». */
+/** Portada: evento destacado con escudos (o retratos), competición, título, canal y «Ver ahora». */
 @Composable
 private fun Hero(
     ev: AgendaEvent,
@@ -162,6 +197,7 @@ private fun Hero(
     now: Long,
     favorites: Set<String>,
     first: FocusRequester,
+    graph: AppGraph,
     onWatch: () -> Unit,
     onOptions: () -> Unit,
     onFavorite: () -> Unit
@@ -172,33 +208,33 @@ private fun Hero(
     val (a1, _) = MvPalette.pair(away ?: ev.sport)
     val live = ev.status(now) == EventStatus.LIVE
     val main = chs.first()
-    Box(
-        Modifier.fillMaxWidth().height(330.dp)
-            .background(Brush.horizontalGradient(listOf(MvColors.Bg, h1.copy(alpha = 0.35f), a1.copy(alpha = 0.55f))))
-    ) {
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, MvColors.Bg))))
+    val start = graph.sources.typicalStart(main.sources.map { it.contentId })
+    Box(Modifier.fillMaxWidth().height(380.dp)) {
         if (away != null) Row(
-            Modifier.align(Alignment.CenterEnd).padding(end = MvDims.SafeX * 2), verticalAlignment = Alignment.CenterVertically
+            Modifier.align(Alignment.CenterEnd).padding(end = MvDims.SafeX * 2, bottom = 30.dp), verticalAlignment = Alignment.CenterVertically
         ) {
-            Crest(ChannelPlates.crest(home), h1, 120.dp)
-            MvText("vs", MvType.Heading.copy(color = MvColors.Text3), modifier = Modifier.padding(horizontal = 28.dp))
-            Crest(ChannelPlates.crest(away), a1, 120.dp)
+            Visual(home, ev.homeVisual, h1, 150.dp, ev.isPersonVsPerson)
+            MvText("vs", MvType.Heading.copy(color = MvColors.Text3), modifier = Modifier.padding(horizontal = 32.dp))
+            Visual(away, ev.awayVisual, a1, 150.dp, ev.isPersonVsPerson)
         }
-        Column(Modifier.padding(start = MvDims.SafeX, top = 24.dp).widthIn(max = 560.dp)) {
+        Column(Modifier.padding(start = MvDims.SafeX, top = 28.dp).widthIn(max = 600.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (live) MvTag("● EN DIRECTO", MvColors.Live, filled = true)
                 else MvTag(if (ev.timeTbd) "HORA POR CONFIRMAR" else "HOY · ${hhmm(ev.startMillis)}", MvColors.Soon, filled = true)
-                Spacer(Modifier.width(12.dp))
-                MvText((ev.competition ?: sportName(ev.sport)).uppercase(), MvType.Eyebrow.copy(color = MvColors.Text2), maxLines = 1)
+                Spacer(Modifier.width(14.dp))
+                MvText((ev.competition ?: sportName(ev.sport)).uppercase(), MvType.Eyebrow.copy(color = MvColors.Text2, fontSize = 14.sp), maxLines = 1)
             }
+            Spacer(Modifier.height(14.dp))
+            if (away != null) {
+                MvText(home, MvType.Display.copy(fontSize = 46.sp, lineHeight = 50.sp, fontWeight = FontWeight.Black), maxLines = 1)
+                MvText("vs $away", MvType.Display.copy(fontSize = 46.sp, lineHeight = 50.sp, fontWeight = FontWeight.Black, color = MvColors.Text2), maxLines = 1)
+            } else MvText(ev.title, MvType.Display.copy(fontSize = 46.sp, lineHeight = 50.sp, fontWeight = FontWeight.Black), maxLines = 2)
             Spacer(Modifier.height(12.dp))
-            MvText(if (away != null) "$home\nvs $away" else ev.title, MvType.Display.copy(fontSize = 40.sp, lineHeight = 44.sp, fontWeight = FontWeight.Black), maxLines = 3)
-            Spacer(Modifier.height(10.dp))
-            MvText(main.name + " · " + main.subtitle(), MvType.Body.copy(color = MvColors.Text2), maxLines = 1)
-            Spacer(Modifier.height(20.dp))
+            MvText(main.name + " · " + (if (start != null) "lista, arranca en ~$start s" else main.subtitle()), MvType.Heading.copy(color = MvColors.Text2, fontWeight = FontWeight.Normal), maxLines = 1)
+            Spacer(Modifier.height(22.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MvButton("Ver ahora", onWatch, icon = MvIcons.Play, primary = true, focusRequester = first)
-                MvButton("Dónde verlo", onOptions, icon = MvIcons.Layers)
+                MvButton(if (chs.size > 1) "Otras opciones" else "Dónde verlo", onOptions, icon = MvIcons.Layers)
                 MvButton(if (main.id in favorites) "En favoritos" else "Favorito", onFavorite, icon = MvIcons.Star)
             }
         }
@@ -207,7 +243,7 @@ private fun Hero(
 
 /** Tarjeta de evento de «En directo»: fondo de los dos equipos, escudos, competición y canal. */
 @Composable
-private fun EventTile(ev: AgendaEvent, chs: List<TvChannel>, now: Long, onClick: () -> Unit, focusRequester: FocusRequester?) {
+fun EventTile(ev: AgendaEvent, chs: List<TvChannel>, now: Long, onClick: () -> Unit, focusRequester: FocusRequester?, reminded: Boolean = false) {
     val home = ev.home ?: ev.title
     val away = ev.away
     val (h1, h2) = MvPalette.pair(home)
@@ -226,12 +262,17 @@ private fun EventTile(ev: AgendaEvent, chs: List<TvChannel>, now: Long, onClick:
                 else MvTag(if (ev.timeTbd) "POR CONFIRMAR" else hhmm(ev.startMillis), MvColors.Soon, filled = true)
             }
             if (away != null) Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
-                Crest(ChannelPlates.crest(home), h1, 64.dp)
+                Visual(home, ev.homeVisual, h1, 64.dp, ev.isPersonVsPerson)
                 MvText("vs", MvType.Small.copy(color = Color(0xCCFFFFFF)), modifier = Modifier.padding(horizontal = 16.dp))
-                Crest(ChannelPlates.crest(away), a1, 64.dp)
+                Visual(away, ev.awayVisual, a1, 64.dp, ev.isPersonVsPerson)
             }
-            Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(12.dp)) {
+            Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 MvText(ev.competition ?: sportName(ev.sport), MvType.SmallStrong, maxLines = 1, modifier = Modifier.weight(1f))
+                if (reminded) {
+                    MvIcon(MvIcons.Clock, size = 16.dp, tint = MvColors.Soon)
+                    Spacer(Modifier.width(6.dp))
+                }
+                MvText(if (live) "en directo" else if (ev.timeTbd) "" else hhmm(ev.startMillis), MvType.SmallStrong)
             }
         }
         Spacer(Modifier.height(10.dp))

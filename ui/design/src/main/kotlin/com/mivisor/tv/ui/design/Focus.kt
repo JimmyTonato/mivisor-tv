@@ -57,6 +57,8 @@ fun TvClickable(
     focusedScale: Float = MvDims.FocusScale,
     focusRequester: FocusRequester? = null,
     onFocus: (() -> Unit)? = null,
+    /** Color del anillo de foco (blanco por defecto; azul claro sobre fondos blancos). */
+    ringColor: Color = MvColors.Focus,
     contentAlignment: Alignment = Alignment.TopStart,
     content: @Composable BoxScope.(focused: Boolean) -> Unit
 ) {
@@ -128,7 +130,7 @@ fun TvClickable(
             }
             .then(if (enabled) Modifier else Modifier.alpha(0.45f))
             .background(if (focused) focusedColor else color, shape)
-            .then(if (focused) Modifier.border(MvDims.FocusRing, MvColors.Focus, shape) else Modifier),
+            .then(if (focused) Modifier.border(MvDims.FocusRing, ringColor, shape) else Modifier),
         contentAlignment = contentAlignment
     ) {
         content(focused)

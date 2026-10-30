@@ -10,3 +10,5 @@
     public static int v(...);
     public static int d(...);
 }
+# Copias cifradas (3d): el JSON de la copia se lee y escribe con Gson.
+-keep class com.mivisor.tv.backup.** { *; }

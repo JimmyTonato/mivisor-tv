@@ -1,6 +1,19 @@
 package com.mivisor.tv.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import com.mivisor.tv.ui.screens.DiagnosticsScreen
+import com.mivisor.tv.ui.screens.ReportScreen
+import com.mivisor.tv.ui.screens.ChecksScreen
+import com.mivisor.tv.ui.screens.ExportScreen
+import com.mivisor.tv.ui.screens.ImportScreen
+import com.mivisor.tv.ui.screens.QuarantineScreen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -76,43 +89,55 @@ class Toaster {
     }
 }
 
+/** Fondo de color de la portada de Inicio, pintado también detrás de la barra superior (como el diseño). */
+class Backdrop {
+    var colors by mutableStateOf<Pair<Color, Color>?>(null)
+}
+
 @Composable
 fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
     var lite by remember { mutableStateOf(graph.prefs.lite) }
+    var bigText by remember { mutableStateOf(graph.prefs.bigText) }
+    var side by remember { mutableStateOf(graph.prefs.navStyle == "side") }
+    val onLook = {
+        lite = graph.prefs.lite
+        bigText = graph.prefs.bigText
+        side = graph.prefs.navStyle == "side"
+    }
     val toaster = remember { Toaster() }
+    val backdrop = remember { Backdrop() }
+    val density = LocalDensity.current
+    CompositionLocalProvider(LocalDensity provides if (bigText) Density(density.density, density.fontScale * 1.15f) else density) {
     MvTheme(lite = lite) {
         Box(Modifier.fillMaxSize().background(MvColors.Bg)) {
             val route = nav.current
             BackHandler(enabled = true) { if (!nav.back()) onExit() }
+            val heroColors = backdrop.colors
+            if (route == Route.Home && heroColors != null) {
+                Box(
+                    Modifier.fillMaxWidth().height(620.dp)
+                        .background(Brush.horizontalGradient(listOf(MvColors.Bg, heroColors.first.copy(alpha = 0.32f), heroColors.second.copy(alpha = 0.62f))))
+                )
+                Box(Modifier.fillMaxWidth().height(620.dp).background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, MvColors.Bg))))
+            }
             when (route) {
-                is Route.Player -> PlayerScreen(graph, route, toaster, onBack = { nav.back() }, onSwitch = { nav.replace(it) }, onChannels = { nav.tab(Route.Channels) })
-                Route.Wizard -> WizardScreen(onStart = { nav.go(Route.AddProvider(fromWizard = true)) }, onSkip = {
+                is Route.Player -> PlayerScreen(graph, route, toaster, onBack = { nav.back() }, onSwitch = { nav.replace(it) }, onChannels = { nav.tab(Route.Channels) }, onRoute = { nav.go(it) })
+                Route.Wizard -> WizardScreen(graph, nav, onDone = {
                     graph.prefs.wizardDone = true
+                    onLook()
                     nav.tab(Route.Home)
                 })
-                else -> Column(Modifier.fillMaxSize()) {
-                    TopBar(graph, route, onTab = { nav.tab(it) })
-                    Box(Modifier.fillMaxSize()) {
-                        when (route) {
-                            Route.Home -> HomeScreen(graph, nav, toaster)
-                            Route.Agenda -> AgendaScreen(graph, nav, toaster)
-                            Route.Channels -> ChannelsScreen(graph, nav, toaster)
-                            Route.Search -> SearchScreen(graph, nav)
-                            Route.MyList -> MyListScreen(graph, nav, toaster)
-                            Route.Settings -> SettingsScreen(graph, nav, toaster, onLite = { lite = it })
-                            is Route.Channel -> ChannelScreen(graph, nav, route, toaster)
-                            is Route.Group -> GroupScreen(graph, nav, route, toaster)
-                            Route.Links -> LinksScreen(graph, toaster)
-                            is Route.Event -> EventScreen(graph, nav, route, toaster)
-                            is Route.Competition -> CompetitionScreen(graph, nav, route)
-                            is Route.AddProvider -> AddProviderScreen(graph, route, onDone = {
-                                if (route.fromWizard) {
-                                    graph.prefs.wizardDone = true
-                                    nav.tab(Route.Home)
-                                } else nav.back()
-                            })
-                            else -> Unit
-                        }
+                else -> {
+                    val content: @Composable () -> Unit = {
+                        if (lite) Screen(graph, nav, route, toaster, backdrop, onLook)
+                        else Crossfade(targetState = route, animationSpec = tween(180), label = "pantalla") { r -> Screen(graph, nav, r, toaster, backdrop, onLook) }
+                    }
+                    if (side) Row(Modifier.fillMaxSize()) {
+                        SideRail(graph, route, onTab = { nav.tab(it) })
+                        Box(Modifier.fillMaxSize().padding(top = MvDims.SafeY)) { content() }
+                    } else Column(Modifier.fillMaxSize()) {
+                        TopBar(graph, route, onTab = { nav.tab(it) })
+                        Box(Modifier.fillMaxSize()) { content() }
                     }
                 }
             }
@@ -120,6 +145,89 @@ fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
             ToastHost(toaster)
         }
     }
+    }
+}
+
+/** Una pantalla con barra (todas menos el reproductor y el asistente). */
+@Composable
+private fun Screen(graph: AppGraph, nav: Nav, route: Route, toaster: Toaster, backdrop: Backdrop, onLook: () -> Unit) {
+    LaunchedEffect(route) { if (route != Route.Home) backdrop.colors = null }
+    Box(Modifier.fillMaxSize()) {
+        when (route) {
+            Route.Home -> HomeScreen(graph, nav, toaster, backdrop)
+            Route.Agenda -> AgendaScreen(graph, nav, toaster)
+            Route.Channels -> ChannelsScreen(graph, nav, toaster)
+            Route.Search -> SearchScreen(graph, nav)
+            Route.MyList -> MyListScreen(graph, nav, toaster)
+            Route.Settings -> SettingsScreen(graph, nav, toaster, onLook = onLook)
+            is Route.Channel -> ChannelScreen(graph, nav, route, toaster)
+            is Route.Group -> GroupScreen(graph, nav, route, toaster)
+            Route.Links -> LinksScreen(graph, toaster)
+            is Route.Event -> EventScreen(graph, nav, route, toaster)
+            is Route.Competition -> CompetitionScreen(graph, nav, route)
+            Route.Diagnostics -> DiagnosticsScreen(graph, nav, toaster)
+            Route.Report -> ReportScreen(graph, nav)
+            Route.Checks -> ChecksScreen(graph, nav)
+            is Route.Backup -> if (route.export) ExportScreen(graph, nav) else ImportScreen(graph, nav, toaster)
+            Route.Quarantine -> QuarantineScreen(graph, nav, toaster)
+            is Route.AddProvider -> AddProviderScreen(graph, route, onDone = {
+                if (route.fromWizard) nav.back() else nav.back()
+            })
+            else -> Unit
+        }
+    }
+}
+
+/** Menú lateral del diseño («En un lateral»): iconos a la izquierda que se despliegan con el foco. */
+@Composable
+private fun SideRail(graph: AppGraph, route: Route, onTab: (Route) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val selectedTab = selectedTabOf(route)
+    Column(
+        Modifier.fillMaxHeight().width(if (open) 240.dp else 88.dp)
+            .background(if (open) MvColors.Surface1 else Color.Transparent)
+            .onFocusChanged { open = it.hasFocus }
+            .padding(start = 24.dp, top = MvDims.SafeY, end = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            Modifier.size(36.dp).background(Brush.linearGradient(listOf(MvColors.Accent, MvColors.Accent2)), RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+        ) { MvText("M", MvType.BodyStrong.copy(fontWeight = FontWeight.Black, color = Color(0xFF061226))) }
+        Spacer(Modifier.height(24.dp))
+        for (tab in Route.TABS) {
+            val selected = tab == selectedTab
+            TvClickable(
+                onClick = { onTab(tab) }, shape = RoundedCornerShape(12.dp), focusedScale = 1.03f,
+                color = if (selected) MvColors.Surface2 else Color.Transparent, focusedColor = MvColors.Text,
+                modifier = Modifier.fillMaxWidth()
+            ) { focused ->
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    MvIcon(tabIcon(tab), size = 20.dp, tint = if (focused) MvColors.Bg else if (selected) MvColors.Accent2 else MvColors.Text2)
+                    if (open) {
+                        Spacer(Modifier.width(14.dp))
+                        MvText(tabLabel(tab), MvType.BodyStrong, color = if (focused) MvColors.Bg else MvColors.Text, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun tabIcon(r: Route) = when (r) {
+    Route.Home -> MvIcons.Home
+    Route.Agenda -> MvIcons.Calendar
+    Route.Channels -> MvIcons.Tv
+    Route.Search -> MvIcons.Search
+    Route.MyList -> MvIcons.Star
+    else -> MvIcons.Settings
+}
+
+private fun selectedTabOf(route: Route): Route = when (route) {
+    is Route.Channel, is Route.Group, Route.Links -> Route.Channels
+    is Route.Event, is Route.Competition -> Route.Agenda
+    is Route.AddProvider, Route.Diagnostics, Route.Report, Route.Checks, is Route.Backup, Route.Quarantine -> Route.Settings
+    else -> route
 }
 
 /** Barra superior del prototipo: marca, pestañas con punto bajo la elegida, ajustes, estado de Outpace y WARP, hora. */
@@ -134,12 +242,7 @@ private fun TopBar(graph: AppGraph, route: Route, onTab: (Route) -> Unit) {
             now = System.currentTimeMillis()
         }
     }
-    val selectedTab = when (route) {
-        is Route.Channel, is Route.Group, Route.Links -> Route.Channels
-        is Route.Event, is Route.Competition -> Route.Agenda
-        is Route.AddProvider -> Route.Settings
-        else -> route
-    }
+    val selectedTab = selectedTabOf(route)
     Row(
         Modifier.fillMaxWidth().padding(start = MvDims.SafeX, end = MvDims.SafeX, top = MvDims.SafeY, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -147,7 +250,7 @@ private fun TopBar(graph: AppGraph, route: Route, onTab: (Route) -> Unit) {
         Box(
             Modifier.size(26.dp).background(Brush.linearGradient(listOf(MvColors.Accent, MvColors.Accent2)), RoundedCornerShape(7.dp)),
             contentAlignment = Alignment.Center
-        ) { MvText("M", MvType.SmallStrong.copy(fontWeight = FontWeight.Black)) }
+        ) { MvText("M", MvType.SmallStrong.copy(fontWeight = FontWeight.Black, color = Color(0xFF061226))) }
         Spacer(Modifier.width(8.dp))
         MvText("MiVisor", MvType.Heading.copy(fontWeight = FontWeight.Black))
         Spacer(Modifier.width(28.dp))

@@ -479,3 +479,26 @@ class RemoteInputTest {
         throw AssertionError("timeout")
     }
 }
+
+class RemoteBackupTest {
+    @org.junit.Test fun descargaYSubidaDeCopias() {
+        var got: Pair<ByteArray, String>? = null
+        val srv = MobileInputServer(java.net.InetAddress.getLoopbackAddress(), { 1_000L }, onUpload = { b, p -> got = b to p }) {}
+        val dl = RemoteSession.create(RemoteSession.Mode.DOWNLOAD, 0L).apply { fileName = "mivisor-copia.mvb"; fileBytes = byteArrayOf(1, 2, 3) }
+        srv.session = dl
+        val file = srv.route(MobileInputServer.Request("GET", "/copy/${dl.token}/file", emptyMap(), ByteArray(0)))
+        org.junit.Assert.assertEquals(200, file.status)
+        org.junit.Assert.assertArrayEquals(byteArrayOf(1, 2, 3), file.body)
+        org.junit.Assert.assertTrue(file.disposition!!.contains("mivisor-copia.mvb"))
+        org.junit.Assert.assertEquals(410, srv.route(MobileInputServer.Request("GET", "/copy/otro/file", emptyMap(), ByteArray(0))).status)
+
+        val up = RemoteSession.create(RemoteSession.Mode.UPLOAD, 0L)
+        srv.session = up
+        val body = """{"file":"data:application/octet-stream;base64,${Base64Std.encode(byteArrayOf(9, 8, 7))}","pin":"481 729"}"""
+        org.junit.Assert.assertEquals(200, srv.route(MobileInputServer.Request("POST", "/restore/${up.token}/send", emptyMap(), body.toByteArray())).status)
+        org.junit.Assert.assertArrayEquals(byteArrayOf(9, 8, 7), got!!.first)
+        org.junit.Assert.assertEquals("481729", got!!.second)
+        // Un solo uso.
+        org.junit.Assert.assertEquals(410, srv.route(MobileInputServer.Request("POST", "/restore/${up.token}/send", emptyMap(), body.toByteArray())).status)
+    }
+}

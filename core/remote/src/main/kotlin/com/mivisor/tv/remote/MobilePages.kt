@@ -6,15 +6,15 @@ package com.mivisor.tv.remote
  */
 object MobilePages {
     private const val STYLE = """
-        *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Roboto,sans-serif;background:#060a1c;color:#f4f6ff;
-        padding:20px;min-height:100vh}h1{font-size:15px;color:#22d3ee;margin:0 0 4px;letter-spacing:.08em;text-transform:uppercase}
-        h2{font-size:22px;margin:0 0 16px}textarea,pre{width:100%;background:#0d1330;color:#f4f6ff;border:1px solid #1e2858;
+        *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Roboto,sans-serif;background:#07090d;color:#f3f6fa;
+        padding:20px;min-height:100vh}h1{font-size:15px;color:#7cc4ff;margin:0 0 4px;letter-spacing:.08em;text-transform:uppercase}
+        h2{font-size:22px;margin:0 0 16px}textarea,pre{width:100%;background:#151a23;color:#f3f6fa;border:1px solid #262d3a;
         border-radius:12px;padding:14px;font-size:16px;font-family:ui-monospace,Menlo,monospace}textarea{min-height:160px;resize:vertical}
         pre{white-space:pre-wrap;word-break:break-all;font-size:12px;max-height:65vh;overflow:auto}
-        button{width:100%;margin-top:14px;padding:16px;border:0;border-radius:12px;background:#8b5cf6;color:#fff;font-size:17px;font-weight:700}
+        button{width:100%;margin-top:14px;padding:16px;border:0;border-radius:12px;background:#3d8bff;color:#fff;font-size:17px;font-weight:700}
         label{display:block;font-size:14px;color:#a3aed6;margin:14px 0 6px}
-        input{width:100%;background:#0d1330;color:#f4f6ff;border:1px solid #1e2858;border-radius:12px;padding:14px;font-size:17px}
-        textarea:focus,input:focus{outline:none;border-color:#22d3ee}
+        input{width:100%;background:#151a23;color:#f3f6fa;border:1px solid #262d3a;border-radius:12px;padding:14px;font-size:17px}
+        textarea:focus,input:focus{outline:none;border-color:#7cc4ff}
         button:disabled{opacity:.5}.msg{margin-top:16px;font-size:16px}.ok{color:#34d399}.err{color:#fb7185}.hint{color:#a3aed6;font-size:13px}
     """
 
@@ -75,9 +75,9 @@ b.onclick=function(){
 };
 </script></body></html>"""
 
-    fun show(text: String): String = """<!doctype html><html lang="es"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>MiVisor · Registro</title><style>$STYLE</style></head><body>
-<h1>MiVisor</h1><h2>Registro de errores</h2>
+    fun show(text: String, heading: String = "Informe de MiVisor TV"): String = """<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>MiVisor · ${escape(heading)}</title><style>$STYLE</style></head><body>
+<h1>MiVisor TV</h1><h2>${escape(heading)}</h2>
 <pre id="p">${escape(text)}</pre>
 <button id="b">COPIAR</button><div id="m" class="msg"></div>
 <p class="hint">Cópialo y envíalo a quien te ayuda con MiVisor. No contiene tus códigos ni contraseñas.</p>
@@ -87,6 +87,49 @@ document.getElementById('b').onclick=function(){
   var s=window.getSelection();s.removeAllRanges();s.addRange(r);
   var ok=false;try{ok=document.execCommand('copy');}catch(e){}
   var m=document.getElementById('m');m.className='msg '+(ok?'ok':'');m.textContent=ok?'✓ Copiado':'Texto seleccionado: mantén pulsado y copia.';
+};
+</script></body></html>"""
+
+    /** Copia cifrada: botón de descarga (el fichero solo sirve con el PIN que muestra la tele). */
+    fun download(fileName: String, size: Int, remainingMs: Long): String = """<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>MiVisor · Copia</title><style>$STYLE</style></head><body>
+<h1>MiVisor TV</h1><h2>Copia cifrada</h2>
+<p class="hint">${escape(fileName)} · ${(size / 1024).coerceAtLeast(1)} KB. Solo se puede abrir con el PIN que ves en la tele: guárdalo aparte.</p>
+<button id="b">DESCARGAR LA COPIA</button><div id="m" class="msg"></div>
+<p class="hint">Esta página caduca en ${(remainingMs / 60_000).coerceAtLeast(1)} min.</p>
+<script>
+document.getElementById('b').onclick=function(){
+  var a=document.createElement('a');a.href=location.pathname.replace(/\/$/,'')+'/file';a.download='${escape(fileName)}';
+  document.body.appendChild(a);a.click();
+  var m=document.getElementById('m');m.className='msg ok';m.textContent='✓ Descargando. Guarda también el PIN de la tele.';
+};
+</script></body></html>"""
+
+    /** Importar copia: elegir el fichero .mvb y escribir su PIN; la tele lo comprueba antes de cambiar nada. */
+    fun upload(remainingMs: Long): String = """<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>MiVisor · Importar copia</title><style>$STYLE</style></head><body>
+<h1>MiVisor TV</h1><h2>Importar copia</h2>
+<label for="f">Fichero de la copia (.mvb)</label><input id="f" type="file" accept=".mvb,application/octet-stream">
+<label for="p">PIN de la copia</label><input id="p" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="6 cifras">
+<button id="b">ENVIAR A LA TELE</button><div id="m" class="msg"></div>
+<p class="hint">La tele comprueba la copia con el PIN y te enseña qué trae antes de cambiar nada. Caduca en ${(remainingMs / 60_000).coerceAtLeast(1)} min.</p>
+<script>
+var b=document.getElementById('b'),f=document.getElementById('f'),p=document.getElementById('p'),m=document.getElementById('m');
+b.onclick=function(){
+  var file=f.files&&f.files[0];
+  if(!file){m.className='msg err';m.textContent='Elige el fichero de la copia.';return;}
+  if(!p.value.replace(/\D/g,'')){m.className='msg err';m.textContent='Escribe el PIN de la copia.';return;}
+  b.disabled=true;m.className='msg';m.textContent='Enviando…';
+  var r=new FileReader();
+  r.onload=function(){
+    fetch(location.pathname.replace(/\/$/,'')+'/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:r.result,pin:p.value})})
+    .then(function(x){
+      if(x.status===200){m.className='msg ok';m.textContent='✓ Enviada. Mira la tele para confirmar la importación.';}
+      else if(x.status===413){m.className='msg err';m.textContent='El fichero es demasiado grande para ser una copia de MiVisor.';b.disabled=false;}
+      else{m.className='msg err';m.textContent='Esta sesión ya no está disponible. Genera un QR nuevo en la tele.';}
+    }).catch(function(){m.className='msg err';m.textContent='No se pudo contactar con la tele. ¿Estáis en la misma red?';b.disabled=false;});
+  };
+  r.readAsDataURL(file);
 };
 </script></body></html>"""
 

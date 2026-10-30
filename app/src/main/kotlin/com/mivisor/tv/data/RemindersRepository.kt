@@ -62,6 +62,14 @@ class RemindersRepository(
         return on
     }
 
+    /** Importar copia (3d): vuelve a poner un recordatorio guardado en otra tele. */
+    fun restore(r: Reminder) {
+        scope.launch {
+            withContext(Dispatchers.IO) { db.saveReminder(r.copy(notified = false).row()) }
+            reload()
+        }
+    }
+
     fun remove(eventId: String) {
         scope.launch {
             withContext(Dispatchers.IO) { db.deleteReminder(eventId) }

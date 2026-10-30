@@ -32,6 +32,8 @@ class MobileInputServer(
     private val clock: () -> Long = System::currentTimeMillis,
     /** EDIT: título y código enviados desde el móvil (nunca se registran ni se guardan aquí). */
     private val onFields: (title: String, code: String) -> Unit = { _, _ -> },
+    /** UPLOAD: fichero subido y PIN escrito en el móvil (un solo uso; nunca se guardan aquí). */
+    private val onUpload: (bytes: ByteArray, pin: String) -> Unit = { _, _ -> },
     private val onText: (String) -> Unit
 ) {
     @Volatile var session: RemoteSession? = null
@@ -92,7 +94,7 @@ class MobileInputServer(
     // ------------------------------------------------------------------ HTTP
 
     class Request(val method: String, val path: String, val headers: Map<String, String>, val body: ByteArray)
-    class Response(val status: Int, val contentType: String, val body: ByteArray)
+    class Response(val status: Int, val contentType: String, val body: ByteArray, val disposition: String? = null)
 
     private fun handle(client: Socket) {
         client.use { s ->
@@ -162,9 +164,49 @@ class MobileInputServer(
                 onFields(title, code)                   // solo rellena el formulario: guardar sigue siendo cosa de la TV
                 json(200, """{"ok":true,"n":${s.editCount}}""")
             }
+            parts.size == 2 && parts[0] == "copy" -> {
+                if (r.method != "GET") return text(405, "Método no permitido")
+                when (current?.takeIf { it.mode == RemoteSession.Mode.DOWNLOAD }?.check(parts[1], clock())) {
+                    RemoteSession.Check.OK -> html(200, MobilePages.download(current.fileName, current.fileBytes.size, current.expiresAt - clock()))
+                    else -> html(410, MobilePages.unavailable())
+                }
+            }
+            parts.size == 3 && parts[0] == "copy" && parts[2] == "file" -> {
+                if (r.method != "GET") return text(405, "Método no permitido")
+                val s = current?.takeIf { it.mode == RemoteSession.Mode.DOWNLOAD && it.check(parts[1], clock()) == RemoteSession.Check.OK }
+                    ?: return html(410, MobilePages.unavailable())
+                Response(200, "application/octet-stream", s.fileBytes, "attachment; filename=\"${s.fileName.filter { it.isLetterOrDigit() || it in "-_." }}\"")
+            }
+            parts.size == 2 && parts[0] == "restore" -> {
+                if (r.method != "GET") return text(405, "Método no permitido")
+                when (current?.takeIf { it.mode == RemoteSession.Mode.UPLOAD }?.check(parts[1], clock())) {
+                    RemoteSession.Check.OK -> html(200, MobilePages.upload(current.expiresAt - clock()))
+                    else -> html(410, MobilePages.unavailable())
+                }
+            }
+            parts.size == 3 && parts[0] == "restore" && parts[2] == "send" -> {
+                if (r.method != "POST") return text(405, "Método no permitido")
+                val s = current?.takeIf { it.mode == RemoteSession.Mode.UPLOAD }
+                    ?: return json(410, """{"ok":false,"error":"expired"}""")
+                if (s.check(parts[1], clock()) != RemoteSession.Check.OK) return json(410, """{"ok":false,"error":"expired"}""")
+                val (file, pin) = parseUpload(r.body) ?: return json(400, """{"ok":false,"error":"invalid"}""")
+                if (file.size > MAX_UPLOAD_BYTES) return json(413, """{"ok":false,"error":"too_large"}""")
+                if (!s.consume(parts[1], clock())) return json(410, """{"ok":false,"error":"expired"}""")
+                onUpload(file, pin)                     // la TV comprueba la copia con el PIN antes de cambiar nada
+                json(200, """{"ok":true}""")
+            }
             else -> text(404, "No encontrado")
         }
     }
+
+    /** {"file": "<base64>", "pin": "123456"} */
+    private fun parseUpload(body: ByteArray): Pair<ByteArray, String>? = runCatching {
+        val o = JsonParser.parseString(String(body, Charsets.UTF_8)).asJsonObject
+        val file = o.get("file")?.takeIf { it.isJsonPrimitive }?.asString ?: return@runCatching null
+        val pin = o.get("pin")?.takeIf { it.isJsonPrimitive }?.asString?.filter { it.isDigit() } ?: return@runCatching null
+        val bytes = Base64Std.decode(file.substringAfter("base64,")) ?: return@runCatching null
+        bytes to pin
+    }.getOrNull()
 
     private fun parseText(body: ByteArray): String? = runCatching {
         val o = JsonParser.parseString(String(body, Charsets.UTF_8)).asJsonObject
@@ -218,6 +260,7 @@ class MobileInputServer(
         val head = "HTTP/1.1 ${r.status} $reason\r\n" +
             "Content-Type: ${r.contentType}\r\n" +
             "Content-Length: ${r.body.size}\r\n" +
+            (r.disposition?.let { "Content-Disposition: $it\r\n" } ?: "") +
             "Cache-Control: no-store\r\n" +
             "X-Content-Type-Options: nosniff\r\n" +
             "Referrer-Policy: no-referrer\r\n" +
@@ -237,7 +280,9 @@ class MobileInputServer(
         /** Texto máximo aceptado (los códigos reales son mucho más cortos). */
         const val MAX_TEXT_BYTES = 16 * 1024
         /** El JSON lleva comillas y escapes: algo de margen sobre el texto. */
-        const val MAX_BODY_BYTES = 24 * 1024
+        const val MAX_BODY_BYTES = 720 * 1024
+        /** Copia cifrada subida desde el móvil (las reales ocupan unos KB). */
+        const val MAX_UPLOAD_BYTES = 512 * 1024
         const val MAX_HEADER_BYTES = 8 * 1024
         /** Título del formulario (nombre del proveedor). */
         const val MAX_TITLE_BYTES = 1024

@@ -1,6 +1,17 @@
 package com.mivisor.tv.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.onFocusChanged
+import com.mivisor.tv.ui.design.MvTag
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -135,32 +146,73 @@ fun GroupScreen(graph: AppGraph, nav: Nav, route: Route.Group, toaster: Toaster)
     else library.section(route.key)?.let { it.name to it.channels } ?: ("Grupo" to emptyList())
     val favorites = mine.favorites.map { it.first }.toSet()
 
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(200.dp),
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = MvDims.SafeX, end = MvDims.SafeX, bottom = 48.dp),
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
-    ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Column {
-                MvText(title, MvType.Title)
-                MvText("${channels.size} canales · mantén OK para añadir a Mi lista", MvType.Body.copy(color = MvColors.Text2))
+    val agenda by graph.agenda.state.collectAsState()
+    val ready = remember(channels, lib) { channels.count { channelStatus(it, graph.sources).second == MvColors.Ok } }
+    var focused by remember(route.key) { mutableStateOf(channels.firstOrNull()) }
+
+    Row(Modifier.fillMaxSize().padding(horizontal = MvDims.SafeX), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(3),
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+            contentPadding = PaddingValues(bottom = 48.dp),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                // Cabecera del diseño: rótulo del grupo, nombre y «6 canales · 5 listos».
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+                    channels.firstOrNull()?.let { ChannelLogo(it, Modifier.size(width = 100.dp, height = 50.dp), 100.dp) }
+                    Spacer(Modifier.width(16.dp))
+                    Column {
+                        MvText(title, MvType.Title, maxLines = 1)
+                        MvText("${channels.size} canales · $ready ${if (ready == 1) "lista" else "listos"}", MvType.Body.copy(color = MvColors.Text2))
+                    }
+                }
+            }
+            if (channels.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                MvText("Este grupo ya no tiene canales.", MvType.Body, color = MvColors.Text2)
+            }
+            items(channels, key = { it.id }) { ch ->
+                Box(Modifier.onFocusChanged { if (it.hasFocus) focused = ch }) {
+                    TvChannelTile(
+                        ch, graph.sources, favorite = ch.id in favorites,
+                        onClick = { nav.go(Route.Channel(ch.id)) },
+                        onLongClick = {
+                            graph.mylist.toggleFavorite(ch.id, ch.name)
+                            toaster.show(if (ch.id in favorites) "Quitado de Mi lista" else "Añadido a Mi lista")
+                        },
+                        width = 180.dp,
+                        focusRequester = if (ch == channels.first()) first else null
+                    )
+                }
             }
         }
-        if (channels.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-            MvText("Este grupo ya no tiene canales.", MvType.Body, color = MvColors.Text2)
-        }
-        items(channels, key = { it.id }) { ch ->
-            TvChannelTile(
-                ch, graph.sources, favorite = ch.id in favorites,
-                onClick = { nav.go(Route.Channel(ch.id)) },
-                onLongClick = {
-                    graph.mylist.toggleFavorite(ch.id, ch.name)
-                    toaster.show(if (ch.id in favorites) "Quitado de Mi lista" else "Añadido a Mi lista")
-                },
-                focusRequester = if (ch == channels.first()) first else null
-            )
+        // Panel del canal enfocado (en el diseño lleva vista previa en vídeo; aquí, de momento, su información).
+        focused?.let { ch ->
+            val ev = liveEventFor(ch, agenda.agenda, library)
+            val (status, color) = channelStatus(ch, graph.sources)
+            Column(Modifier.width(256.dp).padding(top = 74.dp)) {
+                Column(Modifier.fillMaxWidth().background(MvColors.Surface1, RoundedCornerShape(14.dp))) {
+                    Box(
+                        Modifier.fillMaxWidth().height(144.dp).background(MvColors.Surface2, RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        ChannelLogo(ch, Modifier.size(width = 120.dp, height = 60.dp), 120.dp)
+                        if (ev != null) Box(Modifier.align(Alignment.TopStart).padding(8.dp)) { MvTag("● EN DIRECTO", MvColors.Live, filled = true) }
+                    }
+                    Column(Modifier.padding(14.dp)) {
+                        MvText(ev?.title ?: ch.name, MvType.Heading, maxLines = 2)
+                        Spacer(Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(7.dp).background(color, androidx.compose.foundation.shape.CircleShape))
+                            Spacer(Modifier.width(6.dp))
+                            MvText(status, MvType.Small, maxLines = 2)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                MvText("OK: ficha del canal · mantén OK: Mi lista", MvType.Small)
+            }
         }
     }
     InitialFocus(first, route.key)

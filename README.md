@@ -1,6 +1,6 @@
 # MiVisor TV
 
-App de Android TV de MiVisor (entrega 3c; ver `LEEME-ENTREGA.md`). Es un proyecto nuevo, con el paquete `com.mivisor.tv`, y se instala junto a la APK v18 (`com.mivisor.app`) sin reemplazarla.
+App de Android TV de MiVisor (entrega 3d; ver `LEEME-ENTREGA.md`). Es un proyecto nuevo, con el paquete `com.mivisor.tv`, y se instala junto a la APK v18 (`com.mivisor.app`) sin reemplazarla.
 
 - Android 6.0 o posterior.
 - ARMv7 y ARM64, las mismas arquitecturas que Outpace.
@@ -65,7 +65,7 @@ La agenda no se genera en este repositorio. La app la lee de `mivisor-datos` y a
 | `core:model`, `core:net`, `core:catalog` | Proveedores por DNS (de la v18), agrupación de canales, agenda y búsqueda |
 | `core:reliability` | Fiabilidad de fuentes: traducción literal del modelo de la fase 2, probada con sus vectores |
 | `core:engine` | Supervisor de Outpace, buffer y retraso respecto al directo (de la v18) |
-| `core:remote`, `core:services`, `core:diagnostics` | Escribir con el móvil, protocolo de WARP y limpieza del registro |
+| `core:remote`, `core:services`, `core:diagnostics` | Móvil por la red de casa (escribir, informe, copias), protocolo de WARP, informe de diagnóstico y copias cifradas (AES-256-GCM) |
 | `core:storage` | SQLite local y códigos cifrados con el Android Keystore |
 | `engine:outpace`, `feature:warp`, `feature:playback` | Outpace en Android, control de WARP y reproducción con Media3 |
 | `ui:design` | Tokens, tipografía Inter y componentes de TV del diseño de la fase 2 |

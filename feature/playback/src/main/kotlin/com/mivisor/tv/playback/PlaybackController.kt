@@ -82,7 +82,11 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         val label: String,
         val selected: Boolean,
         /** Idioma (código ISO) si la pista lo trae: se recuerda por canal. */
-        val language: String? = null
+        val language: String? = null,
+        /** «AAC · estéreo», «E-AC-3 · 5.1» (3d: panel de audio del diseño). */
+        val detail: String? = null,
+        /** El aparato no la puede reproducir (se enseña, pero no se puede elegir). */
+        val supported: Boolean = true
     )
 
     data class Ui(
@@ -642,11 +646,19 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     private fun applyPreferredAudio(options: List<TrackOption>) {
         if (audioApplied) return
         val req = request ?: return
-        val audio = options.filter { it.type == C.TRACK_TYPE_AUDIO }
-        if (audio.size < 2) return
+        if (options.isEmpty()) return
         audioApplied = true
+        // Subtítulos al empezar según Ajustes › Audio y subtítulos (3d).
+        val subs = options.filter { it.type == C.TRACK_TYPE_TEXT && it.supported }
+        if (!book.subtitlesByDefault()) {
+            if (subs.any { it.selected }) disableSubtitles()
+        } else if (subs.isNotEmpty() && subs.none { it.selected }) {
+            selectTrack(subs.first())
+        }
+        val audio = options.filter { it.type == C.TRACK_TYPE_AUDIO && it.supported }
+        if (audio.size < 2) return
         val wanted = book.preferredAudio(req.channelId) ?: return
-        val match = audio.firstOrNull { it.language.equals(wanted, ignoreCase = true) } ?: audio.firstOrNull { it.label == wanted } ?: return
+        val match = audio.firstOrNull { sameLanguage(it.language, wanted) } ?: audio.firstOrNull { it.label == wanted } ?: return
         if (!match.selected) {
             val p = player ?: return
             val group = p.currentTracks.groups.getOrNull(match.group) ?: return
@@ -656,23 +668,55 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         }
     }
 
+    /** «es», «spa» y «es-ES» son el mismo idioma. */
+    private fun sameLanguage(a: String?, b: String?): Boolean {
+        if (a == null || b == null) return false
+        if (a.equals(b, ignoreCase = true)) return true
+        fun iso3(x: String) = runCatching { Locale(x.substringBefore('-')).isO3Language }.getOrDefault(x)
+        return iso3(a).equals(iso3(b), ignoreCase = true)
+    }
+
+    private fun codecName(mime: String?): String? = when (mime) {
+        MimeTypes.AUDIO_AAC -> "AAC"
+        MimeTypes.AUDIO_AC3 -> "AC-3"
+        MimeTypes.AUDIO_E_AC3, MimeTypes.AUDIO_E_AC3_JOC -> "E-AC-3"
+        MimeTypes.AUDIO_MPEG, MimeTypes.AUDIO_MPEG_L2 -> "MP2/MP3"
+        MimeTypes.AUDIO_DTS -> "DTS"
+        MimeTypes.AUDIO_OPUS -> "Opus"
+        MimeTypes.TEXT_VTT -> "WebVTT"
+        MimeTypes.APPLICATION_CEA608, MimeTypes.APPLICATION_CEA708 -> "Teletexto CEA"
+        MimeTypes.APPLICATION_DVBSUBS -> "DVB"
+        else -> null
+    }
+
     private fun trackOptions(tracks: Tracks): List<TrackOption> {
         val out = ArrayList<TrackOption>()
         val es = Locale("es")
         tracks.groups.forEachIndexed { gi, g ->
             if (g.type != C.TRACK_TYPE_AUDIO && g.type != C.TRACK_TYPE_TEXT) return@forEachIndexed
             for (i in 0 until g.length) {
-                if (!g.isTrackSupported(i)) continue
+                val supported = g.isTrackSupported(i)
                 val f = g.getTrackFormat(i)
                 val number = out.count { it.type == g.type } + 1
                 val lang = f.language?.takeIf { it.isNotBlank() && it != "und" }?.let { code ->
                     runCatching { Locale(code).getDisplayLanguage(es) }.getOrNull()?.takeIf { it.isNotBlank() } ?: code
                 }
-                val extra = if (g.type == C.TRACK_TYPE_AUDIO && f.channelCount > 2) " · ${f.channelCount} canales" else ""
+                val extra = ""
                 val name = listOfNotNull(f.label?.takeIf { it.isNotBlank() }, lang).distinct().joinToString(" · ").ifBlank {
                     if (g.type == C.TRACK_TYPE_AUDIO) "Audio $number" else "Subtítulos $number"
                 }
-                out += TrackOption(g.type, gi, i, name + extra, g.isTrackSelected(i), f.language?.takeIf { it.isNotBlank() && it != "und" })
+                val layout = when {
+                    g.type != C.TRACK_TYPE_AUDIO -> null
+                    f.channelCount == 6 -> "5.1"
+                    f.channelCount == 8 -> "7.1"
+                    f.channelCount == 2 -> "estéreo"
+                    f.channelCount == 1 -> "mono"
+                    f.channelCount > 0 -> "${f.channelCount} canales"
+                    else -> null
+                }
+                val detail = listOfNotNull(codecName(f.sampleMimeType), layout, if (!supported) "este aparato no la puede reproducir" else null)
+                    .joinToString(" · ").ifEmpty { null }
+                out += TrackOption(g.type, gi, i, name + extra, g.isTrackSelected(i), f.language?.takeIf { it.isNotBlank() && it != "und" }, detail, supported)
             }
         }
         return out

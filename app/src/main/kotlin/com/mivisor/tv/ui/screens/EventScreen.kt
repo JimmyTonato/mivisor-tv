@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -78,6 +80,7 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
     val agenda by graph.agenda.state.collectAsState()
     val lib by graph.providers.state.collectAsState()
     val reminders by graph.reminders.list.collectAsState()
+    val mylist by graph.mylist.state.collectAsState()
     val first = remember { FocusRequester() }
     val event = agenda.agenda?.events?.firstOrNull { it.id == route.id }
     if (event == null) {
@@ -110,49 +113,102 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
     val best = WhereToWatch.best(announced.options)
     val reminded = reminders.any { it.eventId == event.id }
 
-    Row(Modifier.fillMaxSize().padding(start = MvDims.SafeX, end = MvDims.SafeX)) {
-        Column(Modifier.width(470.dp)) {
-            EventHeader(event, now)
-            Spacer(Modifier.height(24.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (best != null) MvButton("Ver ahora", { nav.go(Route.Player(best.id)) }, icon = MvIcons.Play, primary = true, focusRequester = first)
-                if (status != EventStatus.FINISHED) MvButton(
-                    if (reminded) "Recordatorio puesto" else "Recordarme",
-                    {
-                        val on = graph.reminders.toggle(event)
-                        toaster.show(if (on) "Te avisaré 5 minutos antes (con MiVisor TV abierta)" else "Recordatorio quitado")
-                    },
-                    icon = MvIcons.Clock, focusRequester = if (best == null) first else null
-                )
+    val home = event.home ?: event.title
+    val (h1, _) = MvPalette.pair(home)
+    val (a1, _) = MvPalette.pair(event.away ?: event.sport)
+    val mine = announced.options.flatMap { it.yours }.distinctBy { it.id }
+
+    Box(Modifier.fillMaxSize()) {
+        // Fondo del diseño: los colores de los dos equipos, de izquierda a derecha, fundidos con el fondo.
+        Box(
+            Modifier.fillMaxWidth().height(330.dp)
+                .background(Brush.horizontalGradient(listOf(Color.Transparent, h1.copy(alpha = 0.22f), a1.copy(alpha = 0.55f))))
+        )
+        Box(Modifier.fillMaxWidth().height(330.dp).background(Brush.verticalGradient(listOf(Color.Transparent, MvColors.Bg))))
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = MvDims.SafeX, end = MvDims.SafeX, bottom = 48.dp)) {
+            item {
+                Row(Modifier.fillMaxWidth().height(250.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            when (status) {
+                                EventStatus.LIVE -> MvTag("● EN DIRECTO", MvColors.Live, filled = true)
+                                EventStatus.UPCOMING -> MvTag(
+                                    if (event.timeTbd) "${dayLabel(event.startMillis)} · hora por confirmar".uppercase()
+                                    else "${dayLabel(event.startMillis)} · ${hhmm(event.startMillis)}".uppercase(), MvColors.Soon, filled = true
+                                )
+                                EventStatus.FINISHED -> MvTag("TERMINADO", MvColors.Text3, filled = true)
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            event.competitionLogo?.let {
+                                LogoPlate(Modifier.size(20.dp)) { RemoteImage(it, 20.dp, Modifier.fillMaxSize()) {} }
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            MvText((event.competition ?: sportName(event.sport)).uppercase(), MvType.Eyebrow.copy(color = MvColors.Text2, letterSpacing = 2.sp), maxLines = 1)
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        MvText(event.title, MvType.Display.copy(fontWeight = FontWeight.Black), maxLines = 2)
+                        Spacer(Modifier.height(18.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (best != null) MvButton("Ver en ${best.name}", { nav.go(Route.Player(best.id)) }, icon = MvIcons.Play, primary = true, focusRequester = first)
+                            if (status != EventStatus.FINISHED) MvButton(
+                                if (reminded) "Recordatorio puesto" else "Recordarme",
+                                {
+                                    val on = graph.reminders.toggle(event)
+                                    toaster.show(if (on) "Te avisaré 5 minutos antes (con MiVisor TV abierta)" else "Recordatorio quitado")
+                                },
+                                icon = MvIcons.Clock, focusRequester = if (best == null) first else null
+                            )
+                            MvButton(Competition.of(event).label, { nav.go(Route.Competition(Competition.of(event).name)) }, icon = MvIcons.Trophy)
+                        }
+                        if (reminded) {
+                            Spacer(Modifier.height(8.dp))
+                            MvText("El aviso sale con MiVisor TV abierta. Si está cerrada a esa hora, te avisará al abrirla.", MvType.Caption)
+                        }
+                    }
+                    if (event.away != null) {
+                        Spacer(Modifier.width(24.dp))
+                        Visual(home, event.homeVisual, h1, 100.dp, event.isPersonVsPerson)
+                        MvText("vs", MvType.Heading.copy(color = Color(0xB3FFFFFF)), modifier = Modifier.padding(horizontal = 24.dp))
+                        Visual(event.away ?: "", event.awayVisual, a1, 100.dp, event.isPersonVsPerson)
+                        Spacer(Modifier.width(24.dp))
+                    }
+                }
             }
-            Spacer(Modifier.height(12.dp))
-            MvButton(Competition.of(event).label, { nav.go(Route.Competition(Competition.of(event).name)) }, icon = MvIcons.Trophy)
-            if (reminded) {
-                Spacer(Modifier.height(12.dp))
-                MvText("El aviso sale con MiVisor TV abierta. Si está cerrada a esa hora, te avisará al abrirla.", MvType.Caption)
+            item {
+                Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(bottom = 12.dp)) {
+                    MvText("Dónde verlo", MvType.Title)
+                    Spacer(Modifier.width(12.dp))
+                    MvText("de más a menos fiable", MvType.Small)
+                }
             }
-        }
-        Spacer(Modifier.width(40.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                MvText("Dónde verlo", MvType.Title)
-                Spacer(Modifier.width(12.dp))
-                MvText("de más a menos fiable", MvType.Small)
-            }
-            Spacer(Modifier.height(12.dp))
             when {
-                announced.loading -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    Spinner(24.dp); Spacer(Modifier.width(12.dp)); MvText("Buscando en qué canales se emite…", MvType.Body)
+                announced.loading -> item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Spinner(24.dp); Spacer(Modifier.width(12.dp)); MvText("Buscando en qué canales se emite…", MvType.Body)
+                    }
                 }
-                announced.options.isEmpty() -> MvText(
-                    if (announced.failed) "No se pudo consultar en qué canales se emite. Vuelve a abrir el evento más tarde."
-                    else "La agenda no anuncia canales para este evento.", MvType.Body, color = MvColors.Text2
-                )
+                announced.options.isEmpty() -> item {
+                    MvText(
+                        if (announced.failed) "No se pudo consultar en qué canales se emite. Vuelve a abrir el evento más tarde."
+                        else "La agenda no anuncia canales para este evento.", MvType.Body, color = MvColors.Text2
+                    )
+                }
             }
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 48.dp)) {
-                items(announced.options, key = { it.announced.name + "|" + it.announced.note.orEmpty() }) { opt ->
-                    WatchRow(opt, graph, onPlay = { nav.go(Route.Player(it.id)) })
+            if (mine.isNotEmpty()) item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
+                    itemsIndexed(mine, key = { _, c -> c.id }) { i, c ->
+                        TvChannelTile(
+                            c, graph.sources, favorite = mylist.isFavorite(c.id), onClick = { nav.go(Route.Player(c.id)) }, width = 180.dp,
+                            statusOverride = if (i == 0) "Mejor opción" to MvColors.Ok else null
+                        )
+                    }
                 }
+            }
+            if (announced.options.isNotEmpty()) item {
+                MvText("Todos los canales anunciados", MvType.Heading, modifier = Modifier.padding(bottom = 10.dp))
+            }
+            items(announced.options, key = { it.announced.name + "|" + it.announced.note.orEmpty() }) { opt ->
+                Box(Modifier.padding(bottom = 10.dp)) { WatchRow(opt, graph, onPlay = { nav.go(Route.Player(it.id)) }) }
             }
         }
     }

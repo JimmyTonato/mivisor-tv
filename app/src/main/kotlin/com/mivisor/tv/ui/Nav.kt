@@ -19,6 +19,12 @@ sealed class Route {
     data class Event(val id: String) : Route()
     /** 3c: una competición (LaLiga, F1…) con sus eventos por día. Nombre = Competition.name. */
     data class Competition(val name: String) : Route()
+    /** 3d: Ajustes › Diagnóstico, el informe, «Probar todo», copias y fuentes en cuarentena. */
+    object Diagnostics : Route()
+    object Report : Route()
+    object Checks : Route()
+    data class Backup(val export: Boolean) : Route()
+    object Quarantine : Route()
     data class Player(val channelId: String, val chosen: String? = null) : Route()
     data class AddProvider(val prefill: String? = null, val fromWizard: Boolean = false) : Route()
     object Wizard : Route()

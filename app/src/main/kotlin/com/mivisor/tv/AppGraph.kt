@@ -62,6 +62,9 @@ class AppGraph(context: Context) {
     val sources = SourceBookImpl(app, db, warp, providers, mylist, log, prefs, scope)
     val player = PlaybackController(app, sources)
 
+    /** 3d: informe, «Probar todo», copias cifradas y verificador manual. */
+    val diagnostics by lazy { com.mivisor.tv.data.Diagnostics(this) }
+
     /** «Canal anterior»: se apunta cada canal que empieza a verse. */
     fun watched(channelId: String) {
         val last = prefs.lastChannel

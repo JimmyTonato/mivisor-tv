@@ -32,9 +32,18 @@ class MainActivity : ComponentActivity() {
             val start = when {
                 pendingCode != null -> Route.AddProvider(pendingCode)
                 !graph.prefs.wizardDone -> Route.Wizard
+                // Ajustes › Pantalla › «Al abrir MiVisor» (3d).
+                graph.prefs.startScreen == "agenda" -> Route.Agenda
+                graph.prefs.startScreen == "channels" -> Route.Channels
                 else -> Route.Home
             }
-            val n = remember { Nav(start).also { nav = it } }
+            val n = remember {
+                Nav(start).also { nn ->
+                    nav = nn
+                    val last = graph.prefs.lastChannel
+                    if (start == Route.Home && graph.prefs.startScreen == "last" && last != null) nn.go(Route.Player(last))
+                }
+            }
             AppRoot(graph, n, onExit = { finish() })
         }
     }

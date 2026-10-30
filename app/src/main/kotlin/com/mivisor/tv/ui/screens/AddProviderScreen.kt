@@ -66,7 +66,13 @@ fun AddProviderScreen(graph: AppGraph, route: Route.AddProvider, onDone: () -> U
     }
 
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(horizontal = MvDims.SafeX).widthIn(max = 760.dp)) {
+        // Diseño: el formulario a la izquierda y «Escribe desde el móvil» con su QR siempre a la derecha.
+        com.mivisor.tv.ui.PhoneQrCard(
+            "Escribe desde el móvil", "Escanea y pega el código en el móvil. Llega a este campo; no se guarda hasta que lo compruebes.",
+            onText = { code = it.trim(); error = null },
+            modifier = Modifier.align(Alignment.TopEnd).padding(end = MvDims.SafeX, top = 40.dp).width(280.dp)
+        )
+        Column(Modifier.padding(start = MvDims.SafeX, end = MvDims.SafeX + 308.dp).widthIn(max = 560.dp)) {
             MvText("Añadir proveedor", MvType.Title)
             Spacer(Modifier.height(6.dp))
             MvText("Escribe el código que te dio tu proveedor. Se comprueba ahora y se guarda cifrado en esta tele; después no se vuelve a mostrar.", MvType.Small)
@@ -74,7 +80,7 @@ fun AddProviderScreen(graph: AppGraph, route: Route.AddProvider, onDone: () -> U
             Row(verticalAlignment = Alignment.Bottom) {
                 MvTextField(code, { code = it; error = null }, "Código", Modifier.weight(1f), placeholder = "código del proveedor", focusRequester = codeField, onDone = { submit() })
                 Spacer(Modifier.width(16.dp))
-                MvButton("Escribir con el móvil", { phone = true }, icon = MvIcons.Phone)
+                MvButton("Móvil", { phone = true }, icon = MvIcons.Phone)
             }
             Spacer(Modifier.height(18.dp))
             MvTextField(name, { name = it }, "Nombre (opcional)", placeholder = "p. ej. Casa, Deportes…")

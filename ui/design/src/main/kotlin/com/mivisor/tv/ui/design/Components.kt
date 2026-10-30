@@ -39,6 +39,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /** Texto con el estilo del diseño (sin Material). */
 @Composable
@@ -74,12 +75,14 @@ fun MvButton(
         modifier = modifier.height(48.dp),
         enabled = enabled,
         shape = RoundedCornerShape(24.dp),
-        color = if (primary) MvColors.Accent else MvColors.Surface3,
-        focusedColor = if (primary) MvColors.Accent2 else MvColors.Text,
+        // Diseño: el principal es blanco con texto oscuro; los demás, superficie. Con foco, blanco con anillo.
+        color = if (primary) MvColors.Text else MvColors.Surface3,
+        focusedColor = MvColors.Text,
         focusRequester = focusRequester,
+        ringColor = MvColors.Accent2,
         contentAlignment = Alignment.Center
     ) { focused ->
-        val fg = if (focused) MvColors.Bg else MvColors.Text
+        val fg = if (focused || primary) MvColors.Bg else MvColors.Text
         Row(Modifier.padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) {
                 MvIcon(icon, size = 20.dp, tint = fg)
@@ -111,18 +114,23 @@ fun MvRow(
         modifier = modifier.fillMaxWidth(),
         enabled = enabled,
         focusedScale = 1.02f,
-        focusRequester = focusRequester
-    ) { _ ->
-        Row(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        focusRequester = focusRequester,
+        // Diseño: filas de superficie oscura que, con el foco, pasan a blanco con texto oscuro.
+        color = MvColors.Surface1,
+        focusedColor = MvColors.Text,
+        ringColor = MvColors.Accent2
+    ) { focusedRaw ->
+        val focused = focusedRaw && enabled
+        Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) {
-                MvIcon(icon, size = 22.dp, tint = MvColors.Text2)
+                MvIcon(icon, size = 20.dp, tint = if (focused) MvColors.Bg else MvColors.Text2)
                 Spacer(Modifier.width(16.dp))
             }
             Column(Modifier.weight(1f)) {
-                MvText(title, MvType.BodyStrong, maxLines = 1)
+                MvText(title, MvType.BodyStrong, color = if (focused) MvColors.Bg else if (enabled) MvColors.Text else MvColors.Text3, maxLines = 1)
                 if (subtitle != null) {
                     Spacer(Modifier.height(2.dp))
-                    MvText(subtitle, MvType.Small, maxLines = 2)
+                    MvText(subtitle, MvType.Small, color = if (focused) MvColors.Bg.copy(alpha = 0.72f) else MvColors.Text2, maxLines = 2)
                 }
             }
             if (extra != null) {
@@ -131,21 +139,77 @@ fun MvRow(
             }
             if (trailing != null) {
                 Spacer(Modifier.width(12.dp))
-                MvText(trailing, MvType.SmallStrong, color = trailingColor, maxLines = 1, modifier = Modifier.widthIn(max = 260.dp))
+                MvText(trailing, MvType.BodyStrong, color = if (focused) MvColors.Bg else trailingColor, maxLines = 1, modifier = Modifier.widthIn(max = 300.dp))
             }
         }
     }
 }
 
-/** Interruptor visual (el estado lo lleva la fila que lo contiene). */
+/** Interruptor visual del diseño: verde encendido (el estado lo lleva la fila que lo contiene). */
 @Composable
 fun MvSwitch(on: Boolean) {
     Box(
         Modifier.size(width = 44.dp, height = 24.dp)
-            .background(if (on) MvColors.Accent else MvColors.Surface4, RoundedCornerShape(12.dp)),
+            .background(if (on) MvColors.Ok else MvColors.Surface4, RoundedCornerShape(12.dp)),
         contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart
     ) {
         Box(Modifier.padding(3.dp).size(18.dp).background(MvColors.Text, CircleShape))
+    }
+}
+
+/** Botón de opción (radio) del diseño. */
+@Composable
+fun MvRadio(on: Boolean) {
+    Box(
+        Modifier.size(22.dp).border(2.dp, if (on) MvColors.Accent2 else MvColors.Text3, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (on) Box(Modifier.size(11.dp).background(MvColors.Accent2, CircleShape))
+    }
+}
+
+/** Etiqueta de estado de las listas del diseño («Bien», «Modesto», «Error»…). */
+@Composable
+fun MvBadge(text: String, color: Color) {
+    Box(Modifier.background(color.copy(alpha = 0.18f), RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 4.dp)) {
+        MvText(text, MvType.Caption.copy(color = color, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), maxLines = 1)
+    }
+}
+
+/** Aviso con icono y frase en negrita al principio (sin conexión, agenda antigua…). */
+@Composable
+fun MvNotice(lead: String, body: String, modifier: Modifier = Modifier, color: Color = MvColors.Soon, @DrawableRes icon: Int = MvIcons.Info) {
+    Row(
+        modifier.background(color.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+            .border(1.dp, color.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        MvIcon(icon, size = 18.dp, tint = color)
+        Spacer(Modifier.width(12.dp))
+        MvText(
+            androidx.compose.ui.text.buildAnnotatedString {
+                pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MvColors.Text))
+                append(lead)
+                pop()
+                append(" ")
+                append(body)
+            }, MvType.Small.copy(color = color)
+        )
+    }
+}
+
+/** Texto con estilos mezclados. */
+@Composable
+fun MvText(text: androidx.compose.ui.text.AnnotatedString, style: TextStyle, modifier: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE) {
+    BasicText(text = text, modifier = modifier, style = style, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+}
+
+/** Recuadro con icono para los estados vacíos del diseño (Mi lista vacía, Agenda no disponible…). */
+@Composable
+fun IconBox(@DrawableRes icon: Int) {
+    Box(Modifier.size(56.dp).background(MvColors.Surface2, RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+        MvIcon(icon, size = 26.dp, tint = MvColors.Accent2)
     }
 }
 
@@ -247,15 +311,25 @@ fun Spinner(size: Dp = 32.dp, color: Color = MvColors.Accent2) {
     }
 }
 
-/** Estado vacío o de error con acciones. */
+/** Estado vacío o de error con acciones (como el diseño: alineado a la izquierda, con icono). */
 @Composable
-fun EmptyState(title: String, body: String, modifier: Modifier = Modifier, actions: @Composable () -> Unit = {}) {
-    Column(modifier.fillMaxSize().padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+fun EmptyState(
+    title: String,
+    body: String,
+    modifier: Modifier = Modifier,
+    @DrawableRes icon: Int? = null,
+    actions: @Composable () -> Unit = {}
+) {
+    Column(modifier.fillMaxSize().padding(horizontal = MvDims.SafeX, vertical = 24.dp), verticalArrangement = Arrangement.Top) {
+        if (icon != null) {
+            IconBox(icon)
+            Spacer(Modifier.height(24.dp))
+        }
         MvText(title, MvType.Title)
         Spacer(Modifier.height(12.dp))
-        MvText(body, MvType.Body.copy(color = MvColors.Text2), modifier = Modifier.widthIn(max = 560.dp))
+        MvText(body, MvType.Body.copy(color = MvColors.Text2), modifier = Modifier.widthIn(max = 620.dp))
         Spacer(Modifier.height(28.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) { actions() }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { actions() }
     }
 }
 
