@@ -1,15 +1,15 @@
 name: MiVisor TV (APK)
 
 # APK privada de prueba: se compila en cada push y a mano. No se publica en ninguna tienda.
+# Cada compilación correcta de main publica una pre-release con su propia etiqueta y la APK adjunta (como la v18).
 on:
   push:
     branches: ["**"]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: write   # solo para adjuntar la APK a una release cuando se sube una etiqueta v* (repositorio privado)
+  contents: write   # para crear la pre-release con la APK (en el propio repositorio, privado)
 
 concurrency:
   group: android-${{ github.ref }}
@@ -199,7 +199,7 @@ jobs:
           sha256sum "$NAME" | tee "$NAME.sha256"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Subir APK (artefacto privado del repositorio)
+      - name: Subir APK como artefacto (diagnóstico)
         uses: actions/upload-artifact@v4
         with:
           name: MiVisor-TV-1.0.${{ github.run_number }}${{ env.WARP_COMPAT != 'si' && '-sin-control-WARP' || '' }}
@@ -220,16 +220,26 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Release (solo etiquetas v*)
-        if: startsWith(github.ref, 'refs/tags/v')
+      # Pre-release en cada compilación correcta de main (push o lanzada a mano): etiqueta única por ejecución y la
+      # APK adjunta directamente, lista para descargar e instalar. El .sha256 va al lado solo por si se quiere
+      # comprobar la descarga; no hace falta para instalar.
+      - name: Publicar pre-release (main)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
-          name: MiVisor TV ${{ github.ref_name }} (1.0.${{ github.run_number }})
+          tag_name: tv-build-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: >-
+            MiVisor TV 1.0.${{ github.run_number }}${{ env.WARP_COMPAT != 'si' && ' · SIN control de WARP' || '' }}
+          prerelease: true
           files: |
             ${{ steps.apk.outputs.name }}
             ${{ steps.apk.outputs.name }}.sha256
-          prerelease: true
           body: |
-            APK de prueba de MiVisor TV (Android TV 6.0+, ARM).
-            Control de WARP: ${{ env.WARP_COMPAT == 'si' && 'sí (misma firma que WARP)' || 'NO (firmada con la clave de desarrollo de la v18)' }}
+            APK de prueba de MiVisor TV 1.0.${{ github.run_number }} (Android TV 6.0+, ARMv7 y ARM64). Instala `${{ steps.apk.outputs.name }}`.
+
+            **Control de WARP: ${{ env.WARP_COMPAT == 'si' && 'SÍ. Firmada con la misma clave que WARP.' || 'NO. Firmada con la clave de desarrollo de la v18 (app/debug.keystore); su huella no es la de WARP, así que esta APK no podrá controlarla. Todo lo demás funciona.' }}**
+
+            El archivo `.sha256` es opcional: solo sirve para comprobar que la descarga está completa.
+
             Commit: ${{ github.sha }} · Outpace @ ${{ env.OUTPACE_COMMIT }}

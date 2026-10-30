@@ -43,8 +43,11 @@ La agenda no se genera en este repositorio. La app la lee de `mivisor-datos` y a
    3. Pasa las pruebas.
    4. Compila la release con R8 y la firma con los secretos o, si no están, con `app/debug.keystore`.
    5. Compara la huella con la de WARP y comprueba que Outpace y sus licencias están dentro.
-4. La APK `MiVisor-TV-1.0.<n>.apk` (o `…-sin-control-WARP.apk`) y su `.sha256` aparecen como artefacto de la ejecución durante 30 días. Solo la ven quienes tienen acceso al repositorio.
-5. Opcional: al subir una etiqueta `v…` (por ejemplo `v1.0.0-prueba1`), se crea además una *release* de prueba con la APK.
+4. Si la compilación de `main` sale bien, se publica sola una **pre-release** en la sección *Releases* del repositorio:
+   - Lleva una etiqueta única por ejecución, `tv-build-<n>`; no hay que crear etiquetas a mano.
+   - La APK va adjunta directamente: `MiVisor-TV-1.0.<n>.apk` o, si no puede controlar WARP, `MiVisor-TV-1.0.<n>-sin-control-WARP.apk`. El título y la descripción también lo dicen.
+   - Para instalar basta con descargar la APK. El `.sha256` que va al lado es opcional: solo sirve para comprobar que la descarga está completa.
+5. Para diagnóstico, cada ejecución, de `main` o de cualquier otra rama, guarda además la APK y los informes como *artifacts* durante 30 y 14 días.
 
 ## Detalles de la firma
 
