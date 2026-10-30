@@ -147,6 +147,12 @@ class SourceBookImpl(
         scope.launch(io) { runCatching { db.clearHealth() } }
     }
 
+    /** Lo mejor que se sabe de un canal (máxima puntuación de sus fuentes), para ordenar «Dónde verlo». */
+    fun bestScore(contentIds: List<String>): Double = synchronized(lock) {
+        val t = now()
+        contentIds.maxOfOrNull { store.score(it, t) } ?: 0.0
+    }
+
     fun knownSources(): Int = synchronized(lock) { store.cids().size }
 
     /** Lo que se sabe del momento del fallo: se rellena SOLO al fallar (sin sondeos continuos). */

@@ -81,9 +81,7 @@ fun SearchScreen(graph: AppGraph, nav: Nav) {
                 item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("En la agenda", Modifier.padding(top = 8.dp)) }
                 items(events, key = { "ev-" + it.id }, span = { GridItemSpan(maxLineSpan) }) { ev ->
                     val chs = channelsFor(ev, lib.library)
-                    EventCard(ev, now, chs.size, onClick = {
-                        chs.firstOrNull()?.let { nav.go(Route.Player(it.id)) }
-                    }, modifier = Modifier.fillMaxWidth())
+                    EventCard(ev, now, chs.size, onClick = { nav.go(Route.Event(ev.id)) }, modifier = Modifier.fillMaxWidth())
                 }
             }
             if (channels.isNotEmpty()) {

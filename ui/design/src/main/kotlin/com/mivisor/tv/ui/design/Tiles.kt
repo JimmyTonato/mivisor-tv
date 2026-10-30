@@ -91,7 +91,9 @@ fun ChannelTile(
     multiaudio: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onFocus: (() -> Unit)? = null,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    /** Logo real (3c) en lugar del rótulo de texto; recibe el tamaño del rótulo. */
+    art: (@Composable (Modifier) -> Unit)? = null
 ) {
     Column(modifier.width(width)) {
         TvClickable(
@@ -101,7 +103,8 @@ fun ChannelTile(
             color = MvColors.Surface2, focusedColor = MvColors.Surface3
         ) { _ ->
             Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(plateGlow(tone), Color.Transparent))))
-            BrandPlate(plateTop, plateBottom, tone, Modifier.align(Alignment.Center).fillMaxWidth(0.62f).aspectRatio(2.3f), scale = width.value / 200f)
+            val plateModifier = Modifier.align(Alignment.Center).fillMaxWidth(0.62f).aspectRatio(2.3f)
+            if (art != null) art(plateModifier) else BrandPlate(plateTop, plateBottom, tone, plateModifier, scale = width.value / 200f)
             if (multiaudio) Box(Modifier.align(Alignment.TopStart).padding(8.dp)) { MvTag("Multiaudio", MvColors.Accent2) }
             if (favorite) Box(Modifier.align(Alignment.TopEnd).padding(8.dp)) { MvIcon(MvIcons.Star, size = 16.dp, tint = MvColors.Accent2) }
         }
@@ -131,12 +134,22 @@ fun GroupTile(
     detail: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    art: (@Composable (Modifier) -> Unit)? = null
 ) {
     ChannelTile(
         name = name, plateTop = plateTop, plateBottom = plateBottom, tone = tone, onClick = onClick, modifier = modifier,
-        width = 300.dp, status = detail, statusColor = MvColors.Ok, focusRequester = focusRequester
+        width = 300.dp, status = detail, statusColor = MvColors.Ok, focusRequester = focusRequester, art = art
     )
+}
+
+/** Fondo claro y redondeado donde se pintan los logos reales (pensados para fondo blanco). */
+@Composable
+fun LogoPlate(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Box(
+        modifier.background(Brush.verticalGradient(listOf(Color(0xFFF2F4F7), Color(0xFFDCE1E8))), RoundedCornerShape(10.dp)).padding(6.dp),
+        contentAlignment = Alignment.Center
+    ) { content() }
 }
 
 /** Tarjeta de temática (Fútbol, Generalistas…): bloque de color con título y número de canales. */

@@ -24,10 +24,42 @@ class MvDatabase(context: Context) : SQLiteOpenHelper(context.applicationContext
         db.execSQL("CREATE TABLE source_health(cid TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE channel_memory(channel_id TEXT PRIMARY KEY, cid TEXT NOT NULL, at INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE log(id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, cat TEXT NOT NULL, text TEXT NOT NULL)")
+        createReminders(db)
     }
 
+    /** Migraciones sin borrar datos: instalar encima conserva proveedores, favoritos, historial y fiabilidad. */
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Versión 1: aún no hay migraciones. Las siguientes irán aquí, sin borrar datos.
+        if (oldVersion < 2) createReminders(db)          // 3c: recordatorios
+    }
+
+    private fun createReminders(db: SQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS reminder(
+                event_id TEXT PRIMARY KEY, title TEXT NOT NULL, start INTEGER NOT NULL, sport TEXT NOT NULL,
+                competition TEXT, channels TEXT NOT NULL, notified INTEGER NOT NULL DEFAULT 0)"""
+        )
+    }
+
+    // ------------------------------------------------------------------ recordatorios (3c)
+
+    fun reminders(): List<ReminderRow> =
+        readableDatabase.query("reminder", null, null, null, null, null, "start ASC").use { c ->
+            c.rows { ReminderRow(str("event_id"), str("title"), long("start"), str("sport"), strOrNull("competition"), str("channels"), int("notified") != 0) }
+        }
+
+    fun saveReminder(r: ReminderRow) {
+        writableDatabase.insertWithOnConflict("reminder", null, ContentValues().apply {
+            put("event_id", r.eventId); put("title", r.title); put("start", r.start); put("sport", r.sport)
+            put("competition", r.competition); put("channels", r.channels); put("notified", if (r.notified) 1 else 0)
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun deleteReminder(eventId: String) {
+        writableDatabase.delete("reminder", "event_id = ?", arrayOf(eventId))
+    }
+
+    fun markReminderNotified(eventId: String) {
+        writableDatabase.update("reminder", ContentValues().apply { put("notified", 1) }, "event_id = ?", arrayOf(eventId))
     }
 
     // ------------------------------------------------------------------ proveedores
@@ -152,7 +184,8 @@ class MvDatabase(context: Context) : SQLiteOpenHelper(context.applicationContext
 
     companion object {
         const val NAME = "mivisor-tv.db"
-        const val VERSION = 1
+        /** 1 = 3a/3b · 2 = 3c (recordatorios). */
+        const val VERSION = 2
         const val LOG_KEPT = 500
     }
 }
@@ -172,3 +205,14 @@ class ProviderRow(
 class HistoryRow(val channelId: String, val name: String, val playedAt: Long, val seconds: Long)
 
 class LogRow(val t: Long, val cat: String, val text: String)
+
+/** Recordatorio guardado. [channels] = nombres de canal separados por «\n». */
+class ReminderRow(
+    val eventId: String,
+    val title: String,
+    val start: Long,
+    val sport: String,
+    val competition: String?,
+    val channels: String,
+    val notified: Boolean
+)

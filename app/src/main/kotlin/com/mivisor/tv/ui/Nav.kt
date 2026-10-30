@@ -15,6 +15,10 @@ sealed class Route {
     data class Group(val key: String) : Route()
     /** Enlaces externos de los proveedores (magnet, Telegram, TVGram…). */
     object Links : Route()
+    /** 3c: ficha de un evento de la agenda con «Dónde verlo» y recordatorio. */
+    data class Event(val id: String) : Route()
+    /** 3c: una competición (LaLiga, F1…) con sus eventos por día. Nombre = Competition.name. */
+    data class Competition(val name: String) : Route()
     data class Player(val channelId: String, val chosen: String? = null) : Route()
     data class AddProvider(val prefill: String? = null, val fromWizard: Boolean = false) : Route()
     object Wizard : Route()

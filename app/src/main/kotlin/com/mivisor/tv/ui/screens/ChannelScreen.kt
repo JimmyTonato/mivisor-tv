@@ -28,7 +28,9 @@ import com.mivisor.tv.ui.InitialFocus
 import com.mivisor.tv.ui.Nav
 import com.mivisor.tv.ui.Route
 import com.mivisor.tv.ui.Toaster
-import com.mivisor.tv.ui.design.ChannelPlate
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.mivisor.tv.ui.design.EmptyState
 import com.mivisor.tv.ui.design.MvButton
 import com.mivisor.tv.ui.design.MvColors
@@ -58,7 +60,10 @@ fun ChannelScreen(graph: AppGraph, nav: Nav, route: Route.Channel, toaster: Toas
 
     Row(Modifier.fillMaxSize().padding(start = MvDims.SafeX, end = MvDims.SafeX)) {
         Column(Modifier.width(360.dp)) {
-            ChannelPlate(ch.initials, ch.brandKey ?: ch.id, Modifier.size(width = 360.dp, height = 200.dp), large = true)
+            Box(
+                Modifier.size(width = 360.dp, height = 200.dp).background(MvColors.Surface2, RoundedCornerShape(MvDims.RadiusLarge)),
+                contentAlignment = Alignment.Center
+            ) { ChannelLogo(ch, Modifier.size(width = 230.dp, height = 100.dp), 230.dp) }
             Spacer(Modifier.height(20.dp))
             MvText(ch.name, MvType.Title, maxLines = 2)
             Spacer(Modifier.height(6.dp))

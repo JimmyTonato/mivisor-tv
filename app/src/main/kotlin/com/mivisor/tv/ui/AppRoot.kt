@@ -47,6 +47,9 @@ import com.mivisor.tv.ui.screens.AgendaScreen
 import com.mivisor.tv.ui.screens.ChannelScreen
 import com.mivisor.tv.ui.screens.ChannelsScreen
 import com.mivisor.tv.ui.screens.GroupScreen
+import com.mivisor.tv.ui.screens.EventScreen
+import com.mivisor.tv.ui.screens.CompetitionScreen
+import com.mivisor.tv.ui.screens.ReminderNotice
 import com.mivisor.tv.ui.screens.LinksScreen
 import com.mivisor.tv.ui.screens.HomeScreen
 import com.mivisor.tv.ui.screens.MyListScreen
@@ -100,6 +103,8 @@ fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
                             is Route.Channel -> ChannelScreen(graph, nav, route, toaster)
                             is Route.Group -> GroupScreen(graph, nav, route, toaster)
                             Route.Links -> LinksScreen(graph, toaster)
+                            is Route.Event -> EventScreen(graph, nav, route, toaster)
+                            is Route.Competition -> CompetitionScreen(graph, nav, route)
                             is Route.AddProvider -> AddProviderScreen(graph, route, onDone = {
                                 if (route.fromWizard) {
                                     graph.prefs.wizardDone = true
@@ -111,6 +116,7 @@ fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
                     }
                 }
             }
+            ReminderNotice(graph, nav, onPlaying = { })
             ToastHost(toaster)
         }
     }
@@ -130,6 +136,7 @@ private fun TopBar(graph: AppGraph, route: Route, onTab: (Route) -> Unit) {
     }
     val selectedTab = when (route) {
         is Route.Channel, is Route.Group, Route.Links -> Route.Channels
+        is Route.Event, is Route.Competition -> Route.Agenda
         is Route.AddProvider -> Route.Settings
         else -> route
     }

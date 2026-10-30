@@ -52,7 +52,9 @@ class TvChannel(
     val brandKey: String?,
     val brandName: String?,
     val sources: List<TvSource>,
-    val initials: String
+    val initials: String,
+    /** Logo real (3c): el del canal o, si no tiene, el de su grupo. null = se pinta el rótulo de texto. */
+    val logo: String? = null
 ) {
     val multiaudio: Boolean get() = sources.any { MULTI.containsMatchIn(it.variantName) }
     val bestQuality: Int get() = sources.maxOfOrNull { it.quality } ?: 0
@@ -61,7 +63,7 @@ class TvChannel(
 }
 
 /** Una sección de Canales: una marca (DAZN, Movistar Plus+…), un tipo (Deportes…) u «Otros canales». */
-class TvSection(val key: String, val name: String, val channels: List<TvChannel>) {
+class TvSection(val key: String, val name: String, val channels: List<TvChannel>, val logo: String? = null) {
     /** Marca conocida (Grupos) o temática / otros (Por temática). */
     val isBrand: Boolean get() = !key.startsWith("cat:") && key != "otros"
 }
@@ -103,20 +105,19 @@ class TvLibrary(
     companion object {
         val EMPTY = TvLibrary(emptyList(), emptyList(), 0)
 
-        fun build(providers: List<ProviderCatalog>, logos: LogoCatalog = LogoCatalog.EMPTY): TvLibrary {
+        fun build(providers: List<ProviderCatalog>, resolver: ChannelLogoResolver = ChannelLogoResolver(LogoCatalog.EMPTY)): TvLibrary {
             if (providers.isEmpty()) return EMPTY
             val groups: List<ChannelGroup> = ChannelGrouping.group(providers.map { p ->
                 Triple(p.id, p.name, p.catalog.sections.flatMap { it.channels }.map { it.withProvider(p.id, p.name) })
             })
-            val resolver = ChannelLogoResolver(logos)
             val channels = groups.mapNotNull { g ->
                 val sources = g.sources.mapNotNull { s -> toSource(s) }.distinctBy { it.contentId }
                 if (sources.isEmpty()) return@mapNotNull null
                 val logo = resolver.resolve(g.name)
-                TvChannel(g.key, g.name, logo.groupKey, logo.groupName, sources, g.initials)
+                TvChannel(g.key, g.name, logo.groupKey, logo.groupName, sources, g.initials, logo.best)
             }
             val sections = LogoSections.build(channels, resolver, name = { it.name }, listGroup = { null }).map { sec ->
-                TvSection(sec.key ?: "otros", sec.name, sec.items.map { it.first })
+                TvSection(sec.key ?: "otros", sec.name, sec.items.map { it.first }, sec.logo.groupLogo)
             }
             val links = providers.flatMap { p ->
                 p.links.map { TvLink("${p.id}/${it.id}", it.name, it.url, it.kind, p.name) }

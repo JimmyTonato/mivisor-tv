@@ -44,6 +44,7 @@ class MainActivity : ComponentActivity() {
         graph.sources.foreground = true
         EngineManager.cancelBackgroundStop()
         NetState.start(this)
+        graph.reminders.startTicker()
         graph.warp.startListening()
         lifecycleScope.launch { runCatching { graph.warp.refresh() } }
     }
@@ -54,6 +55,7 @@ class MainActivity : ComponentActivity() {
         graph.player.stop()
         if (nav?.current is Route.Player) nav?.back()
         graph.warp.stopListening()
+        graph.reminders.stopTicker()
         NetState.stop(this)
         EngineManager.onBackground(this)
         super.onStop()

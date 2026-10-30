@@ -30,7 +30,10 @@ import com.mivisor.tv.model.EventStatus
 import com.mivisor.tv.playback.PlayRequest
 import com.mivisor.tv.playback.PlaySource
 import com.mivisor.tv.reliability.SourceState
-import com.mivisor.tv.ui.design.ChannelCard
+import com.mivisor.tv.ui.design.BrandPlate
+import com.mivisor.tv.ui.design.LogoPlate
+import com.mivisor.tv.ui.RemoteImage
+import androidx.compose.foundation.layout.fillMaxSize
 import com.mivisor.tv.ui.design.LiveDot
 import com.mivisor.tv.ui.design.MvColors
 import com.mivisor.tv.ui.design.MvDims
@@ -99,8 +102,30 @@ fun TvChannelTile(
     ChannelTile(
         name = ch.name, plateTop = plate.top, plateBottom = plate.bottom, tone = plate.tone.ui(), onClick = onClick,
         width = width, status = status, statusColor = color, favorite = favorite, multiaudio = ch.multiaudio,
-        onLongClick = onLongClick, focusRequester = focusRequester
+        onLongClick = onLongClick, focusRequester = focusRequester,
+        art = ch.logo?.let { url -> @Composable { m: Modifier -> ChannelArt(url, plate, m, width) } }
     )
+}
+
+/** Logo real sobre el fondo claro; si no carga, el rótulo de texto de siempre. */
+@Composable
+fun ChannelArt(url: String?, plate: Plate, modifier: Modifier, sizeHint: Dp = 200.dp) {
+    if (url == null) {
+        BrandPlate(plate.top, plate.bottom, plate.tone.ui(), modifier)
+        return
+    }
+    LogoPlate(modifier) {
+        RemoteImage(url, sizeHint, Modifier.fillMaxSize()) {
+            BrandPlate(plate.top, plate.bottom, plate.tone.ui(), Modifier.fillMaxSize())
+        }
+    }
+}
+
+@Composable
+fun ChannelLogo(ch: TvChannel, modifier: Modifier, sizeHint: Dp = 120.dp) {
+    val plate = ch.plate()
+    if (ch.logo == null) BrandPlate(plate.top, plate.bottom, plate.tone.ui(), modifier, scale = sizeHint.value / 200f)
+    else LogoPlate(modifier) { RemoteImage(ch.logo, sizeHint, Modifier.fillMaxSize()) { BrandPlate(plate.top, plate.bottom, plate.tone.ui(), Modifier.fillMaxSize(), scale = sizeHint.value / 200f) } }
 }
 
 /** Canales de tus proveedores para un evento de la agenda (por los nombres de canal del evento). */

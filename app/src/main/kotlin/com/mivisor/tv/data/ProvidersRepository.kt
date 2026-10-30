@@ -6,6 +6,10 @@ import com.mivisor.tv.catalog.NotCachedException
 import com.mivisor.tv.catalog.StreamRepository
 import com.mivisor.tv.catalog.tv.ProviderCatalog
 import com.mivisor.tv.catalog.tv.TvLibrary
+import com.mivisor.tv.catalog.logos.ChannelLogoResolver
+import com.mivisor.tv.catalog.logos.LogoCatalog
+import com.mivisor.tv.catalog.logos.LogoEntry
+import com.mivisor.tv.catalog.logos.LogoRepository
 import com.mivisor.tv.model.ChannelKind
 import com.mivisor.tv.net.CodeNotFoundException
 import com.mivisor.tv.net.DnsUnavailableException
@@ -55,11 +59,17 @@ class ProvidersRepository(
     private val prefs: Prefs,
     private val streams: StreamRepository,
     private val log: LogBook,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    /** Logos de canales (3c): catálogo channel-logos.json de mivisor-datos y los que la app va encontrando. */
+    private val logos: LogoRepository,
+    private val logoUrl: () -> String
 ) {
     private val _state = MutableStateFlow(LibraryState())
     val state: StateFlow<LibraryState> = _state.asStateFlow()
     private var loadJob: Job? = null
+    /** Últimos catálogos leídos: para volver a montar la biblioteca cuando llegan logos nuevos sin releer nada. */
+    @Volatile private var lastCatalogs: List<ProviderCatalog> = emptyList()
+    @Volatile private var resolver: ChannelLogoResolver? = null
 
     /** Primera carga: copia local al instante y luego red. */
     fun start() {
@@ -112,7 +122,13 @@ class ProvidersRepository(
                 }
             }.awaitAll().filterNotNull()
         }
-        val library = withContext(Dispatchers.Default) { TvLibrary.build(catalogs) }
+        val logoResolver = withContext(Dispatchers.IO) {
+            resolver?.takeIf { mode == StreamRepository.Mode.CACHE_ONLY }
+                ?: runCatching { logos.load(logoUrl()) }.getOrNull()?.also { resolver = it }
+                ?: ChannelLogoResolver(LogoCatalog.EMPTY)
+        }
+        lastCatalogs = catalogs
+        val library = withContext(Dispatchers.Default) { TvLibrary.build(catalogs, logoResolver) }
         val fresh = withContext(Dispatchers.IO) { db.providers() }
         _state.value = LibraryState(
             library = if (library.isEmpty && !_state.value.library.isEmpty && mode == StreamRepository.Mode.CACHE_ONLY) _state.value.library else library,
@@ -152,6 +168,22 @@ class ProvidersRepository(
         log.add("Proveedores", "Añadido «$title» con ${catalog.channelCount} canales")
         refresh(cacheFirst = true)
         return null
+    }
+
+    /**
+     * Logos encontrados por la app (canales de la agenda y de TheSportsDB). Si hay alguno nuevo, se vuelve a montar
+     * la biblioteca con los mismos catálogos (sin leer los proveedores otra vez).
+     */
+    fun harvestLogos(entries: List<LogoEntry>) {
+        if (entries.isEmpty()) return
+        scope.launch {
+            val changed = withContext(Dispatchers.IO) { logos.harvest(entries) }
+            if (!changed || lastCatalogs.isEmpty()) return@launch
+            val r = withContext(Dispatchers.IO) { runCatching { logos.load(logoUrl()) }.getOrNull() } ?: return@launch
+            resolver = r
+            val library = withContext(Dispatchers.Default) { TvLibrary.build(lastCatalogs, r) }
+            _state.value = _state.value.copy(library = library)
+        }
     }
 
     fun remove(id: String) {

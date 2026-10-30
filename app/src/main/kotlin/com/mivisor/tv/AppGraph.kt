@@ -6,6 +6,13 @@ import com.mivisor.tv.catalog.AgendaRepository
 import com.mivisor.tv.catalog.PayloadDecoder
 import com.mivisor.tv.catalog.RawCache
 import com.mivisor.tv.catalog.StreamRepository
+import com.mivisor.tv.catalog.TvChannelsRepository
+import com.mivisor.tv.catalog.logos.LogoCatalog
+import com.mivisor.tv.catalog.logos.LogoEntry
+import com.mivisor.tv.catalog.logos.LogoRepository
+import com.mivisor.tv.catalog.logos.LogoSource
+import com.mivisor.tv.data.RemindersRepository
+import kotlinx.coroutines.launch
 import com.mivisor.tv.data.AgendaStore
 import com.mivisor.tv.data.LogBook
 import com.mivisor.tv.data.MyListRepository
@@ -43,8 +50,13 @@ class AppGraph(context: Context) {
         domain = BuildConfig.STREAM_DOMAIN
     )
 
-    val providers = ProvidersRepository(db, CodeVault(), prefs, streams, log, scope)
     val agenda = AgendaStore(AgendaRepository(File(app.cacheDir, "agenda")), prefs, BuildConfig.AGENDA_URL, log, scope)
+    /** Logos (3c): channel-logos.json junto a agenda.json en mivisor-datos, con caché en filesDir/logos. */
+    val logos = LogoRepository(File(app.filesDir, "logos"))
+    val providers = ProvidersRepository(db, CodeVault(), prefs, streams, log, scope, logos, { LogoRepository.urlFor(agenda.url) })
+    /** «Dónde verlo» de los eventos que no traen canales: TheSportsDB, solo al abrir el evento y con caché. */
+    val tvChannels = TvChannelsRepository(File(app.cacheDir, "tvchannels"))
+    val reminders = RemindersRepository(app, db, log, scope)
     val mylist = MyListRepository(db, scope)
     val warp = WarpController(app, scope)
     val sources = SourceBookImpl(app, db, warp, providers, mylist, log, prefs, scope)
@@ -69,7 +81,17 @@ class AppGraph(context: Context) {
     fun start() {
         sources.load()
         mylist.load()
+        reminders.load()
         providers.start()
         agenda.load()
+        // Logos que trae la agenda (futbolenlatv): se aprovechan para los canales de tus proveedores.
+        scope.launch {
+            agenda.state.collect { st ->
+                val entries = st.agenda?.events.orEmpty().flatMap { it.channels }
+                    .mapNotNull { c -> c.logo?.takeIf { LogoCatalog.usable(it) }?.let { LogoEntry(c.name, it, LogoSource.FUTBOLENLATV) } }
+                    .distinctBy { it.name.lowercase() }
+                providers.harvestLogos(entries)
+            }
+        }
     }
 }

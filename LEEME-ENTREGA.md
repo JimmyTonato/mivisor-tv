@@ -1,75 +1,75 @@
-# MiVisor TV · Entrega 3b (reproducción e interfaz)
+# MiVisor TV · Entrega 3c (agenda, logos y recordatorios)
 
-La 3b va encima de la 3a, que ya compila y funciona. No hay que configurar nada nuevo: la firma y la pre-release automática siguen igual (ver `README.md`). Lo que trajo la 3a está en `docs/entregas/3a.md`.
+La 3c va encima de la 3b y la sustituye entera. Conserva todo lo anterior sin cambios de comportamiento: reproducción, Outpace, WARP, Ace Stream, favoritos, historial, la firma y la comprobación SHA-256 de WARP. No hay que configurar nada nuevo. Lo de las entregas anteriores está en `docs/entregas/`.
 
 ## Lo que trae
 
-### Reproducción
+### 1. Logos reales de los canales
 
-- **Un corte real se recupera solo.** Si la imagen se para mientras ves un canal, se recupera por escalones:
-  1. Espera unos segundos, porque el buffer suele volver solo.
-  2. A los 8 s, salta al directo.
-  3. A los 16 s, recarga la misma fuente.
-  4. A los 26 s, cambia a la siguiente fuente.
+- **De dónde salen**, como en la v18:
+  1. El catálogo `channel-logos.json` que se publica junto a `agenda.json` en `mivisor-datos`. Se descarga como mucho una vez al día, con ETag y copia en la tele.
+  2. Los logos que trae la propia agenda (futbolenlatv).
+  3. Los de TheSportsDB, que se guardan al abrir un evento.
+- **Dónde se ven:** en las tarjetas de canal, los grupos de Canales, la ficha del canal, «Dónde verlo» y la parte de arriba del reproductor.
+- **Cómo se pintan:** sobre una placa clara, porque casi todos están pensados para fondo blanco. Si un canal no tiene logo o no carga (sin red, imagen borrada, SVG), se pinta el **rótulo de texto de la 3b**. Ningún canal se queda en blanco.
+- **Cargador:** el de la v18, sin librerías nuevas. Decodifica al tamaño de pantalla, con caché en memoria (máx. 6 MB) y en disco (máx. 300 imágenes).
+- **Equipos y competiciones:** en la agenda se ven los escudos (o retratos en tenis y UFC) y los logos de competición que trae `agenda.json`. Sin imagen, las siglas sobre su color.
 
-  Arriba aparece un aviso discreto («Recuperando la imagen…»). La fiabilidad apunta cuánto costó recuperarla.
-- **Quitar la red o WARP a mitad no castiga fuentes.** Antes de culpar a una fuente se mira si el fallo es general (sin Internet, WARP caída, motor, poca memoria). Si lo es, no se penaliza ni se cambia de fuente: se espera a que vuelva («Sin conexión: esperando a que vuelva la red…») y se recarga la misma.
-- **Multiaudio.** El idioma de audio que elijas en un canal se recuerda y se vuelve a poner la próxima vez que lo veas.
-- **WARP por proveedor.**
-  - Si una fuente es de un proveedor marcado como «necesita WARP», MiVisor TV conecta WARP antes de probarla y espera a que esté lista.
-  - Si WARP no se puede usar (no instalada, con otra firma o sin autorizar), esa fuente se salta **sin penalizarla** y el aviso lo explica.
-  - Con la APK firmada con la clave de desarrollo, WARP no se puede controlar desde la app. Esas fuentes solo funcionan si conectas WARP a mano.
-- **Ace Stream como alternativa** (Ajustes › Motor):
-  - **Motor:** Outpace (recomendado) o Ace Stream. Con Ace Stream, cada canal se abre en la app oficial con su mejor fuente, y se vuelve a MiVisor TV con Atrás.
-  - **Si Outpace no da imagen:** Preguntar (botón «Probar con Ace Stream»), Automático o Nunca.
-  - **Desde el menú de fuentes:** mantener OK sobre una fuente la abre en Ace Stream.
-- **Cambiar de canal.**
-  - Con los controles ocultos, ▲▼ o CH+/CH− cambian de canal dentro del mismo grupo.
-  - «Canal anterior» está en el reproductor y en Canales, y también responde a la tecla de canal anterior del mando.
-- **Enlaces externos.** Los enlaces de los proveedores que no son Ace Stream (Telegram, TVGram, magnet, webs) aparecen en Canales › Por temática › «Enlaces externos». Se abren con la app que Android tenga para cada uno, igual que en la v18.
+### 2. «Dónde verlo» completo
 
-### Interfaz, más cerca del prototipo
+Cada evento tiene su ficha. Se abre desde la Agenda, desde una competición, desde las tarjetas «En directo» de Inicio, desde el buscador y desde los recordatorios.
 
-- **Barra superior:** marca «M MiVisor», pestañas con un punto bajo la elegida, ajustes como icono, una pastilla con el estado de Outpace y WARP, y la hora.
-- **Rótulos de canal:** «DAZN / LALIGA», «M+ / DEPORTES», «EURO / SPORT 1», con los tonos del prototipo (claro, oscuro, azul y rojo).
-- **Tarjetas de canal:**
-  - Llevan el resplandor y el rótulo en el centro, y debajo el nombre y el estado con su punto («Funciona», «Sin probar», «En pausa»…).
-  - Indican «Multiaudio» y si el canal está en Mi lista.
-- **Canales:**
-  - Cabecera con recuento y atajos (Buscar canal, Favoritos, Canal anterior, Todos los canales).
-  - «Grupos» por marca y «Por temática» en bloques de color. Cada uno abre su rejilla de canales.
-- **Inicio:**
-  - Portada con el evento destacado: colores de los equipos, escudos de texto, «EN DIRECTO», y los botones «Ver ahora», «Otras opciones» y «Favorito».
-  - Debajo, «En directo» con tarjetas de evento, «Seguir viendo», «Mi lista» y los grupos.
-- **Reproductor:**
-  - Arriba, el rótulo, el nombre, «EN DIRECTO» y la hora.
-  - Abajo, los datos de la fuente y los botones Pausa, Audio y subtítulos, Fuente *x* de *y*, Canales, Canal anterior, Mi lista e Imagen.
-  - Una línea de ayuda explica cómo cambiar de canal.
-- **Mi lista:** pestañas Favoritos e Historial.
+- **Cabecera:** competición, escudos o retratos, título, y EN DIRECTO o día y hora.
+- **Dónde verlo:**
+  - Aparecen **todos** los canales anunciados, con dial y nota (país, «PPV»…).
+  - Debajo de cada uno, los canales de **tus** proveedores que lo emiten, con su logo y su estado («Funciona», «Sin probar»…). Se pueden ver con OK.
+  - Primero los que puedes ver, **de más a menos fiable** según lo aprendido. Al final, los que «No están en tus proveedores», para que sepas dónde se emite.
+  - Si la agenda no trae canales de un evento, se consultan en TheSportsDB **solo al abrir la ficha**, con caché: lo mismo que hacía la v18.
+- **Botones:** «Ver ahora» (el mejor canal tuyo), «Recordarme» y el acceso a su competición.
+- **Inicio:** en la portada, «Otras opciones» pasa a ser «Dónde verlo».
 
-Siguen siendo **placas de texto, no logos**: los logos de canal llegan en la 3c. Por eso los escudos de los equipos usan las siglas sobre un color estable, en lugar de las imágenes reales.
+### 3. Competiciones
+
+- **Agenda:**
+  - Arriba, la fila «Competiciones» con logo y lo que tiene cada una («3 hoy · 1 en directo», «Próxima carrera: 9 nov»…). LaLiga, Champions, Premier, F1 y MotoGP aparecen siempre.
+  - Debajo, el filtro por deporte y los eventos **por días** («Hoy», «Mañana», «Sábado 2 de noviembre»…).
+- **Página de cada competición:** logo, resumen y sus eventos por día; en F1 y MotoGP, las sesiones del fin de semana. Cada evento abre su ficha.
+- **Clasificación de eventos:** cada evento se asigna a su competición con las reglas de la web y la v18 (LaLiga, Champions, Premier, Serie A, Bundesliga, Ligue 1, Europa y Conference League, Copa, Supercopa, F1, MotoGP, ATP, WTA, UFC, baloncesto, motor…).
+
+### 4. Recordatorios
+
+- **Poner y quitar:** «Recordarme» en la ficha de cualquier evento que no haya terminado. Los eventos con recordatorio llevan un reloj en la agenda.
+- **Aviso:** **5 minutos antes**, MiVisor TV muestra un aviso encima de cualquier pantalla (también del reproductor), con «Ver ahora», «Dónde verlo» y «Cerrar».
+- **«Deja la fuente lista»:** al saltar el aviso se arranca Outpace. «Ver ahora» abre el mejor canal tuyo por fiabilidad.
+- **Sin segundo plano**, como acordamos: el aviso sale **con la app abierta**. Si estaba cerrada a esa hora, avisa al abrirla mientras el evento siga en curso. Cada recordatorio avisa una sola vez y se borra solo cuando el evento termina.
+- **Mi lista:** pestaña «Recordatorios» (Favoritos · Recordatorios · Historial). Desde ahí se abre la ficha, y manteniendo OK se quita el recordatorio.
+- **Datos:** se guardan en la base de datos de la tele. Su versión pasa de 1 a 2 con una migración que **no borra nada**, así que instalar encima de la 3b conserva proveedores, favoritos, historial y fiabilidad.
 
 ## Lista de comprobación en la tele (T)
 
 | # | Comprobación |
 |---|---|
-| 1 | Mientras ves un canal, desenchufa la red o desconecta WARP 30 s. Sale «Sin conexión: esperando…». Al volver la red, se recupera **la misma** fuente, y en la ficha del canal la fuente **no** aparece «En pausa» |
-| 2 | Un corte real del canal (sin tocar la red) muestra «Recuperando la imagen…» y vuelve solo, o pasa a otra fuente si no puede |
-| 3 | En un canal multiaudio, cambia el idioma en Audio y subtítulos; sal y vuelve a entrar: está el idioma elegido |
-| 4 | Con Ace Stream instalada, en Ajustes › Motor elige Ace Stream: el canal se abre en su app y **Atrás** vuelve a MiVisor TV |
-| 5 | Con «Si Outpace no da imagen: Preguntar», un canal sin imagen ofrece «Probar con Ace Stream» |
-| 6 | ▲▼ cambia de canal dentro del grupo; «Canal anterior» vuelve al último visto |
-| 7 | Canales › «Enlaces externos» abre un enlace de Telegram, TVGram o magnet con su app |
-| 8 | Con el mando se llega a todo lo nuevo: tarjetas de grupo y temática, portada de Inicio, controles del reproductor y pestañas de Mi lista |
+| 1 | Canales e Inicio muestran logos reales; un canal sin logo muestra su rótulo de texto, nunca un hueco |
+| 2 | Agenda › un evento › «Dónde verlo» lista los canales anunciados; los tuyos se pueden ver con OK y los demás dicen «No está en tus proveedores» |
+| 3 | Un partido sin canales en la agenda los busca al abrirlo («Buscando en qué canales se emite…») |
+| 4 | Agenda › Competiciones › LaLiga (o F1) abre su página con los eventos por día |
+| 5 | Pon un recordatorio en un evento que empiece en menos de 10 min y deja MiVisor TV abierta: el aviso sale 5 min antes, y «Ver ahora» abre el canal |
+| 6 | Pon otro recordatorio y cierra la app; ábrela cuando el evento ya haya empezado: sale el aviso «Empezó hace…» |
+| 7 | Mi lista › Recordatorios los muestra; mantener OK quita uno |
+| 8 | Instalada encima de la 3b, se conservan proveedores, favoritos, historial y lo aprendido de las fuentes |
+| 9 | Con el mando se llega a todo lo nuevo (fichas, competiciones, avisos) y Atrás siempre vuelve |
 
-## Qué queda fuera
+## Qué queda incompleto o fuera
 
-- **Ace Stream «dentro» de MiVisor TV** (su motor con el reproductor de MiVisor) queda para más adelante. En la 3b, Ace Stream se abre en su propia app, que es lo que la especificación pide comprobar.
-- **Logos, «Dónde verlo» completo, competiciones y recordatorios:** 3c.
-- **Copias, diagnóstico completo y verificador:** 3d.
+- **Avisos con la app cerrada:** no los hay, a propósito (sin segundo plano, como se acordó). Si en algún momento los queréis, harían falta las notificaciones del sistema y un permiso; sería un cambio de criterio.
+- **Logos de canal: dependen del catálogo de `mivisor-datos`.** Si un canal de vuestros proveedores no está en él, en la agenda ni en TheSportsDB, se queda con el rótulo de texto. Para añadirlo basta con incluirlo en `channel-logos.json` (lo genera MiVisor Agenda), sin tocar la app.
+- **Competiciones: no hay clasificaciones ni resultados.** La página muestra los eventos de la agenda; `agenda.json` no trae tablas ni marcadores.
+- **Vista previa del canal** al pasar por encima: más adelante.
+- **Ace Stream dentro de MiVisor TV** (su motor con nuestro reproductor): más adelante, como en la 3b.
+- **3d** (copias, diagnóstico completo, verificador): no se ha empezado, como pediste.
 
 ## Compilación
 
-Las pruebas del núcleo pasan aquí: **167 en verde**, entre ellas los escalones de recuperación, los rótulos, el cambio de canal y los enlaces externos. El código Android se ha revisado con las mismas comprobaciones que en la 3a, pero no se ha podido compilar en este entorno. Si la ejecución de GitHub falla, pasadme su log y lo corrijo.
+Pasan las **170 pruebas del núcleo**; son nuevas las de «Dónde verlo» y los recordatorios. El código Android lleva las mismas revisiones de imports y referencias que en la 3a y la 3b, pero no se ha compilado en este entorno. Se comprobará en GitHub Actions; si falla, pasadme el log.
 
-No se ha modificado nada de la Raspberry, MiVisor Web, MiVisor Agenda, la v18 ni Outpace en producción.
+No se ha modificado nada de la Raspberry, MiVisor Web, MiVisor Agenda, `mivisor-datos`, la v18 ni Outpace en producción.

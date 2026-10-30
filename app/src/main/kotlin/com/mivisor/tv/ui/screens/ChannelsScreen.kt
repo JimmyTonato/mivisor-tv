@@ -94,7 +94,8 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
                     val plate = ChannelPlates.of(sec.name, sec.key)
                     GroupTile(
                         name = sec.name, plateTop = plate.top, plateBottom = null, tone = plate.tone.ui(),
-                        detail = groupDetail(sec, graph), onClick = { nav.go(Route.Group(sec.key)) }
+                        detail = groupDetail(sec, graph), onClick = { nav.go(Route.Group(sec.key)) },
+                        art = sec.logo?.let { url -> @Composable { m: Modifier -> ChannelArt(url, plate, m, 300.dp) } }
                     )
                 }
             }

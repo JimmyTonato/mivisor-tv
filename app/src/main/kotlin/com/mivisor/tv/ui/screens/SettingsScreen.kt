@@ -76,7 +76,7 @@ private enum class Page(val title: String, val hint: String) {
     AGENDA("Agenda", "Datos de GitHub"),
     RELIABILITY("Fiabilidad", "Lo aprendido de las fuentes"),
     LOG("Registro", "Sin datos sensibles"),
-    LATER("Próximamente", "Lo que llega en 3c y 3d"),
+    LATER("Próximamente", "Lo que llega en 3d"),
     ABOUT("Acerca de", "Versión y licencias")
 }
 
@@ -393,8 +393,7 @@ private fun LaterPage() {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         listOf(
             "Ace Stream dentro de MiVisor TV (su motor con el reproductor de MiVisor)" to "Más adelante",
-            "Agenda completa: Dónde verlo, competiciones y recordatorios" to "Entrega 3c",
-            "Logos de canales y vista previa" to "Entrega 3c",
+            "Vista previa del canal al pasar por encima" to "Más adelante",
             "Copia de seguridad cifrada y restauración" to "Entrega 3d",
             "Diagnóstico completo, «Probar todo» e informe al móvil" to "Entrega 3d",
             "Verificador automático (desactivado por defecto)" to "Entrega 3d"

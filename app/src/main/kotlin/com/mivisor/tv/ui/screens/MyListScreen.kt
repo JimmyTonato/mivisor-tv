@@ -30,6 +30,9 @@ import com.mivisor.tv.ui.Nav
 import com.mivisor.tv.ui.Route
 import com.mivisor.tv.ui.Toaster
 import com.mivisor.tv.ui.ago
+import com.mivisor.tv.ui.dayLabel
+import com.mivisor.tv.ui.hhmm
+import com.mivisor.tv.model.ReminderPolicy
 import com.mivisor.tv.ui.design.EmptyState
 import com.mivisor.tv.ui.design.MvButton
 import com.mivisor.tv.ui.design.MvColors
@@ -45,14 +48,16 @@ import com.mivisor.tv.ui.design.TvClickable
 fun MyListScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
     val mine by graph.mylist.state.collectAsState()
     val lib by graph.providers.state.collectAsState()
-    var tab by remember { mutableIntStateOf(if (mine.favorites.isEmpty() && mine.history.isNotEmpty()) 1 else 0) }
+    val reminders by graph.reminders.list.collectAsState()
+    // 0 = Favoritos, 1 = Recordatorios (3c), 2 = Historial.
+    var tab by remember { mutableIntStateOf(if (mine.favorites.isEmpty()) (if (reminders.isNotEmpty()) 1 else 2) else 0) }
     val first = remember { FocusRequester() }
     val favorites = mine.favorites.mapNotNull { lib.library.channel(it.first) }
 
-    if (favorites.isEmpty() && mine.history.isEmpty()) {
+    if (favorites.isEmpty() && mine.history.isEmpty() && reminders.isEmpty()) {
         EmptyState(
             "Mi lista está vacía",
-            "Mantén pulsado OK sobre un canal para añadirlo a Mi lista. Lo que veas aparecerá aquí, en el historial."
+            "Mantén pulsado OK sobre un canal para añadirlo a Mi lista. Los recordatorios de la Agenda y lo que veas también aparecerán aquí."
         ) { MvButton("Ir a Canales", { nav.tab(Route.Channels) }, icon = MvIcons.Grid, primary = true, focusRequester = first) }
         InitialFocus(first)
         return
@@ -64,7 +69,8 @@ fun MyListScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Tab("Favoritos · ${favorites.size}", tab == 0, { tab = 0 }, first)
-                Tab("Historial · ${mine.history.size}", tab == 1, { tab = 1 }, null)
+                Tab("Recordatorios · ${reminders.size}", tab == 1, { tab = 1 }, null)
+                Tab("Historial · ${mine.history.size}", tab == 2, { tab = 2 }, null)
             }
             Spacer(Modifier.height(20.dp))
         }
@@ -83,6 +89,31 @@ fun MyListScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
                         ch, graph.sources, favorite = true, onClick = { nav.go(Route.Player(ch.id)) },
                         onLongClick = { graph.mylist.toggleFavorite(ch.id, ch.name); toaster.show("Quitado de Mi lista") }
                     )
+                }
+            }
+        } else if (tab == 1) {
+            val now = System.currentTimeMillis()
+            LazyColumn(
+                contentPadding = PaddingValues(start = MvDims.SafeX, end = MvDims.SafeX, bottom = 48.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (reminders.isEmpty()) item {
+                    MvText("No tienes recordatorios. En la Agenda, abre un evento y pulsa «Recordarme».", MvType.Body, color = MvColors.Text2)
+                }
+                itemsIndexed(reminders, key = { _, r -> r.eventId }) { _, r ->
+                    MvRow(
+                        title = r.title,
+                        subtitle = "${dayLabel(r.startMillis).replaceFirstChar { it.uppercase() }} · ${hhmm(r.startMillis)} · ${ReminderPolicy.label(r, now)}" +
+                            (r.channels.firstOrNull()?.let { " · $it" } ?: ""),
+                        icon = MvIcons.Clock,
+                        trailing = "Ver ficha",
+                        onClick = { nav.go(Route.Event(r.eventId)) },
+                        onLongClick = { graph.reminders.remove(r.eventId); toaster.show("Recordatorio quitado") }
+                    )
+                }
+                if (reminders.isNotEmpty()) item {
+                    MvText("Mantén pulsado OK para quitar un recordatorio. Avisan con MiVisor TV abierta, 5 minutos antes.", MvType.Caption,
+                        modifier = Modifier.padding(top = 8.dp))
                 }
             }
         } else {

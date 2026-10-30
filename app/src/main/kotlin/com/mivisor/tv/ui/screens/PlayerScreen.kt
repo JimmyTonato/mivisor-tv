@@ -414,7 +414,7 @@ private fun Controls(
                 .padding(start = MvDims.SafeX, end = MvDims.SafeX, top = MvDims.SafeY, bottom = 60.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            BrandPlate(plate.top, plate.bottom, plate.tone.ui(), Modifier.width(110.dp).height(58.dp), scale = 0.8f)
+            ChannelLogo(channel, Modifier.width(110.dp).height(58.dp), 110.dp)
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 MvText(channel.name, MvType.Title, maxLines = 1)

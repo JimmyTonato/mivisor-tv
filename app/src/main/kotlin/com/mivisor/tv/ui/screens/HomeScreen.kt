@@ -123,7 +123,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
         if (hero != null) item {
             Hero(hero.first, hero.second, now, favorites, first,
                 onWatch = { nav.go(Route.Player(hero.second.first().id)) },
-                onOptions = { picking = hero.first },
+                onOptions = { nav.go(Route.Event(hero.first.id)) },
                 onFavorite = { toggleFav(hero.second.first()) })
         }
         if (events.isNotEmpty()) item {
@@ -132,7 +132,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
                 SectionHeader(if (live > 0) "En directo" else "Próximamente", Modifier.padding(start = MvDims.SafeX), "${events.size} eventos")
                 LazyRow(contentPadding = PaddingValues(horizontal = MvDims.SafeX), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                     itemsIndexed(events, key = { _, e -> e.first.id }) { i, (ev, chs) ->
-                        EventTile(ev, chs, now, onClick = { open(ev, chs) }, focusRequester = if (hero == null && i == 0) first else null)
+                        EventTile(ev, chs, now, onClick = { nav.go(Route.Event(ev.id)) }, focusRequester = if (hero == null && i == 0) first else null)
                     }
                 }
             }
@@ -198,7 +198,7 @@ private fun Hero(
             Spacer(Modifier.height(20.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MvButton("Ver ahora", onWatch, icon = MvIcons.Play, primary = true, focusRequester = first)
-                if (chs.size > 1) MvButton("Otras opciones", onOptions, icon = MvIcons.Layers)
+                MvButton("Dónde verlo", onOptions, icon = MvIcons.Layers)
                 MvButton(if (main.id in favorites) "En favoritos" else "Favorito", onFavorite, icon = MvIcons.Star)
             }
         }

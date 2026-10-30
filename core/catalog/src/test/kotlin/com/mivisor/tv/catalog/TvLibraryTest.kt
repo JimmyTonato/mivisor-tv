@@ -79,3 +79,27 @@ class ChannelPlatesTest {
         assertEquals("SEV", ChannelPlates.crest("Sevilla FC"))
     }
 }
+
+class WhereToWatchTest {
+    private fun id(n: Int) = n.toString(16).padStart(40, '0')
+
+    @Test fun primeroLoQuePuedesVerYSinRepetir() {
+        val lib = com.mivisor.tv.catalog.tv.TvLibrary.build(listOf(com.mivisor.tv.catalog.tv.ProviderCatalog("a", "A",
+            CatalogBuilder.build(listOf(
+                com.mivisor.tv.model.StreamItem(name = "DAZN LaLiga", url = "acestream://" + id(1)),
+                com.mivisor.tv.model.StreamItem(name = "M+ LaLiga", url = "acestream://" + id(2))
+            )))))
+        val announced = listOf(
+            com.mivisor.tv.model.AgendaChannel("beIN Sports", null, "Francia"),
+            com.mivisor.tv.model.AgendaChannel("DAZN LaLiga", "M55", null),
+            com.mivisor.tv.model.AgendaChannel("DAZN LaLiga", "M55", null),
+            com.mivisor.tv.model.AgendaChannel("M+ LaLiga", null, null)
+        )
+        val options = com.mivisor.tv.catalog.tv.WhereToWatch.build(announced, lib, rank = { if (it.name.startsWith("M+")) 1.0 else 0.5 })
+        assertEquals(3, options.size)
+        assertEquals("M+ LaLiga", options[0].announced.name)
+        assertEquals("beIN Sports", options.last().announced.name)
+        assertTrue(!options.last().available)
+        assertEquals("M+ LaLiga", com.mivisor.tv.catalog.tv.WhereToWatch.best(options)!!.name)
+    }
+}
