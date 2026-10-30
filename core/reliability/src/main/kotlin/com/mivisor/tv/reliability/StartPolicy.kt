@@ -36,6 +36,25 @@ object StartPolicy {
         else -> FailureKind.CLIENT_ERROR
     }
 
+    /**
+     * Recuperación de un corte mientras se ve (entrega 3b), por escalones:
+     *  0 = esperar (el buffer suele volver solo), 1 = salto al directo, 2 = recargar la misma fuente,
+     *  3 = cambiar de fuente. Devuelve el escalón que toca tras [stalledMs] sin imagen.
+     */
+    const val NUDGE_MS = 8_000L
+    const val RELOAD_MS = 16_000L
+    const val SWITCH_MS = 26_000L
+
+    fun recoveryStep(stalledMs: Long): Int = when {
+        stalledMs >= SWITCH_MS -> 3
+        stalledMs >= RELOAD_MS -> 2
+        stalledMs >= NUDGE_MS -> 1
+        else -> 0
+    }
+
+    /** Un corte cuenta como congelación (para la fiabilidad) si duró al menos esto. */
+    const val FREEZE_MIN_MS = 4_000L
+
     /** La fuente se cayó mientras se veía: arranque fallido o congelación según cuánto llevaba. */
     fun dropKind(playedMs: Long): String? = if (playedMs < EARLY_PLAY_MS) FailureKind.STALLED_EARLY else null
 }

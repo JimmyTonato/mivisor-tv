@@ -18,6 +18,18 @@
     <queries>
         <!-- Servicios rápidos: la WARP modificada. -->
         <package android:name="com.cloudflare.onedotonedotonedotone" />
+        <!-- 3b: Ace Stream como alternativa y enlaces externos de los proveedores (como en la v18). -->
+        <package android:name="org.acestream.media" />
+        <package android:name="org.acestream.media.atv" />
+        <package android:name="org.acestream.core" />
+        <package android:name="org.acestream.core.atv" />
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="acestream" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="magnet" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="tg" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="tvgram" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="http" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="https" /></intent>
+        <package android:name="com.network.tvgramplayer" />
     </queries>
 
     <application

@@ -37,6 +37,7 @@ object MvIcons {
     val ChevronRight = R.drawable.ic_chevron_right
     val Clock = R.drawable.ic_clock
     val Trophy = R.drawable.ic_trophy
+    val Link = R.drawable.ic_link
 }
 
 @Composable

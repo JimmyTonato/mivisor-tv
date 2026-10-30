@@ -1,92 +1,75 @@
-# MiVisor TV · Entrega 3a (base)
+# MiVisor TV · Entrega 3b (reproducción e interfaz)
 
-Proyecto nuevo, listo para subirlo a un repositorio privado y generar la primera APK de prueba. **No hace falta configurar nada.** Sin secretos, se firma como en la v18, con `app/debug.keystore`. Esa APK funciona en todo menos en el control de WARP. Ver `README.md` → Firma.
+La 3b va encima de la 3a, que ya compila y funciona. No hay que configurar nada nuevo: la firma y la pre-release automática siguen igual (ver `README.md`). Lo que trajo la 3a está en `docs/entregas/3a.md`.
 
 ## Lo que trae
 
-- **Proyecto y CI.**
-  - Multimódulo en Kotlin con las versiones probadas de la v18: AGP 8.7.3, Gradle 8.9, Kotlin 2.0.21 y Compose 1.7.
-  - El workflow compila Outpace, pasa las pruebas, firma con el procedimiento de la v18 (secretos o, si no hay, `app/debug.keystore`) y comprueba la APK.
-- **Proveedores.**
-  - Se añaden por código, escrito con el mando o con el móvil (QR).
-  - El código se comprueba antes de guardarlo, se guarda cifrado con AES-GCM y el Android Keystore, y no se vuelve a mostrar.
-  - Se pueden renombrar y eliminar, y cada uno se puede marcar como «necesita WARP».
-- **Canales.**
-  - Los de todos los proveedores se juntan por nombre real: «DAZN LaLiga» es un único canal, con las fuentes de cada proveedor.
-  - Están agrupados por marcas y tipos (las secciones de la Web 7.7.0), con búsqueda tolerante a erratas y Mi lista (favoritos e historial).
-- **Reproducción.**
-  - Usa Outpace integrado, HLS por 127.0.0.1 y Media3, con el buffer adaptativo y el control del retraso de la v18.
-  - Elige la fuente con la **fiabilidad de la fase 2**:
-    - aprende solo con la app abierta y guarda el historial entre sesiones;
-    - las pausas y la cuarentena tienen límites y reintentos;
-    - los fallos de Internet, WARP, el motor o la memoria no penalizan a las fuentes.
-  - Menú de fuentes, audio y subtítulos, pausa y ajuste de imagen.
-- **WARP.**
-  - Estado, conectar, desconectar y autorizar, con el mismo protocolo de la v18.
-  - Comprobación de firma por la **huella SHA-256 completa**, no por el CN.
-- **Agenda básica.** Directo y próximos por deporte, desde `mivisor-datos` en GitHub, con copia local y ETag. Al elegir un evento se abre uno de tus canales. No depende de la Raspberry ni la toca.
-- **Interfaz.**
-  - Diseño premium de la fase 2: tokens, tipografía Inter, foco con anillo blanco y escala 1,06, zona segura de TV y texto de 12 sp como mínimo.
-  - Barra superior con Inicio, Agenda, Canales, Buscar, Mi lista y Ajustes.
-  - Asistente de primera vez y modo ligero.
-- **Privacidad.**
-  - `allowBackup=false`.
-  - El registro se limpia antes de guardarse: sin códigos, Content IDs completos, URLs ni IPs públicas.
-  - Nada se ejecuta en segundo plano. Al salir de la app se para la reproducción y, poco después, Outpace.
+### Reproducción
 
-## Lista de comprobación
+- **Un corte real se recupera solo.** Si la imagen se para mientras ves un canal, se recupera por escalones:
+  1. Espera unos segundos, porque el buffer suele volver solo.
+  2. A los 8 s, salta al directo.
+  3. A los 16 s, recarga la misma fuente.
+  4. A los 26 s, cambia a la siguiente fuente.
 
-A = lo comprueba la CI en cada compilación. T = hay que probarlo en vuestra tele.
+  Arriba aparece un aviso discreto («Recuperando la imagen…»). La fiabilidad apunta cuánto costó recuperarla.
+- **Quitar la red o WARP a mitad no castiga fuentes.** Antes de culpar a una fuente se mira si el fallo es general (sin Internet, WARP caída, motor, poca memoria). Si lo es, no se penaliza ni se cambia de fuente: se espera a que vuelva («Sin conexión: esperando a que vuelva la red…») y se recarga la misma.
+- **Multiaudio.** El idioma de audio que elijas en un canal se recuerda y se vuelve a poner la próxima vez que lo veas.
+- **WARP por proveedor.**
+  - Si una fuente es de un proveedor marcado como «necesita WARP», MiVisor TV conecta WARP antes de probarla y espera a que esté lista.
+  - Si WARP no se puede usar (no instalada, con otra firma o sin autorizar), esa fuente se salta **sin penalizarla** y el aviso lo explica.
+  - Con la APK firmada con la clave de desarrollo, WARP no se puede controlar desde la app. Esas fuentes solo funcionan si conectas WARP a mano.
+- **Ace Stream como alternativa** (Ajustes › Motor):
+  - **Motor:** Outpace (recomendado) o Ace Stream. Con Ace Stream, cada canal se abre en la app oficial con su mejor fuente, y se vuelve a MiVisor TV con Atrás.
+  - **Si Outpace no da imagen:** Preguntar (botón «Probar con Ace Stream»), Automático o Nunca.
+  - **Desde el menú de fuentes:** mantener OK sobre una fuente la abre en Ace Stream.
+- **Cambiar de canal.**
+  - Con los controles ocultos, ▲▼ o CH+/CH− cambian de canal dentro del mismo grupo.
+  - «Canal anterior» está en el reproductor y en Canales, y también responde a la tecla de canal anterior del mando.
+- **Enlaces externos.** Los enlaces de los proveedores que no son Ace Stream (Telegram, TVGram, magnet, webs) aparecen en Canales › Por temática › «Enlaces externos». Se abren con la app que Android tenga para cada uno, igual que en la v18.
 
-| # | Comprobación | Cómo |
-|---|---|---|
-| 1 | No hay claves privadas, contraseñas ni binarios en el repositorio; solo está la clave de desarrollo de la v18 | A |
-| 2 | Outpace se compila desde el commit fijado `7d77f410…` y su licencia coincide | A |
-| 3 | Pruebas del núcleo: 164 en la JVM (proveedores, canales, agenda, fiabilidad con los vectores de la fase 2, redacción, motor, móvil, WARP) y las de navegación de la app | A |
-| 4 | La APK lleva Outpace para ARMv7 y ARM64, sus licencias y ningún fichero de clave | A |
-| 5 | Se compara la huella SHA-256 de la APK con la de WARP. Si coincide, OK. Con la clave de desarrollo, aviso «no podrá controlar WARP» y nombre `…-sin-control-WARP.apk`. Con secretos que no coinciden, la CI falla | A |
-| 6 | Se instala **junto a la v18** sin desinstalar nada | T |
-| 7 | Solo con la APK firmada con los secretos: Ajustes › WARP muestra «Correcto: misma huella» y conecta y desconecta. Con la de desarrollo debe decir «Huella distinta» | T |
-| 8 | Lee vuestros proveedores; los canales repetidos aparecen como uno solo con varias fuentes | T |
-| 9 | Abre canales en una tele **ARMv7** y en otra **ARM64**; Ajustes › Motor muestra «En marcha» | T |
-| 10 | «Escribir con el móvil» rellena el código desde el móvil, en la misma Wi-Fi | T |
-| 11 | Con el mando se llega a todo: pestañas, rejillas, fichas, reproductor, menús y diálogos. Atrás siempre vuelve | T |
-| 12 | Quitar la red a mitad de un intento no marca la fuente: Ficha del canal › «Sin probar» o «Funciona», no «En pausa» | T |
-| 13 | Tras cerrar y abrir la app, la ficha del canal mantiene el estado de las fuentes | T |
+### Interfaz, más cerca del prototipo
 
-Para los puntos T, decidnos la marca, el modelo, la versión de Android y la memoria de cada tele.
+- **Barra superior:** marca «M MiVisor», pestañas con un punto bajo la elegida, ajustes como icono, una pastilla con el estado de Outpace y WARP, y la hora.
+- **Rótulos de canal:** «DAZN / LALIGA», «M+ / DEPORTES», «EURO / SPORT 1», con los tonos del prototipo (claro, oscuro, azul y rojo).
+- **Tarjetas de canal:**
+  - Llevan el resplandor y el rótulo en el centro, y debajo el nombre y el estado con su punto («Funciona», «Sin probar», «En pausa»…).
+  - Indican «Multiaudio» y si el canal está en Mi lista.
+- **Canales:**
+  - Cabecera con recuento y atajos (Buscar canal, Favoritos, Canal anterior, Todos los canales).
+  - «Grupos» por marca y «Por temática» en bloques de color. Cada uno abre su rejilla de canales.
+- **Inicio:**
+  - Portada con el evento destacado: colores de los equipos, escudos de texto, «EN DIRECTO», y los botones «Ver ahora», «Otras opciones» y «Favorito».
+  - Debajo, «En directo» con tarjetas de evento, «Seguir viendo», «Mi lista» y los grupos.
+- **Reproductor:**
+  - Arriba, el rótulo, el nombre, «EN DIRECTO» y la hora.
+  - Abajo, los datos de la fuente y los botones Pausa, Audio y subtítulos, Fuente *x* de *y*, Canales, Canal anterior, Mi lista e Imagen.
+  - Una línea de ayuda explica cómo cambiar de canal.
+- **Mi lista:** pestañas Favoritos e Historial.
 
-## Diferencias con la especificación de la fase 2
+Siguen siendo **placas de texto, no logos**: los logos de canal llegan en la 3c. Por eso los escudos de los equipos usan las siglas sobre un color estable, en lugar de las imágenes reales.
 
-| En la especificación | En la 3a | Por qué |
-|---|---|---|
-| Room | SQLite del sistema (`core:storage`), con esquema versionado | Room obliga a añadir KSP, y esta compilación no se puede probar aquí. El cambio a Room es interno y puede hacerse más adelante sin perder datos |
-| `tv-material` 1.1.0 | Componentes propios sobre Compose Foundation, como la v18 y el prototipo | Mantener las versiones probadas de la v18 sin subir Kotlin ni AGP |
-| Media3 1.11.x | Media3 1.4.1, la de la v18 | La versión que ya funciona con Outpace. Admite Android 6 |
-| Coil y logos | Placas con iniciales | Los logos llegan con la agenda completa |
-| Módulos `:providers` y `:agenda` | Paquetes dentro de `core:catalog` | Menos módulos y el mismo aislamiento (sin Android) |
-| Pruebas de foco con capturas en tres resoluciones (CI) | Pendiente | Requieren un emulador de TV en la CI. Mientras tanto, el punto 11 se prueba en la tele |
+## Lista de comprobación en la tele (T)
 
-Además, la fiabilidad estaba prevista para la 3b y ya viene en esta entrega.
+| # | Comprobación |
+|---|---|
+| 1 | Mientras ves un canal, desenchufa la red o desconecta WARP 30 s. Sale «Sin conexión: esperando…». Al volver la red, se recupera **la misma** fuente, y en la ficha del canal la fuente **no** aparece «En pausa» |
+| 2 | Un corte real del canal (sin tocar la red) muestra «Recuperando la imagen…» y vuelve solo, o pasa a otra fuente si no puede |
+| 3 | En un canal multiaudio, cambia el idioma en Audio y subtítulos; sal y vuelve a entrar: está el idioma elegido |
+| 4 | Con Ace Stream instalada, en Ajustes › Motor elige Ace Stream: el canal se abre en su app y **Atrás** vuelve a MiVisor TV |
+| 5 | Con «Si Outpace no da imagen: Preguntar», un canal sin imagen ofrece «Probar con Ace Stream» |
+| 6 | ▲▼ cambia de canal dentro del grupo; «Canal anterior» vuelve al último visto |
+| 7 | Canales › «Enlaces externos» abre un enlace de Telegram, TVGram o magnet con su app |
+| 8 | Con el mando se llega a todo lo nuevo: tarjetas de grupo y temática, portada de Inicio, controles del reproductor y pestañas de Mi lista |
 
-## Lo que no está y cuándo llega
+## Qué queda fuera
 
-Ajustes › Próximamente lo enseña también dentro de la app.
+- **Ace Stream «dentro» de MiVisor TV** (su motor con el reproductor de MiVisor) queda para más adelante. En la 3b, Ace Stream se abre en su propia app, que es lo que la especificación pide comprobar.
+- **Logos, «Dónde verlo» completo, competiciones y recordatorios:** 3c.
+- **Copias, diagnóstico completo y verificador:** 3d.
 
-- **3b:** Ace Stream externo, recuperación automática y canal anterior, enlaces externos.
-- **3c:** agenda completa («Dónde verlo», competiciones, recordatorios), logos y vista previa.
-- **3d:** copia de seguridad cifrada, diagnóstico completo con informe al móvil y verificador (desactivado por defecto).
+## Compilación
 
-## Importante: compilación
+Las pruebas del núcleo pasan aquí: **167 en verde**, entre ellas los escalones de recuperación, los rótulos, el cambio de canal y los enlaces externos. El código Android se ha revisado con las mismas comprobaciones que en la 3a, pero no se ha podido compilar en este entorno. Si la ejecución de GitHub falla, pasadme su log y lo corrijo.
 
-Los módulos del núcleo (`core:*`, salvo `core:storage`) se han compilado y probado aquí: **164 pruebas en verde**.
-
-El código Android (pantallas, almacenamiento, Outpace en Android, WARP y reproductor) **no se ha podido compilar aquí**: este entorno no tiene acceso a los repositorios de Google ni de Maven. Se ha escrito sobre las mismas versiones y, donde era posible, con el mismo código de la v18 que ya compila. Además, se ha revisado a mano y con comprobaciones automáticas de imports y referencias.
-
-Aun así, **la primera ejecución de la CI puede dar algún error de compilación**. Si pasa, mandadnos el log de la ejecución, que no contiene secretos, y lo corregimos en una corrección de esta misma entrega. No hemos probado la app en ninguna tele.
-
-## Datos
-
-- **Agenda.** Por defecto se lee `https://raw.githubusercontent.com/JimmyTonato/mivisor-datos/main/agenda.json`. El repositorio tiene que ser público, porque la app no lleva tokens. Se puede cambiar en Ajustes › Agenda o al compilar con `-PagendaUrl=…`.
-- **Proveedores.** Se leen por DNS con el mismo dominio y el mismo decodificador que la v18.
-- No se ha modificado la Raspberry, MiVisor Web, MiVisor Agenda, la v18, Outpace en producción ni ningún repositorio de producción.
+No se ha modificado nada de la Raspberry, MiVisor Web, MiVisor Agenda, la v18 ni Outpace en producción.

@@ -28,4 +28,17 @@ interface SourceBook {
     fun onFreeze(source: PlaySource, step: Int)
     fun onSessionEnd(channelId: String, channelName: String, source: PlaySource?, playedMs: Long, stalls: Int)
     fun log(category: String, text: String)
+
+    /**
+     * Antes de probar una fuente: prepara la red que necesita su proveedor (p. ej. conecta WARP y espera).
+     * null = se puede probar; si no, la causa ("warp") y la fuente se salta SIN penalizarla.
+     */
+    suspend fun prepareNetwork(source: PlaySource): String? = null
+
+    /** Causa general en este momento (sin Internet, WARP caída…) o null. Se llama fuera del hilo principal. */
+    fun generalCause(source: PlaySource): String? = null
+
+    /** Idioma de audio elegido la última vez en este canal (multiaudio), o null. */
+    fun preferredAudio(channelId: String): String? = null
+    fun rememberAudio(channelId: String, language: String?) {}
 }

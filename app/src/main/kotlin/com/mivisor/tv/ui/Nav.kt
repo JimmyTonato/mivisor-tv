@@ -11,6 +11,10 @@ sealed class Route {
     object MyList : Route()
     object Settings : Route()
     data class Channel(val id: String) : Route()
+    /** Un grupo (marca) o temática de Canales, con todos sus canales. */
+    data class Group(val key: String) : Route()
+    /** Enlaces externos de los proveedores (magnet, Telegram, TVGram…). */
+    object Links : Route()
     data class Player(val channelId: String, val chosen: String? = null) : Route()
     data class AddProvider(val prefill: String? = null, val fromWizard: Boolean = false) : Route()
     object Wizard : Route()

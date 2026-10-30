@@ -13,7 +13,25 @@ import com.mivisor.tv.model.Channel
 import com.mivisor.tv.model.ChannelKind
 
 /** Un proveedor ya leído: id = código normalizado (nunca se muestra), nombre visible y su catálogo. */
-class ProviderCatalog(val id: String, val name: String, val catalog: Catalog, val usesWarp: Boolean = false)
+class ProviderCatalog(
+    val id: String,
+    val name: String,
+    val catalog: Catalog,
+    val usesWarp: Boolean = false,
+    /** Enlaces que no son Ace Stream (magnet, Telegram, TVGram, webs…): se abren con otra app. */
+    val links: List<Channel> = emptyList()
+)
+
+/** Enlace externo de un proveedor: se abre con la app que Android elija (no se reproduce en MiVisor TV). */
+class TvLink(val id: String, val name: String, val url: String, val kind: ChannelKind, val providerName: String) {
+    val kindLabel: String get() = when (kind) {
+        ChannelKind.MAGNET -> "Magnet"
+        ChannelKind.TELEGRAM -> if (url.startsWith("tvgram", ignoreCase = true)) "TVGram" else "Telegram"
+        ChannelKind.HLS, ChannelKind.VIDEO, ChannelKind.PLAYLIST -> "Vídeo"
+        ChannelKind.WEB -> "Web"
+        else -> "Enlace"
+    }
+}
 
 /** Una fuente reproducible de un canal: el Content ID es la identidad para la fiabilidad. */
 class TvSource(
@@ -43,13 +61,36 @@ class TvChannel(
 }
 
 /** Una sección de Canales: una marca (DAZN, Movistar Plus+…), un tipo (Deportes…) u «Otros canales». */
-class TvSection(val key: String, val name: String, val channels: List<TvChannel>)
+class TvSection(val key: String, val name: String, val channels: List<TvChannel>) {
+    /** Marca conocida (Grupos) o temática / otros (Por temática). */
+    val isBrand: Boolean get() = !key.startsWith("cat:") && key != "otros"
+}
 
 /** Todo lo que la interfaz necesita de los proveedores, calculado una vez fuera del hilo principal. */
-class TvLibrary(val channels: List<TvChannel>, val sections: List<TvSection>, val providerCount: Int) {
+class TvLibrary(
+    val channels: List<TvChannel>,
+    val sections: List<TvSection>,
+    val providerCount: Int,
+    val links: List<TvLink> = emptyList()
+) {
     private val byId = channels.associateBy { it.id }
     fun channel(id: String): TvChannel? = byId[id]
     val isEmpty: Boolean get() = channels.isEmpty()
+
+    val brandSections: List<TvSection> get() = sections.filter { it.isBrand }
+    val themeSections: List<TvSection> get() = sections.filter { !it.isBrand }
+    fun section(key: String): TvSection? = sections.firstOrNull { it.key == key }
+
+    /** Sección en la que aparece el canal (para cambiar de canal con ▲▼ dentro de su grupo). */
+    fun sectionOf(channelId: String): TvSection? = sections.firstOrNull { s -> s.channels.any { it.id == channelId } }
+
+    /** Canal siguiente (+1) o anterior (−1) dentro de su sección, dando la vuelta al llegar al final. */
+    fun neighbor(channelId: String, step: Int): TvChannel? {
+        val list = sectionOf(channelId)?.channels ?: channels
+        val i = list.indexOfFirst { it.id == channelId }
+        if (i < 0 || list.size < 2) return null
+        return list[((i + step) % list.size + list.size) % list.size]   // sin Math.floorMod (API 24)
+    }
 
     private val matcher by lazy {
         ChannelMatcher(channels.map { Channel(it.id, it.name, it.id, null, ChannelKind.ACE, it.initials, 0) })
@@ -77,7 +118,10 @@ class TvLibrary(val channels: List<TvChannel>, val sections: List<TvSection>, va
             val sections = LogoSections.build(channels, resolver, name = { it.name }, listGroup = { null }).map { sec ->
                 TvSection(sec.key ?: "otros", sec.name, sec.items.map { it.first })
             }
-            return TvLibrary(channels, sections, providers.size)
+            val links = providers.flatMap { p ->
+                p.links.map { TvLink("${p.id}/${it.id}", it.name, it.url, it.kind, p.name) }
+            }.distinctBy { it.url }
+            return TvLibrary(channels, sections, providers.size, links)
         }
 
         private fun toSource(s: ChannelSource): TvSource? {

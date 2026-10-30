@@ -47,8 +47,23 @@ class AppGraph(context: Context) {
     val agenda = AgendaStore(AgendaRepository(File(app.cacheDir, "agenda")), prefs, BuildConfig.AGENDA_URL, log, scope)
     val mylist = MyListRepository(db, scope)
     val warp = WarpController(app, scope)
-    val sources = SourceBookImpl(app, db, warp, providers, mylist, log, scope)
+    val sources = SourceBookImpl(app, db, warp, providers, mylist, log, prefs, scope)
     val player = PlaybackController(app, sources)
+
+    /** «Canal anterior»: se apunta cada canal que empieza a verse. */
+    fun watched(channelId: String) {
+        val last = prefs.lastChannel
+        if (last == channelId) return
+        if (last != null) prefs.previousChannel = last
+        prefs.lastChannel = channelId
+    }
+
+    /** El canal al que lleva «Canal anterior» desde [current] (o desde el último visto). */
+    fun previousOf(current: String?): String? {
+        val last = prefs.lastChannel
+        val prev = prefs.previousChannel
+        return if (current != null && current == last) prev else last ?: prev
+    }
 
     /** Al abrir la app: lo guardado al instante y después la red. */
     fun start() {

@@ -16,7 +16,10 @@ import com.mivisor.tv.warp.WarpController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import com.mivisor.tv.storage.Prefs
 
 /**
  * Fiabilidad de las fuentes con la app abierta (fase 2): [ReliabilityStore] en memoria, guardado en SQLite tras cada
@@ -31,6 +34,7 @@ class SourceBookImpl(
     private val providers: ProvidersRepository,
     private val mylist: MyListRepository,
     private val log: LogBook,
+    private val prefs: Prefs,
     private val scope: CoroutineScope
 ) : SourceBook {
     private val app = context.applicationContext
@@ -94,6 +98,42 @@ class SourceBookImpl(
     }
 
     override fun log(category: String, text: String) = log.add(category, text)
+
+    /**
+     * WARP por proveedor (3b): si el proveedor de la fuente la necesita, se conecta y se espera (25 s como mucho).
+     * Si no se puede (no instalada, otra firma, sin autorizar), la fuente se salta sin penalizarla.
+     */
+    override suspend fun prepareNetwork(source: PlaySource): String? {
+        if (!providers.usesWarp(source.providerId)) return null
+        var phase = warp.state.value.phase
+        if (phase == WarpPhase.CONNECTED) return null
+        if (phase == WarpPhase.CHECKING || phase == WarpPhase.ERROR || phase == WarpPhase.DISCONNECTED) {
+            phase = runCatching { warp.refresh().phase }.getOrDefault(phase)
+            if (phase == WarpPhase.CONNECTED) return null
+        }
+        when (phase) {
+            WarpPhase.NOT_INSTALLED, WarpPhase.SIGNATURE_MISMATCH, WarpPhase.PERMISSION_REQUIRED, WarpPhase.NEEDS_SETUP -> {
+                log.add("WARP", "El proveedor de la fuente necesita WARP y no se puede conectar desde MiVisor TV (${phase.name})")
+                return "WARP"
+            }
+            else -> Unit
+        }
+        log.add("WARP", "Conectando WARP para un proveedor que la necesita")
+        warp.connect()
+        val final = withTimeoutOrNull(25_000) {
+            warp.state.first { it.phase == WarpPhase.CONNECTED || (!it.transitional && it.phase != WarpPhase.CHECKING) }
+        }
+        return if (final?.phase == WarpPhase.CONNECTED) null else "WARP"
+    }
+
+    override fun generalCause(source: PlaySource): String? {
+        val ctx = context(source)
+        return synchronized(lock) { store.classify(ctx) }
+    }
+
+    override fun preferredAudio(channelId: String): String? = prefs.audioFor(channelId)
+
+    override fun rememberAudio(channelId: String, language: String?) = prefs.setAudio(channelId, language)
 
     /** Quitar la pausa o la cuarentena de una fuente (Ajustes › fuentes del canal). */
     fun release(contentId: String) {

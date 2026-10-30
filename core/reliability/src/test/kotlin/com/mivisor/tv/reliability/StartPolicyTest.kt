@@ -21,6 +21,13 @@ class StartPolicyTest {
         assertTrue(Policy.WEIGHT.keys.containsAll(listOf(FailureKind.NOT_FOUND, FailureKind.NO_PROGRESS, FailureKind.CLIENT_ERROR, FailureKind.NO_VIDEO, FailureKind.STALLED_EARLY)))
     }
 
+    @Test fun escalonesDeRecuperacion() {
+        assertEquals(0, StartPolicy.recoveryStep(5_000))
+        assertEquals(1, StartPolicy.recoveryStep(9_000))
+        assertEquals(2, StartPolicy.recoveryStep(17_000))
+        assertEquals(3, StartPolicy.recoveryStep(30_000))
+    }
+
     @Test fun cicloPruebaCadaFuenteUnaVez() {
         val c = SourceCycle(listOf("a", "b", "c"))
         assertEquals("a", c.next()); assertEquals("b", c.next())

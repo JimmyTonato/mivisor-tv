@@ -13,6 +13,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import com.mivisor.tv.ui.design.MvIcon
+import com.mivisor.tv.ui.design.MvIcons
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -39,6 +46,8 @@ import com.mivisor.tv.ui.screens.AddProviderScreen
 import com.mivisor.tv.ui.screens.AgendaScreen
 import com.mivisor.tv.ui.screens.ChannelScreen
 import com.mivisor.tv.ui.screens.ChannelsScreen
+import com.mivisor.tv.ui.screens.GroupScreen
+import com.mivisor.tv.ui.screens.LinksScreen
 import com.mivisor.tv.ui.screens.HomeScreen
 import com.mivisor.tv.ui.screens.MyListScreen
 import com.mivisor.tv.ui.screens.PlayerScreen
@@ -73,7 +82,7 @@ fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
             val route = nav.current
             BackHandler(enabled = true) { if (!nav.back()) onExit() }
             when (route) {
-                is Route.Player -> PlayerScreen(graph, route, onBack = { nav.back() })
+                is Route.Player -> PlayerScreen(graph, route, toaster, onBack = { nav.back() }, onSwitch = { nav.replace(it) }, onChannels = { nav.tab(Route.Channels) })
                 Route.Wizard -> WizardScreen(onStart = { nav.go(Route.AddProvider(fromWizard = true)) }, onSkip = {
                     graph.prefs.wizardDone = true
                     nav.tab(Route.Home)
@@ -86,9 +95,11 @@ fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
                             Route.Agenda -> AgendaScreen(graph, nav, toaster)
                             Route.Channels -> ChannelsScreen(graph, nav, toaster)
                             Route.Search -> SearchScreen(graph, nav)
-                            Route.MyList -> MyListScreen(graph, nav)
+                            Route.MyList -> MyListScreen(graph, nav, toaster)
                             Route.Settings -> SettingsScreen(graph, nav, toaster, onLite = { lite = it })
                             is Route.Channel -> ChannelScreen(graph, nav, route, toaster)
+                            is Route.Group -> GroupScreen(graph, nav, route, toaster)
+                            Route.Links -> LinksScreen(graph, toaster)
                             is Route.AddProvider -> AddProviderScreen(graph, route, onDone = {
                                 if (route.fromWizard) {
                                     graph.prefs.wizardDone = true
@@ -105,6 +116,7 @@ fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
     }
 }
 
+/** Barra superior del prototipo: marca, pestañas con punto bajo la elegida, ajustes, estado de Outpace y WARP, hora. */
 @Composable
 private fun TopBar(graph: AppGraph, route: Route, onTab: (Route) -> Unit) {
     val engine by EngineManager.state.collectAsState()
@@ -117,63 +129,81 @@ private fun TopBar(graph: AppGraph, route: Route, onTab: (Route) -> Unit) {
         }
     }
     val selectedTab = when (route) {
-        is Route.Channel -> Route.Channels
+        is Route.Channel, is Route.Group, Route.Links -> Route.Channels
         is Route.AddProvider -> Route.Settings
         else -> route
     }
     Row(
-        Modifier.fillMaxWidth().padding(start = MvDims.SafeX, end = MvDims.SafeX, top = MvDims.SafeY, bottom = 12.dp),
+        Modifier.fillMaxWidth().padding(start = MvDims.SafeX, end = MvDims.SafeX, top = MvDims.SafeY, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        MvText("MiVisor", MvType.Heading, color = MvColors.Text)
-        MvText(" TV", MvType.Heading, color = MvColors.Accent2)
+        Box(
+            Modifier.size(26.dp).background(Brush.linearGradient(listOf(MvColors.Accent, MvColors.Accent2)), RoundedCornerShape(7.dp)),
+            contentAlignment = Alignment.Center
+        ) { MvText("M", MvType.SmallStrong.copy(fontWeight = FontWeight.Black)) }
+        Spacer(Modifier.width(8.dp))
+        MvText("MiVisor", MvType.Heading.copy(fontWeight = FontWeight.Black))
         Spacer(Modifier.width(28.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (tab in Route.TABS) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            for (tab in Route.TABS.filter { it != Route.Settings }) {
                 val selected = tab == selectedTab
                 TvClickable(
-                    onClick = { onTab(tab) },
-                    shape = RoundedCornerShape(20.dp),
-                    color = if (selected) MvColors.Surface3 else MvColors.Bg,
-                    focusedColor = MvColors.Text,
-                    focusedScale = 1.04f
+                    onClick = { onTab(tab) }, shape = RoundedCornerShape(20.dp),
+                    color = Color.Transparent, focusedColor = MvColors.Text, focusedScale = 1.04f
                 ) { focused ->
-                    MvText(
-                        tabLabel(tab), MvType.BodyStrong,
-                        color = when {
-                            focused -> MvColors.Bg
-                            selected -> MvColors.Text
-                            else -> MvColors.Text2
-                        },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp), maxLines = 1
-                    )
+                    Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val ink = when {
+                                focused -> MvColors.Bg
+                                selected -> MvColors.Text
+                                else -> MvColors.Text2
+                            }
+                            if (tab == Route.Search) {
+                                MvIcon(MvIcons.Search, size = 16.dp, tint = ink)
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            MvText(tabLabel(tab), MvType.Body.copy(fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium), color = ink, maxLines = 1)
+                        }
+                        Box(Modifier.padding(top = 3.dp).size(4.dp).background(if (selected && !focused) MvColors.Accent2 else Color.Transparent, CircleShape))
+                    }
                 }
             }
         }
         Spacer(Modifier.weight(1f))
-        LiveDot(
-            when (engine.phase) {
-                EngineSupervisor.Phase.READY -> MvColors.Ok
-                EngineSupervisor.Phase.STARTING -> MvColors.Soon
-                EngineSupervisor.Phase.FAILED -> MvColors.Bad
-                EngineSupervisor.Phase.STOPPED -> MvColors.Text3
-            }
-        )
-        Spacer(Modifier.width(6.dp))
-        MvText("Outpace", MvType.Caption)
-        Spacer(Modifier.width(14.dp))
-        LiveDot(
-            when (warp.phase) {
-                WarpPhase.CONNECTED -> MvColors.Ok
-                WarpPhase.CONNECTING, WarpPhase.DISCONNECTING -> MvColors.Soon
-                WarpPhase.SIGNATURE_MISMATCH, WarpPhase.ERROR -> MvColors.Bad
-                else -> MvColors.Text3
-            }
-        )
-        Spacer(Modifier.width(6.dp))
-        MvText("WARP", MvType.Caption)
+        TvClickable(
+            onClick = { onTab(Route.Settings) }, shape = CircleShape, focusedScale = 1.08f,
+            color = if (selectedTab == Route.Settings) MvColors.Surface3 else Color.Transparent, focusedColor = MvColors.Text,
+            contentAlignment = Alignment.Center, modifier = Modifier.size(36.dp)
+        ) { focused -> MvIcon(MvIcons.Settings, size = 18.dp, tint = if (focused) MvColors.Bg else MvColors.Text2) }
+        Spacer(Modifier.width(12.dp))
+        Row(
+            Modifier.background(MvColors.Surface2, RoundedCornerShape(20.dp)).padding(horizontal = 14.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            LiveDot(
+                when (engine.phase) {
+                    EngineSupervisor.Phase.READY -> MvColors.Ok
+                    EngineSupervisor.Phase.STARTING -> MvColors.Soon
+                    EngineSupervisor.Phase.FAILED -> MvColors.Bad
+                    EngineSupervisor.Phase.STOPPED -> MvColors.Text3
+                }, 7.dp
+            )
+            Spacer(Modifier.width(6.dp))
+            MvText(if (graph.prefs.engine == "ace") "Ace Stream" else "Outpace", MvType.Caption.copy(color = MvColors.Text2))
+            Spacer(Modifier.width(12.dp))
+            LiveDot(
+                when (warp.phase) {
+                    WarpPhase.CONNECTED -> MvColors.Ok
+                    WarpPhase.CONNECTING, WarpPhase.DISCONNECTING -> MvColors.Soon
+                    WarpPhase.SIGNATURE_MISMATCH, WarpPhase.ERROR -> MvColors.Bad
+                    else -> MvColors.Text3
+                }, 7.dp
+            )
+            Spacer(Modifier.width(6.dp))
+            MvText("WARP", MvType.Caption.copy(color = MvColors.Text2))
+        }
         Spacer(Modifier.width(18.dp))
-        MvText(hhmm(now), MvType.BodyStrong)
+        MvText(hhmm(now), MvType.Heading)
     }
 }
 

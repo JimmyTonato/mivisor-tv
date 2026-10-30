@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.mivisor.tv.AppGraph
 import com.mivisor.tv.BuildConfig
+import com.mivisor.tv.data.ExternalApps
 import com.mivisor.tv.data.NetState
 import com.mivisor.tv.data.ProviderInfo
 import com.mivisor.tv.engine.EngineDiagnostics
@@ -69,13 +70,13 @@ import kotlinx.coroutines.withContext
 
 private enum class Page(val title: String, val hint: String) {
     PROVIDERS("Proveedores", "Códigos, nombres y WARP"),
-    ENGINE("Motor", "Outpace integrado"),
+    ENGINE("Motor", "Outpace y Ace Stream"),
     WARP("WARP", "Conexión y firma"),
     DISPLAY("Pantalla", "Modo ligero"),
     AGENDA("Agenda", "Datos de GitHub"),
     RELIABILITY("Fiabilidad", "Lo aprendido de las fuentes"),
     LOG("Registro", "Sin datos sensibles"),
-    LATER("Próximamente", "Lo que llega en 3b, 3c y 3d"),
+    LATER("Próximamente", "Lo que llega en 3c y 3d"),
     ABOUT("Acerca de", "Versión y licencias")
 }
 
@@ -207,7 +208,25 @@ private fun EnginePage(graph: AppGraph) {
     LaunchedEffect(Unit) { while (true) { delay(2_000); tick++ } }     // solo mientras se ve esta página
     val m = remember(tick) { EngineDiagnostics.metrics }
     val supported = remember { EngineManager.unsupportedReason(context) }
+    val aceInstalled = remember { ExternalApps.aceInstalled(context) }
+    var engineChoice by remember { mutableStateOf(graph.prefs.engine) }
+    var fallback by remember { mutableStateOf(graph.prefs.aceFallback) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        MvText("Outpace va dentro de MiVisor TV y es el que se usa siempre que funciona. Ace Stream es una app aparte que puedes elegir como alternativa.", MvType.Small)
+        MvRow("Outpace (integrado)", { engineChoice = "outpace"; graph.prefs.engine = "outpace" },
+            subtitle = "Recomendado: elige la fuente, recupera los cortes y recuerda el audio", icon = MvIcons.Bolt) { MvSwitch(engineChoice == "outpace") }
+        MvRow("Ace Stream (app externa)", { if (aceInstalled) { engineChoice = "ace"; graph.prefs.engine = "ace" } },
+            subtitle = if (aceInstalled) "Abre cada canal en la app de Ace Stream; se vuelve con Atrás. MiVisor TV no controla audio ni subtítulos"
+            else "No está instalada en esta tele", icon = MvIcons.Play, enabled = aceInstalled) { MvSwitch(engineChoice == "ace") }
+        MvRow("Si Outpace no da imagen", {
+            fallback = when (fallback) { "ask" -> "auto"; "auto" -> "never"; else -> "ask" }
+            graph.prefs.aceFallback = fallback
+        }, subtitle = when (fallback) {
+            "auto" -> "Abro solo Ace Stream y te aviso"
+            "never" -> "No hago nada; sigo con Outpace"
+            else -> "Te ofrezco probar con Ace Stream"
+        }, icon = MvIcons.Refresh, trailing = when (fallback) { "auto" -> "Automático"; "never" -> "Nunca"; else -> "Preguntar" })
+        Spacer(Modifier.height(6.dp))
         MvPanel {
             KeyValue("Estado", when (engine.phase) {
                 EngineSupervisor.Phase.READY -> "En marcha"
@@ -373,8 +392,7 @@ private fun LogPage(graph: AppGraph) {
 private fun LaterPage() {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         listOf(
-            "Ace Stream externo como alternativa a Outpace" to "Entrega 3b",
-            "Recuperación automática, canal anterior y enlaces externos" to "Entrega 3b",
+            "Ace Stream dentro de MiVisor TV (su motor con el reproductor de MiVisor)" to "Más adelante",
             "Agenda completa: Dónde verlo, competiciones y recordatorios" to "Entrega 3c",
             "Logos de canales y vista previa" to "Entrega 3c",
             "Copia de seguridad cifrada y restauración" to "Entrega 3d",

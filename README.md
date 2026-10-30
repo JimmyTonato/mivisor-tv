@@ -1,6 +1,6 @@
 # MiVisor TV
 
-App de Android TV de MiVisor (entrega 3a). Es un proyecto nuevo, con el paquete `com.mivisor.tv`, y se instala junto a la APK v18 (`com.mivisor.app`) sin reemplazarla.
+App de Android TV de MiVisor (entrega 3b; ver `LEEME-ENTREGA.md`). Es un proyecto nuevo, con el paquete `com.mivisor.tv`, y se instala junto a la APK v18 (`com.mivisor.app`) sin reemplazarla.
 
 - Android 6.0 o posterior.
 - ARMv7 y ARM64, las mismas arquitecturas que Outpace.

@@ -75,7 +75,15 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         val tried: Boolean
     )
 
-    data class TrackOption(val type: Int, val group: Int, val track: Int, val label: String, val selected: Boolean)
+    data class TrackOption(
+        val type: Int,
+        val group: Int,
+        val track: Int,
+        val label: String,
+        val selected: Boolean,
+        /** Idioma (código ISO) si la pista lo trae: se recuerda por canal. */
+        val language: String? = null
+    )
 
     data class Ui(
         val phase: Phase = Phase.IDLE,
@@ -92,7 +100,9 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         val sources: List<SourceRow> = emptyList(),
         val tracks: List<TrackOption> = emptyList(),
         val paused: Boolean = false,
-        val startMs: Long? = null
+        val startMs: Long? = null,
+        /** Recuperando un corte de la fuente que se veía (escalón 1 a 3) o esperando a que vuelva la red. */
+        val recovering: String? = null
     ) {
         val active: Boolean get() = phase == Phase.STARTING_ENGINE || phase == Phase.TRYING || phase == Phase.PLAYING
     }
@@ -119,6 +129,11 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     private var resyncing = false
     private var resyncStartedAt = 0L
     private val liveDelay = LiveDelayController()
+    /** Escalón de recuperación ya aplicado en el corte actual (0 = ninguno). */
+    private var recoverStep = 0
+    /** Fuentes saltadas en este ciclo porque su red (WARP) no estaba disponible: no se penalizan. */
+    private var skippedForNetwork = 0
+    private var audioApplied = false
 
     private val listener = object : Player.Listener {
         override fun onRenderedFirstFrame() {
@@ -138,15 +153,25 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             when (playbackState) {
                 Player.STATE_BUFFERING -> if (_ui.value.phase == Phase.PLAYING) {
                     liveDelay.onInterruption(SystemClock.elapsedRealtime())
-                    if (!resyncing) {
+                    // Un corte se mide desde su principio: los saltos y recargas de la recuperación no lo reinician.
+                    if (!resyncing && bufferingSince == 0L) {
                         bufferingSince = SystemClock.elapsedRealtime()
                         stalls++
                         loadControl?.policy?.onRebuffer()
                     }
                 }
                 Player.STATE_READY -> {
+                    val src = currentSource
+                    val stalledMs = if (bufferingSince > 0) SystemClock.elapsedRealtime() - bufferingSince else 0
+                    if (src != null && _ui.value.phase == Phase.PLAYING && stalledMs >= StartPolicy.FREEZE_MIN_MS) {
+                        // Corte real recuperado sin cambiar de fuente: se apunta con el escalón que hizo falta.
+                        book.onFreeze(src, recoverStep)
+                        book.log("Recuperación", "${mask(src.contentId)}: imagen recuperada tras ${stalledMs / 1000} s (escalón $recoverStep)")
+                    }
                     bufferingSince = 0
+                    recoverStep = 0
                     resyncing = false
+                    if (_ui.value.recovering != null) _ui.value = _ui.value.copy(recovering = null)
                 }
                 Player.STATE_ENDED -> if (_ui.value.active) dropped("El directo terminó")
                 else -> Unit
@@ -154,7 +179,9 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         }
 
         override fun onTracksChanged(tracks: Tracks) {
-            _ui.value = _ui.value.copy(tracks = trackOptions(tracks))
+            val options = trackOptions(tracks)
+            _ui.value = _ui.value.copy(tracks = options)
+            applyPreferredAudio(options)
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -165,7 +192,11 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         override fun onPlayerError(error: PlaybackException) {
             if (!_ui.value.active) return
             val (kind, detail) = classify(error)
-            if (kind == null) engineFailed(detail) else if (_ui.value.phase == Phase.PLAYING) dropped(detail) else failed(kind, detail)
+            when {
+                kind == null -> engineFailed(detail)
+                _ui.value.phase == Phase.PLAYING -> dropped(detail)
+                else -> failed(kind, detail)
+            }
         }
     }
 
@@ -194,6 +225,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             val order = withContext(Dispatchers.Default) { book.order(req.channelId, req.sources, chosen) }
             if (gen != generation) return@launch
             cycle = SourceCycle(order)
+            skippedForNetwork = 0
             ensurePlayer()
             loadControl?.policy?.reset()
             book.log("Reproducción", "${req.channelName}: ${order.size} fuente(s)")
@@ -234,6 +266,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     fun selectTrack(option: TrackOption) {
         val p = player ?: return
         val group = p.currentTracks.groups.getOrNull(option.group) ?: return
+        if (option.type == C.TRACK_TYPE_AUDIO) request?.let { book.rememberAudio(it.channelId, option.language ?: option.label) }
         p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(option.type, false)
             .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, option.track))
@@ -299,14 +332,35 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         attempt(cid)
     }
 
+    /** Prepara la red que pide el proveedor de la fuente (WARP) y, si está, la prueba; si no, la salta sin penalizarla. */
     private fun attempt(cid: String) {
         val src = sourceOf(cid) ?: return next()
+        val c = cycle ?: return
+        val gen = ++generation
+        _ui.value = _ui.value.copy(
+            phase = Phase.TRYING, sourceIndex = c.indexOf(cid) + 1, sourceCount = c.order.size, provider = src.providerName,
+            quality = src.qualityLabel, peers = 0, message = "Preparando la conexión…", cause = null, recovering = null
+        )
+        scope.launch {
+            val blocked = book.prepareNetwork(src)
+            if (gen != generation) return@launch
+            if (blocked != null) {
+                skippedForNetwork++
+                book.log("Fuente", "${mask(cid)} saltada sin penalizar: su proveedor necesita $blocked y no está disponible")
+                advanceSoon()
+            } else start(src, cid)
+        }
+    }
+
+    private fun start(src: PlaySource, cid: String) {
         val base = baseUrl ?: return
         val c = cycle ?: return
         val p = player ?: return
         generation++
         val gen = generation
         currentSource = src
+        recoverStep = 0
+        audioApplied = false
         attemptStartedAt = SystemClock.elapsedRealtime()
         playingSince = 0
         bufferingSince = 0
@@ -315,7 +369,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         _ui.value = _ui.value.copy(
             phase = Phase.TRYING, sourceIndex = c.indexOf(cid) + 1, sourceCount = c.order.size, provider = src.providerName,
             quality = src.qualityLabel, peers = 0, message = "Buscando emisores…", cause = null, sources = rows(),
-            tracks = emptyList(), paused = false, startMs = null
+            tracks = emptyList(), paused = false, startMs = null, recovering = null
         )
         EngineDiagnostics.update { it.copy(sourceIndex = c.indexOf(cid) + 1, sourceCount = c.order.size, sourceId = mask(cid), sourceSwitches = c.triedCount - 1) }
         p.stop()
@@ -373,12 +427,17 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                     Phase.PLAYING -> {
                         controlLiveDelay(status)
                         val now = SystemClock.elapsedRealtime()
-                        if (resyncing && now - resyncStartedAt > StartPolicy.STALL_MS) {
+                        if (bufferingSince > 0) {
+                            val step = StartPolicy.recoveryStep(now - bufferingSince)
+                            if (step > recoverStep) {
+                                if (step >= 3) {
+                                    dropped("${(now - bufferingSince) / 1000} s sin imagen tras saltar al directo y recargar")
+                                    return@launch
+                                }
+                                recover(step, base, src)
+                            }
+                        } else if (resyncing && now - resyncStartedAt > StartPolicy.STALL_MS) {
                             dropped("El salto al directo no volvió a dar imagen")
-                            return@launch
-                        }
-                        if (bufferingSince > 0 && now - bufferingSince > StartPolicy.STALL_MS) {
-                            dropped("Más de ${StartPolicy.STALL_MS / 1000} s sin datos")
                             return@launch
                         }
                     }
@@ -409,16 +468,76 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         }
     }
 
-    /** Se cayó mientras se veía: congelación (o arranque fallido si llevaba poco) y siguiente fuente. */
+    /** Recuperación de un corte sin cambiar de fuente: 1 = salto al directo, 2 = recargar la misma fuente. */
+    private fun recover(step: Int, base: String, src: PlaySource) {
+        val p = player ?: return
+        recoverStep = step
+        if (step == 1) {
+            _ui.value = _ui.value.copy(recovering = "Recuperando la imagen: saltando al directo…")
+            resyncing = true
+            resyncStartedAt = SystemClock.elapsedRealtime()
+            runCatching { p.seekToDefaultPosition() }
+        } else {
+            _ui.value = _ui.value.copy(recovering = "Recuperando la imagen: recargando la fuente…")
+            resyncing = false
+            p.stop()
+            p.setMediaItem(mediaItemFor(base, src.contentId))
+            p.prepare()
+            p.play()
+        }
+        book.log("Recuperación", "${mask(src.contentId)}: escalón $step")
+    }
+
+    /**
+     * Se cayó mientras se veía. Antes de culpar a la fuente se mira si es un fallo general (red, WARP): en ese caso
+     * no se penaliza ni se cambia de fuente; se espera a que vuelva y se recarga la misma.
+     */
     private fun dropped(detail: String) {
         val src = currentSource ?: return
+        monitor?.cancel()
+        val gen = ++generation
+        scope.launch {
+            val cause = withContext(Dispatchers.IO) { book.generalCause(src) }
+            if (gen != generation) return@launch
+            if (cause != null) waitForNetwork(src, cause, gen) else droppedBySource(src, detail)
+        }
+    }
+
+    /** Fallo general durante la reproducción: se espera (comprobando cada 5 s) y se vuelve a la MISMA fuente. */
+    private fun waitForNetwork(src: PlaySource, cause: String, gen: Int) {
+        book.log("Recuperación", "Corte por causa general ($cause): no se penaliza la fuente; se espera a que vuelva")
+        _ui.value = _ui.value.copy(
+            recovering = if (cause == "warp") "WARP se ha desconectado: esperando a que vuelva…" else "Sin conexión: esperando a que vuelva la red…"
+        )
+        scope.launch {
+            while (gen == generation) {
+                delay(5_000)
+                if (gen != generation) return@launch
+                val still = withContext(Dispatchers.IO) { book.generalCause(src) }
+                if (still == null) {
+                    bufferingSince = 0
+                    recoverStep = 0
+                    val base = baseUrl ?: return@launch
+                    val p = player ?: return@launch
+                    _ui.value = _ui.value.copy(recovering = "Conexión recuperada: volviendo al canal…")
+                    p.stop()
+                    p.setMediaItem(mediaItemFor(base, src.contentId))
+                    p.prepare()
+                    p.play()
+                    startMonitor(gen, src)
+                    return@launch
+                }
+            }
+        }
+    }
+
+    private fun droppedBySource(src: PlaySource, detail: String) {
         val playedMs = if (playingSince > 0) SystemClock.elapsedRealtime() - playingSince else 0
         val early = StartPolicy.dropKind(playedMs)
         if (early != null) {
             failed(early, detail)
             return
         }
-        monitor?.cancel()
         book.onFreeze(src, 3)
         book.log("Fuente", "${mask(src.contentId)} se cortó tras ${playedMs / 1000} s: $detail · se pasa a otra")
         endSession()
@@ -444,6 +563,11 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     private fun exhausted() {
         currentSource = null
         monitor?.cancel()
+        val c = cycle
+        if (c != null && skippedForNetwork > 0 && skippedForNetwork >= c.triedCount) {
+            generalFailure("warp")
+            return
+        }
         _ui.value = _ui.value.copy(
             phase = Phase.FAILED, cause = null, sources = rows(),
             message = "Ninguna de las ${cycle?.order?.size ?: 0} fuentes ha dado imagen ahora. Puedes reintentar o elegir una en «Fuentes»."
@@ -514,6 +638,24 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         return FailureKind.CLIENT_ERROR to "${error.errorCodeName}: ${error.message.orEmpty().take(120)}"
     }
 
+    /** Multiaudio: se vuelve a poner el idioma elegido la última vez en este canal (una vez por fuente). */
+    private fun applyPreferredAudio(options: List<TrackOption>) {
+        if (audioApplied) return
+        val req = request ?: return
+        val audio = options.filter { it.type == C.TRACK_TYPE_AUDIO }
+        if (audio.size < 2) return
+        audioApplied = true
+        val wanted = book.preferredAudio(req.channelId) ?: return
+        val match = audio.firstOrNull { it.language.equals(wanted, ignoreCase = true) } ?: audio.firstOrNull { it.label == wanted } ?: return
+        if (!match.selected) {
+            val p = player ?: return
+            val group = p.currentTracks.groups.getOrNull(match.group) ?: return
+            p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+                .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, match.track))
+                .build()
+        }
+    }
+
     private fun trackOptions(tracks: Tracks): List<TrackOption> {
         val out = ArrayList<TrackOption>()
         val es = Locale("es")
@@ -530,7 +672,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                 val name = listOfNotNull(f.label?.takeIf { it.isNotBlank() }, lang).distinct().joinToString(" · ").ifBlank {
                     if (g.type == C.TRACK_TYPE_AUDIO) "Audio $number" else "Subtítulos $number"
                 }
-                out += TrackOption(g.type, gi, i, name + extra, g.isTrackSelected(i))
+                out += TrackOption(g.type, gi, i, name + extra, g.isTrackSelected(i), f.language?.takeIf { it.isNotBlank() && it != "und" })
             }
         }
         return out

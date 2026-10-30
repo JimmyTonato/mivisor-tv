@@ -6,6 +6,7 @@ import com.mivisor.tv.catalog.NotCachedException
 import com.mivisor.tv.catalog.StreamRepository
 import com.mivisor.tv.catalog.tv.ProviderCatalog
 import com.mivisor.tv.catalog.tv.TvLibrary
+import com.mivisor.tv.model.ChannelKind
 import com.mivisor.tv.net.CodeNotFoundException
 import com.mivisor.tv.net.DnsUnavailableException
 import com.mivisor.tv.storage.CodeVault
@@ -92,7 +93,10 @@ class ProvidersRepository(
                         val catalog = CatalogBuilder.build(result.items)
                         if (result.offline) offline.set(true)
                         if (mode != StreamRepository.Mode.CACHE_ONLY) db.providerResult(row.id, System.currentTimeMillis(), catalog.channelCount, null)
-                        ProviderCatalog(row.id, row.name, catalog, row.id in warp)
+                        // Enlaces que no son Ace Stream (magnet, Telegram, TVGram…): se abren con otra app.
+                        val links = CatalogBuilder.build(result.items, aceOnly = false).sections
+                            .flatMap { it.channels }.filter { it.kind != ChannelKind.ACE }
+                        ProviderCatalog(row.id, row.name, catalog, row.id in warp, links)
                     } catch (e: NotCachedException) {
                         null
                     } catch (e: kotlinx.coroutines.CancellationException) {
@@ -138,7 +142,8 @@ class ProvidersRepository(
             return friendly(e)
         }
         val catalog = CatalogBuilder.build(result.items)
-        if (catalog.channelCount == 0) return "El proveedor no tiene canales de Ace Stream que MiVisor TV pueda reproducir"
+        val linkCount = CatalogBuilder.build(result.items, aceOnly = false).channelCount - catalog.channelCount
+        if (catalog.channelCount == 0 && linkCount <= 0) return "El proveedor no tiene canales ni enlaces que MiVisor TV pueda abrir"
         val title = name.trim().ifEmpty { "Proveedor ${existing.size + 1}" }.take(40)
         withContext(Dispatchers.IO) {
             db.upsertProvider(ProviderRow(id, title, vault.seal(code), System.currentTimeMillis(), System.currentTimeMillis(), catalog.channelCount, null, existing.size))

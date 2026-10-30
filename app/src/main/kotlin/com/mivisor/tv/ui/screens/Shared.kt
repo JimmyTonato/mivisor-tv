@@ -17,7 +17,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.mivisor.tv.catalog.tv.ChannelPlates
+import com.mivisor.tv.catalog.tv.Plate
 import com.mivisor.tv.catalog.tv.TvChannel
+import com.mivisor.tv.data.SourceBookImpl
+import com.mivisor.tv.ui.design.ChannelTile
+import com.mivisor.tv.ui.design.PlateTone
+import androidx.compose.ui.unit.Dp
 import com.mivisor.tv.catalog.tv.TvLibrary
 import com.mivisor.tv.model.AgendaEvent
 import com.mivisor.tv.model.EventStatus
@@ -54,6 +60,49 @@ fun stateLabel(s: SourceState): Pair<String, androidx.compose.ui.graphics.Color>
     SourceState.INCOMPATIBLE -> "No compatible" to MvColors.Bad
 }
 
+fun TvChannel.plate(): Plate = ChannelPlates.of(name, brandKey)
+
+fun Plate.Tone.ui(): PlateTone = when (this) {
+    Plate.Tone.LIGHT -> PlateTone.LIGHT
+    Plate.Tone.DARK -> PlateTone.DARK
+    Plate.Tone.BLUE -> PlateTone.BLUE
+    Plate.Tone.RED -> PlateTone.RED
+}
+
+/** Estado del canal para la tarjeta: lo mejor que se sabe de sus fuentes (sin ninguna comprobación nueva). */
+fun channelStatus(ch: TvChannel, book: SourceBookImpl): Pair<String, androidx.compose.ui.graphics.Color> {
+    val states = ch.sources.map { book.state(it.contentId) }
+    val n = ch.sources.size
+    val fuentes = if (n == 1) "1 fuente" else "$n fuentes"
+    return when {
+        states.any { it == SourceState.NORMAL } -> "Funciona · $fuentes" to MvColors.Ok
+        states.all { it == SourceState.NEW } -> "Sin probar · $fuentes" to MvColors.Text3
+        states.any { it == SourceState.NEW || it == SourceState.PROBATION || it == SourceState.QUARANTINE_DUE } -> "A prueba · $fuentes" to MvColors.Soon
+        states.any { it == SourceState.PAUSED } -> "En pausa · $fuentes" to MvColors.Soon
+        else -> "Sin fuentes disponibles" to MvColors.Bad
+    }
+}
+
+/** Tarjeta de canal con su rótulo, estado y favorito. */
+@Composable
+fun TvChannelTile(
+    ch: TvChannel,
+    book: SourceBookImpl,
+    favorite: Boolean,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    width: Dp = 200.dp,
+    focusRequester: androidx.compose.ui.focus.FocusRequester? = null
+) {
+    val plate = ch.plate()
+    val (status, color) = channelStatus(ch, book)
+    ChannelTile(
+        name = ch.name, plateTop = plate.top, plateBottom = plate.bottom, tone = plate.tone.ui(), onClick = onClick,
+        width = width, status = status, statusColor = color, favorite = favorite, multiaudio = ch.multiaudio,
+        onLongClick = onLongClick, focusRequester = focusRequester
+    )
+}
+
 /** Canales de tus proveedores para un evento de la agenda (por los nombres de canal del evento). */
 fun channelsFor(event: AgendaEvent, library: TvLibrary, limit: Int = 6): List<TvChannel> =
     event.channels.flatMap { library.forAgenda(it.name, 3) }.distinctBy { it.id }.take(limit)
@@ -63,6 +112,8 @@ fun channelsFor(event: AgendaEvent, library: TvLibrary, limit: Int = 6): List<Tv
 fun ChannelRow(
     title: String,
     channels: List<TvChannel>,
+    book: SourceBookImpl,
+    favorites: Set<String>,
     onOpen: (TvChannel) -> Unit,
     onLong: ((TvChannel) -> Unit)? = null,
     detail: String? = null
@@ -75,10 +126,7 @@ fun ChannelRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             items(channels, key = { it.id }) { ch ->
-                ChannelCard(
-                    name = ch.name, initials = ch.initials, key = ch.brandKey ?: ch.id, subtitle = ch.subtitle(),
-                    onClick = { onOpen(ch) }, onLongClick = onLong?.let { f -> { f(ch) } }
-                )
+                TvChannelTile(ch, book, favorite = ch.id in favorites, onClick = { onOpen(ch) }, onLongClick = onLong?.let { f -> { f(ch) } })
             }
         }
     }

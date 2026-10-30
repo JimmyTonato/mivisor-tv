@@ -89,7 +89,7 @@ fun SearchScreen(graph: AppGraph, nav: Nav) {
             if (channels.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("Canales", Modifier.padding(top = 8.dp), "${channels.size}") }
                 items(channels, key = { it.id }) { ch ->
-                    ChannelCard(name = ch.name, initials = ch.initials, key = ch.brandKey ?: ch.id, subtitle = ch.subtitle(), onClick = { nav.go(Route.Channel(ch.id)) })
+                    TvChannelTile(ch, graph.sources, favorite = false, onClick = { nav.go(Route.Channel(ch.id)) })
                 }
             }
         }
