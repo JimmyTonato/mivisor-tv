@@ -33,4 +33,19 @@ class NumberedChannelsTest {
         val series = ChannelSeriesGrouping.group(lib.channels).filter { it.channels.size > 1 }.map { it.channels.size }.sorted()
         assertEquals(listOf(2, 3, 3), series)
     }
+
+    @Test fun valeParaCualquierCanalNumerado() {
+        val list = listOf(
+            ch(1, "Eurosport 1 HD"), ch(2, "Eurosport2"), ch(3, "Eurosport 2 FHD"),
+            ch(4, "LaLiga TV Hypermotion"), ch(5, "LaLiga TV Hypermotion 2"), ch(6, "LaLiga TV Hypermotion 3"),
+            ch(7, "Calle 13"), ch(8, "Teledeporte")
+        )
+        val lib = TvLibrary.build(listOf(ProviderCatalog("p", "Prov", Catalog(listOf(Section("s", "S", list)), list.size))))
+        assertEquals(lib.channels.map { it.id }.toString(), 7, lib.channels.size)
+        assertEquals(2, lib.channels.first { it.id == "eurosport 2" }.sources.size)   // «Eurosport2» y «Eurosport 2 FHD»
+        val series = ChannelSeriesGrouping.group(lib.channels).associate { it.name to it.channels.size }
+        assertEquals(series.toString(), 2, series.entries.first { it.key.startsWith("Eurosport") }.value)
+        assertEquals(series.toString(), 3, series.entries.first { it.key.startsWith("LaLiga TV") }.value)
+        assertEquals(series.toString(), 1, series.entries.first { it.key.startsWith("Calle") }.value)   // solo: canal suelto
+    }
 }

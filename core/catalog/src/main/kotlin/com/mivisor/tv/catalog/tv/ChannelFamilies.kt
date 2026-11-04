@@ -88,15 +88,23 @@ class ChannelSeries(val key: String, val name: String, val channels: List<TvChan
 object ChannelSeriesGrouping {
     private val TRAILING_NUMBER = Regex("""\s+\d{1,3}\s*$""")
 
-    /** Nombre visible de la serie: el del canal sin el número final («M+ LaLiga 2» → «M+ LaLiga»). */
+    /**
+     * Nombre visible de la serie: el del canal sin el número final («M+ LaLiga 2» → «M+ LaLiga»). Vale para CUALQUIER
+     * canal numerado (también «Eurosport2», con el número pegado): usa la misma lectura de nombres que separa los canales.
+     */
     fun baseName(name: String): String {
+        val canon = com.mivisor.tv.catalog.ChannelCanon.parse(name)
+        if (canon.number != null && canon.baseName.isNotBlank()) return canon.baseName.trim()
         val clean = com.mivisor.tv.catalog.ChannelGrouping.cleanName(name).trim()
-        val base = clean.replace(TRAILING_NUMBER, "").trim()
-        return base.ifEmpty { clean }
+        return clean.replace(TRAILING_NUMBER, "").trim().ifEmpty { clean }
     }
 
-    /** Clave para juntar («M+ LaLiga» y «Movistar LaLiga» son la misma serie). */
-    fun key(name: String): String = com.mivisor.tv.catalog.ChannelGrouping.key(baseName(name)).ifEmpty { baseName(name).lowercase() }
+    /** Clave para juntar («M+ LaLiga» y «Movistar LaLiga 2» son la misma serie). */
+    fun key(name: String): String {
+        val canon = com.mivisor.tv.catalog.ChannelCanon.parse(name)
+        val k = if (canon.number != null) canon.baseKey else canon.variantKey
+        return k.ifEmpty { com.mivisor.tv.catalog.ChannelGrouping.key(baseName(name)) }.ifEmpty { baseName(name).lowercase() }
+    }
 
     /** Series de una lista, en orden natural; dentro de cada una, los canales en orden natural (2 antes que 10). */
     fun group(list: List<TvChannel>): List<ChannelSeries> =

@@ -1,6 +1,6 @@
 08643042e1b191bb261af7a14bc7ac12003381fa1de014d7e7c3193de3b3c067  ./.github/workflows/android.yml
 28d6607679788262d4002817ef2fc775c6c2a94465c679109f455926a0bf8f36  ./.gitignore
-84f2831a9b6079e31c01302de3a2f6314ba4b456fc54cf84b1dbb894f9786980  ./LEEME-ENTREGA.md
+9879b9d8908d26ce66ee4ca42d3978b76cc6fa2769e44c6301d350112a824516  ./LEEME-ENTREGA.md
 a26aad067c7b5574310a95f3c68d69b7985b96440c9affeb5c3221a45a41decf  ./README.md
 e8809b57079c47c7c4ecc1387e9b2792b3d40d2389f33fb9fce389b369650fd3  ./app/build.gradle.kts
 b08412c601cc0e51e5fa5e8724efb06df59937dfe084b0989ff91f016383addf  ./app/debug.keystore
@@ -85,7 +85,7 @@ ec3ee0cc1cf2d3c61e94568a7e31f75fc70a0f8d45b993bd205a69d25e1b5dba  ./core/catalog
 323741bfcc87a92a3df8b1b359e5cad353ebb6b1b342b3e6a7dde3b33cf5262d  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/logos/ChannelLogos.kt
 87c36817efedc6a3b1e18e680ccfad4a083fccb318397fbf2d5ab12aef79b43e  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/logos/LogoRepository.kt
 701fc4d1055754c6cb044c54ea658239ecabef6a9a299e2c0797f6fb371e75b7  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/logos/Picons.kt
-f2bef8effb23f7ef86b73894c8f9fffa07d66dd427001bef7c8b103f72861b6d  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/tv/ChannelFamilies.kt
+8faa4b8f53ac0013067af606c90cb76267eed95edaa24173ba29e2e1db5e21b3  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/tv/ChannelFamilies.kt
 8f63c180d46d15448b09aa959c364380033964ffc018960bbeb00c379e4cfb73  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/tv/ChannelPlates.kt
 75d904c4b2b112bf906ba985a92fb2765f66b529b1f5fb1b6bb0a685c3264b7e  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/tv/TvLibrary.kt
 83323df8e6b7a077834c3409a24ec51f688042bca98fc545f7469e743caf3166  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/tv/TvSearch.kt
@@ -97,7 +97,7 @@ ef776022d047d385cdbb3b3a2cdb940bdc5589c1f2f10fee44b05311736c17ae  ./core/catalog
 d2a8e13e6e89ac3a76dc24b603e11e173ad0a21746173f9ae2f244ff23e451f6  ./core/catalog/src/test/kotlin/com/mivisor/tv/catalog/ChannelLogosTest.kt
 4d0096b822d9f5193cf20c9f4810b51efd608bc442057a46aeec09a578e2503b  ./core/catalog/src/test/kotlin/com/mivisor/tv/catalog/DecoderTest.kt
 ebf7d304a726901f871081a735770b7487ed530bc3d85ad119d3b14c4de1fd57  ./core/catalog/src/test/kotlin/com/mivisor/tv/catalog/DnsTest.kt
-fa5e4cc788478ce16c922372e8277e9375a4cc53412244e551b906d1cdf2fff0  ./core/catalog/src/test/kotlin/com/mivisor/tv/catalog/NumberedChannelsTest.kt
+7c8bf81ae5759c4cfe3d6e227572decb9767aa350c23bbff8d26160143827247  ./core/catalog/src/test/kotlin/com/mivisor/tv/catalog/NumberedChannelsTest.kt
 05882a295564078e448fe8c5f2a18c7f7ddc6c41b8a1f81fe50a66751c496955  ./core/catalog/src/test/kotlin/com/mivisor/tv/catalog/PiconsTest.kt
 18c82956be9ff80fc9d55a46cd9431f0e7baddf50dbd25eb915705d90b116bce  ./core/catalog/src/test/kotlin/com/mivisor/tv/catalog/RepositoryTest.kt
 0a14738c7dc5a28653aec5d7c9b882923410d5ad84f3513622b0edc26f0d5ba1  ./core/catalog/src/test/kotlin/com/mivisor/tv/catalog/ServicesAndPortraitsTest.kt

@@ -17,6 +17,8 @@ Corrige la 3e.1, que va justo debajo.
 | Movistar Plus+ | M+ LaLiga | M+ LaLiga, 2, 3… |
 | DAZN | DAZN | DAZN 1, 2, 3… |
 
+La regla es **general**: no hay nada específico para Movistar ni DAZN. Vale para cualquier canal con un número al final, como Eurosport 1/2, LaLiga TV Hypermotion 2/3 o Movistar Deportes 2, y también si el número va pegado (`Eurosport2` = `Eurosport 2`). Un canal numerado sin hermanos, como «Calle 13», sale en «Canales sueltos» con su nombre completo.
+
 «1» y «sin número» se tratan como canales distintos. Si en tus listas significan lo mismo, dímelo y los uno.
 
 Un canal que antes era favorito por el nombre sin número (por ejemplo «DAZN») y que en tus listas solo existe con número («DAZN 1», «DAZN 2») deja de aparecer en Mi lista. Hay que volver a marcarlo una vez.
@@ -49,7 +51,7 @@ Una excepción: si el motor Outpace deja de responder, se sigue avisando al mome
 
 ## Compilación
 
-- **Pruebas:** pasan las **181 pruebas** de los módulos JVM. Es nueva la de canales numerados; las de umbrales e iconos se han actualizado.
+- **Pruebas:** pasan las **182 pruebas** de los módulos JVM. Es nueva la de canales numerados; las de umbrales e iconos se han actualizado.
 - **Código Android:** no se ha compilado aquí. Se comprueba en GitHub Actions.
 
 ---
