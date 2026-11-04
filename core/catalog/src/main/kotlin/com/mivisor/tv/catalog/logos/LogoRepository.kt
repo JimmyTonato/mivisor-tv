@@ -34,6 +34,24 @@ class LogoRepository(
     private val harvested = LinkedHashMap<String, LogoEntry>()
     private var harvestLoaded = false
 
+    /**
+     * 3f · Solo lo que hay en disco, SIN RED: para enseñar los canales al abrir la app sin esperar a ninguna descarga
+     * (antes, la lista de picons y el catálogo se pedían antes de enseñar nada).
+     */
+    suspend fun cached(): ChannelLogoResolver = withContext(Dispatchers.IO) {
+        val names = runCatching { if (piconsFile.isFile) piconsFile.readLines().filter { it.isNotBlank() } else null }.getOrNull().orEmpty()
+        ChannelLogoResolver(readCatalog() ?: LogoCatalog.EMPTY, Picons.entries(names) + harvestedEntries())
+    }
+
+    /** ¿Toca descargar algo (catálogo de logos o lista de picons)? Si no, [load] no usa la red. */
+    fun needsNetwork(): Boolean {
+        val meta = readMeta()
+        val catalogStale = !catalogFile.isFile || clock() - (meta?.first ?: 0L) !in 0..ttlMs
+        val last = runCatching { piconsMetaFile.readText().trim().toLong() }.getOrNull() ?: 0L
+        val piconsStale = !piconsFile.isFile || clock() - last !in 0..PICONS_TTL_MS
+        return catalogStale || piconsStale
+    }
+
     /** Resolver con lo que haya en disco; descarga el catálogo si toca (como mucho 1 vez/día). */
     suspend fun load(url: String, force: Boolean = false): ChannelLogoResolver = withContext(Dispatchers.IO) {
         var catalog = readCatalog()

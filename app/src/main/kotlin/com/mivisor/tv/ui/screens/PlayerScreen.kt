@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -314,7 +315,7 @@ fun PlayerScreen(
                 }
             }.focusable()
                 // 3f · Tablet y móvil: un toque en el vídeo enseña los controles (no hay botón OK).
-                .pointerInput(Unit) { androidx.compose.foundation.gestures.detectTapGestures(onTap = { controls = true; touch++ }) }
+                .pointerInput(Unit) { detectTapGestures(onTap = { controls = true; touch++ }) }
         )
 
         if (channel == null && (lib.loading || lib.library.channels.isEmpty()) && lib.providers.isNotEmpty()) {
@@ -601,7 +602,7 @@ private fun Controls(
     onClose: (() -> Unit)? = null
 ) {
     // 3f · Un toque fuera de los botones oculta los controles (los botones se quedan su propio toque).
-    Box(Modifier.fillMaxSize().pointerInput(Unit) { androidx.compose.foundation.gestures.detectTapGestures(onTap = { onHide() }) }) {
+    Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures(onTap = { onHide() }) }) {
         // Degradados solo arriba y abajo: el vídeo sigue siendo el protagonista.
         Box(Modifier.align(Alignment.TopStart).fillMaxWidth().height(120.dp).background(Brush.verticalGradient(listOf(Color(0xCC05080D), Color.Transparent))))
         Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(170.dp).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE605080D)))))

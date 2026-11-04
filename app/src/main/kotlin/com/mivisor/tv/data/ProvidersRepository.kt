@@ -122,11 +122,11 @@ class ProvidersRepository(
                 }
             }.awaitAll().filterNotNull()
         }
-        val logoResolver = withContext(Dispatchers.IO) {
-            resolver?.takeIf { mode == StreamRepository.Mode.CACHE_ONLY }
-                ?: runCatching { logos.load(logoUrl()) }.getOrNull()?.also { resolver = it }
-                ?: ChannelLogoResolver(LogoCatalog.EMPTY)
-        }
+        // 3f · Los logos NUNCA retrasan los canales: se usa lo que hay en disco y, si toca descargar el catálogo o la
+        // lista de picons, se hace después y la biblioteca se vuelve a montar al llegar (ver [refreshLogos]).
+        val logoResolver = resolver
+            ?: runCatching { logos.cached() }.getOrNull()?.also { resolver = it }
+            ?: ChannelLogoResolver(LogoCatalog.EMPTY)
         lastCatalogs = catalogs
         val library = withContext(Dispatchers.Default) { TvLibrary.build(catalogs, logoResolver) }
         val fresh = withContext(Dispatchers.IO) { db.providers() }
@@ -138,6 +138,23 @@ class ProvidersRepository(
             offline = offline.get(),
             updatedAt = System.currentTimeMillis()
         )
+        if (mode != StreamRepository.Mode.CACHE_ONLY) refreshLogos()
+    }
+
+    private var logoJob: Job? = null
+
+    /** 3f · Descarga los logos que toque (como mucho 1 vez al día / a la semana) sin bloquear nada. */
+    private fun refreshLogos() {
+        if (logoJob?.isActive == true) return
+        logoJob = scope.launch {
+            val needed = withContext(Dispatchers.IO) { runCatching { logos.needsNetwork() }.getOrDefault(false) }
+            if (!needed) return@launch
+            val r = withContext(Dispatchers.IO) { runCatching { logos.load(logoUrl()) }.getOrNull() } ?: return@launch
+            resolver = r
+            if (lastCatalogs.isEmpty()) return@launch
+            val library = withContext(Dispatchers.Default) { TvLibrary.build(lastCatalogs, r) }
+            _state.value = _state.value.copy(library = library)
+        }
     }
 
     /**

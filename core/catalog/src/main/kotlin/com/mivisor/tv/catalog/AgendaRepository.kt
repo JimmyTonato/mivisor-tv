@@ -30,6 +30,17 @@ class AgendaRepository(
     private val dataFile get() = File(cacheDir, "agenda.json")
     private val metaFile get() = File(cacheDir, "agenda.meta")
 
+    /** 3f · La copia guardada, sin red (aunque esté vieja): se enseña al abrir la app mientras llega la nueva. */
+    suspend fun cachedOrNull(): Result? = withContext(Dispatchers.IO) {
+        readCache()?.let { Result(it.agenda, it.fetchedAt, offline = false) }
+    }
+
+    /** 3f · ¿La copia guardada sigue al día (no hace falta red)? */
+    fun isFresh(): Boolean {
+        val fetchedAt = runCatching { metaFile.readText().split('\n').firstOrNull()?.toLongOrNull() }.getOrNull() ?: return false
+        return dataFile.isFile && clock() - fetchedAt in 0..ttlMs
+    }
+
     suspend fun load(url: String, force: Boolean = false): Result = withContext(Dispatchers.IO) {
         val cached = readCache()
         if (!force && cached != null && clock() - cached.fetchedAt in 0..ttlMs) {

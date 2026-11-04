@@ -101,6 +101,22 @@ class AgendaTest {
         assertEquals(listOf("Deportes", "Extra", "Fútbol"), options.map { it.source })
     }
 
+    /** 3f · Al abrir la app: la copia guardada al instante, aunque esté vieja, y sin tocar la red. */
+    @Test fun cachedCopyShowsWithoutNetwork() = runBlocking {
+        val dir = Files.createTempDirectory("agenda3f").toFile()
+        var now = 1_000_000L
+        var calls = 0
+        val repo = AgendaRepository(dir, ttlMs = 60_000, clock = { now }, download = { _, _ -> calls++; AgendaRepository.Download(200, json, "v1") })
+        assertNull(repo.cachedOrNull())
+        assertFalse(repo.isFresh())
+        repo.load("https://x/agenda.json")
+        assertEquals(1, calls)
+        now += 24 * 3600_000L                         // un día después: vieja
+        assertFalse(repo.isFresh())
+        assertEquals(3, repo.cachedOrNull()!!.agenda.events.size)
+        assertEquals(1, calls)                        // sin red
+    }
+
     @Test fun repositoryCachesAndFallsBack() = runBlocking {
         val dir = Files.createTempDirectory("agenda").toFile()
         var now = 1_000_000L

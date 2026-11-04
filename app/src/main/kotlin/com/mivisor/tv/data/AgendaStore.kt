@@ -40,6 +40,12 @@ class AgendaStore(
         job?.cancel()
         _state.value = _state.value.copy(loading = true)
         job = scope.launch {
+            // 3f · Primero la copia guardada (al instante, aunque sea de ayer) y luego la de Internet.
+            if (_state.value.agenda == null && !force) {
+                runCatching { repo.cachedOrNull() }.getOrNull()?.let { c ->
+                    _state.value = AgendaState(c.agenda, loading = !repo.isFresh(), fetchedAt = c.fetchedAt, offline = false, error = null)
+                }
+            }
             _state.value = try {
                 val r = repo.load(url, force)
                 AgendaState(r.agenda, false, r.fetchedAt, r.offline, null)

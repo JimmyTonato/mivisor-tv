@@ -87,12 +87,27 @@ Al cargar cada icono, la app mira sus píxeles. La regla tiene pruebas en `LogoS
 
 Vale para los iconos de picons_dobleM y para los de cualquier otra fuente. La memoria que usa está acotada, como el resto de imágenes, para que no pese en teles de 1 GB.
 
-## 6. Otros cambios
+## 6. Arranque rápido: lo guardado, al instante
+
+**Lo que pasaba en la tele:** terminaba la intro y seguía todo cargando, sin proveedores, durante mucho rato. Eran dos fallos:
+
+1. **Canales, por culpa de los logos.** Antes de enseñar los canales guardados, la app descargaba los logos: el catálogo y, desde la 3e.1, la lista de picons de GitHub, con dos peticiones de hasta 20 s cada una. Si GitHub tardaba o limitaba las peticiones, no salía ningún canal hasta que terminaban o caducaban.
+2. **Agenda.** Si la copia guardada tenía más de 15 minutos (lo normal al encender la tele), no se enseñaba hasta que llegaba la nueva de Internet.
+
+**Ahora:**
+- **Canales:** salen al momento, con lo guardado en la tele y los logos que ya tenía. Después se actualizan los proveedores desde Internet y, si toca (el catálogo una vez al día y los picons una vez por semana), se descargan los logos sin bloquear nada. Cuando llegan, las tarjetas se repintan solas.
+- **Agenda:** sale al momento con la última copia guardada, aunque sea de ayer, y se sustituye en cuanto llega la nueva.
+- **La intro** termina en cuanto están los canales guardados, sin esperar a Internet.
+- **Primera vez:** si es la primera vez que se abre la app o se acaba de añadir un proveedor, sí hay que esperar a Internet, porque no hay nada guardado.
+
+Hay dos pruebas nuevas que comprueban que el arranque no toca la red.
+
+## 7. Otros cambios
 
 - **Nombre de la APK:** siempre `MiVisor-TV-1.0.N.apk`, sin «-sin-control-WARP». La comprobación SHA-256 sigue igual. Si la firma es o no la de WARP lo dicen el resumen de la compilación y la release.
 - **Colores:** sigo con la paleta del diseñador (fondo grafito azulado y acento champán). Funciona bien en tele y no cansa a oscuras. Si al verla en la tele sigue sin convencerte, se cambia en un solo sitio (`Theme.kt`).
 
-## 7. Qué probar
+## 8. Qué probar
 
 | # | Prueba | Debe pasar |
 |---|---|---|
@@ -107,9 +122,12 @@ Vale para los iconos de picons_dobleM y para los de cualquier otra fuente. La me
 | 9 | Canales › Movistar | Fichas de grupos; la rejilla con «M+ LaLiga», «M+ Liga de Campeones»… con sus títulos |
 | 10 | Un icono con fondo blanco y marco | Una sola tarjeta blanca, sin el recuadro oscuro alrededor |
 | 11 | Reproductor en tablet | Un toque muestra los controles y otro los oculta; la flecha ← sale |
+| 12 | Abrir la app en la tele (no la primera vez) | Tras la intro, Inicio ya tiene canales y agenda; no se queda en «Leyendo tus proveedores…» |
 
 ## Compilación
 
-- **Pruebas:** pasan las **189 pruebas** de los módulos JVM. Son nuevas las de tipo de aparato y escala y las de iconos con fondo propio.
+- **Corrección de la primera compilación:** fallaba `PlayerScreen.kt` (`detectTapGestures` sin importar). Arreglado.
+
+- **Pruebas:** pasan las **191 pruebas** de los módulos JVM. Son nuevas las de tipo de aparato y escala y las de iconos con fondo propio.
 - **Código Android:** lleva las revisiones de imports y referencias de siempre, pero **no se ha compilado aquí ni se ha probado en ningún aparato**. Se comprueba en GitHub Actions; si falla, pásame el log.
 - **Fuera de este proyecto no se ha tocado nada:** ni la Raspberry, ni MiVisor Web, ni MiVisor Agenda, ni `mivisor-datos`, ni la v18, ni Outpace en producción.

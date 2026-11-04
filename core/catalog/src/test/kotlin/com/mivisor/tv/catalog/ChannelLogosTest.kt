@@ -154,6 +154,26 @@ class ChannelLogosTest {
         assertNull(ch[1].logo)
     }
 
+    /** 3f · Los canales se enseñan con los logos del disco: [LogoRepository.cached] nunca usa la red. */
+    @Test fun cachedNeverDownloads() = runBlocking {
+        val dir = Files.createTempDirectory("logos3f").toFile()
+        var now = 5_000_000L
+        var calls = 0
+        val repo = LogoRepository(dir, clock = { now },
+            download = { _, _ -> calls++; AgendaRepository.Download(200, catalogJson, "e1") },
+            piconsDownload = { _, _ -> calls++; AgendaRepository.Download(404, null, null) })
+        assertTrue(repo.needsNetwork())
+        repo.cached()
+        assertEquals(0, calls)
+        repo.load("https://x/channel-logos.json")
+        assertTrue(calls >= 1)
+        val after = calls
+        assertEquals("https://futbolenlatv/mlaliga.png", repo.cached().resolve("Movistar LaLiga").channelLogo)
+        assertEquals(after, calls)
+        now += 2 * 24 * 3600_000L
+        assertTrue(repo.needsNetwork())
+    }
+
     @Test fun repositoryDownloadsAtMostDailyAndKeepsHarvest() = runBlocking {
         val dir = Files.createTempDirectory("logos").toFile()
         try {
