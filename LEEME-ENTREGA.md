@@ -1,169 +1,171 @@
-# MiVisor TV · Entrega 3d (diagnóstico, copias y fidelidad al diseño)
+# MiVisor TV · Entrega 3e: Canales y reproductor del diseño 06.1
 
-La 3d va encima de la 3c y la sustituye entera. No hay que configurar nada nuevo.
+La 3e va encima de la 3d y la sustituye entera.
+
+Se basa en el paquete del diseñador, **MiVisor_TV_06_1**. Sus documentos están en `docs/diseno-06/`.
+
+Esta entrega se centra en dos partes:
+- **Canales**, que es lo que pediste.
+- **El reproductor corregido (06.1)**.
+
+Además trae lo común a toda la app:
+- colores y foco del diseño 06;
+- rail lateral;
+- marca Órbita y pantalla de arranque.
 
 Se conserva todo lo anterior:
-- reproducción, Outpace, WARP, Ace Stream, proveedores, favoritos, historial, agenda, logos, «Dónde verlo», competiciones y recordatorios;
-- el paquete `com.mivisor.tv`;
-- la firma y la comprobación SHA-256 de WARP. No se ha generado ninguna clave.
+- proveedores, favoritos, historial, recordatorios, agenda, copias y diagnóstico;
+- la firma y la comprobación SHA-256 de WARP;
+- el paquete `com.mivisor.tv`.
 
-La base de datos no cambia de versión: instalar encima de la 3c conserva todo. Lo de las entregas anteriores está en `docs/entregas/`.
+La base de datos no cambia: instalar encima de la 3d conserva todo.
 
-## 1. Lo nuevo de la 3d
+## 1. Canales (diseño 06, sección 3)
 
-### Diagnóstico e informes
-
-Se entra desde **Ajustes › Diagnóstico › ¿Algo no va bien?** y desde los avisos del reproductor.
-
-- **Lo último que ha pasado:** una tarjeta con la última incidencia al reproducir («Hace 4 min · Fuente…»), o «Sin incidencias recientes».
-- **Últimos avisos:** de todos los servicios, con su hora y un punto de color.
-- **Enviar el informe**, con tres pestañas:
-  - **Red de casa:** un QR abre el informe en el móvil por la red local. Caduca en 5 minutos.
-  - **Sin red:** el informe partido en varios QR («parte 1/4…»). Se escanean con la cámara, sin red.
-  - **Compartir:** con otra app de la tele, si hay alguna. Si no hay ninguna, avisa.
-- **Informe en la tele:** el mismo texto que se envía, en letra de máquina. Incluye:
-  - versión, aparato, red, motor, Ace Stream y WARP;
-  - proveedores (sin códigos), agenda, fuentes que descansan, memoria y espacio;
-  - las últimas 40 líneas del registro.
-- **Privacidad:** el informe pasa por el limpiador del registro, así que no lleva códigos, Content IDs completos, URLs privadas ni IPs públicas.
-
-### «Probar todo»
-
-Comprueba, en este orden y a la vista:
-1. Motor Outpace: lo arranca de verdad y mide lo que tarda.
-2. Red.
-3. WARP, con la huella.
-4. Ace Stream.
-5. Proveedores.
-6. Agenda (GitHub).
-7. Servidor del móvil.
-
-Cada resultado sale como «Bien», «Revisar», «Error» u «Opcional». Hay botones «Repetir» y «Enviar informe». El resumen queda en el registro.
-
-### Sistema de QR ampliado
-
-El mismo servidor local de «Escribir con el móvil» atiende ahora cinco usos. Funciona solo en la red de casa, con un token de un solo uso, y caduca en 5 minutos:
-
-| Uso | Ruta en el móvil |
+| Qué | Cómo queda |
 |---|---|
-| Escribir un texto (códigos, nombres, búsquedas) | `/pair/…` |
-| Editar título y código de un proveedor | `/edit/…` |
-| Ver el informe | `/log/…` |
-| Descargar una copia (.mvb) | `/copy/…` |
-| Subir una copia y su código | `/restore/…`: como mucho 512 KB y un solo envío |
+| Estructura | **Proveedor → familia → canal**, en tres columnas: Proveedores, Familias y la rejilla de canales |
+| Vistas | **Proveedores**, **Categorías** (familias de todos los canales) y **Favoritos** |
+| Accesos | **Buscar canal**, **Enlaces** (si tus listas los traen) y **Gestionar proveedores** |
+| Proveedores | Las marcas reconocidas (DAZN, Movistar Plus+, beIN, Eurosport…). Al final, **«Otros / sin identificar»**: un canal nunca se atribuye a una marca por una coincidencia dudosa |
+| Familias | Fútbol, Motor, Deportes, Cine y series, Generalistas, Noticias, Documentales, Infantil, Música y Otros. Solo salen las que tienen canales |
+| Tarjetas compactas | 3 por fila y 70 dp de alto, así que caben muchos más canales por pantalla. Cada una lleva su logo en un recuadro fijo sin deformar, el nombre en 2 líneas como máximo, un punto de estado con texto («Lista · 3 fuentes»…) y una estrella si es favorito |
+| Sin logo | Pictograma de señal y el nombre completo. Nada de iniciales inventadas |
+| Duplicados | Las versiones HD, FHD y 4K de un canal son **fuentes** del mismo canal, nunca tarjetas repetidas |
+| Orden | Natural: «DAZN 2» va antes que «DAZN 10» |
+| **OK sobre un canal** | **Abre directamente el reproductor**, sin pasar por la ficha |
+| Elegir proveedor o familia | Con OK. Pasar por encima con las flechas no cambia nada, para que no se mueva el filtro sin querer. El elegido se ve en champán; el enfocado, con anillo |
+| Mantener OK | Añade el canal a Mi lista o lo quita |
+| Al volver del reproductor | Mismo proveedor, misma familia y **foco en el mismo canal**, aunque estuviera muy abajo |
 
-«Añadir proveedor» y el asistente muestran ahora el QR siempre a la derecha, como en el diseño. Cada texto recibido abre otra sesión para poder enviar más.
+OK también reproduce directamente desde **Buscar** y desde las filas de canales de **Inicio**.
 
-### Copias de seguridad cifradas
+**Selección de fuente al pulsar OK.** Es la lógica que ya existía; no se ha tocado.
+1. Primero la fuente más fiable según lo aprendido.
+2. Si ninguna se ha probado todavía, la primera disponible, y se aprende del resultado.
+3. Si falla, la recuperación y el paso a la siguiente fuente son automáticos.
 
-- **Exportar** (Ajustes › Móvil y copias):
-  - Guarda los proveedores con su código, los favoritos, los recordatorios y los ajustes.
-  - La copia se cifra con **AES-256-GCM**. La clave sale de un **código de 6 cifras** nuevo en cada copia (PBKDF2, 120 000 vueltas, sal aleatoria).
-  - El móvil descarga el archivo `.mvb` con el QR.
-  - El código se ve **solo en la pantalla**: no se guarda en ningún sitio ni viaja con el archivo.
-- **Importar** (Ajustes › Móvil y copias, o «Importar copia» en el primer paso del asistente):
-  1. El móvil sube el archivo y escribe el código.
-  2. La tele **comprueba la copia antes de cambiar nada** y muestra «Copia comprobada · 3 proveedores, 5 favoritos…». Si el código no es correcto, o el archivo no es una copia, lo dice y genera otro QR.
-  3. «Importar ahora» **no borra nada**:
-     - añade los proveedores que falten, comprobando cada código como al añadirlo a mano;
-     - junta favoritos y recordatorios;
-     - aplica los ajustes.
-- **Lo que no lleva:** lo aprendido de las fuentes ni el historial. Es propio de cada tele.
+En ningún caso se espera a que elijas una fuente a mano.
 
-### Ajustes y opciones pendientes
+## 2. Reproductor (diseño 06.1)
 
-Ajustes sigue el diseño: menú a la izquierda con icono y valor (Proveedores · 3, Motor · Outpace, WARP · Conectada, Verificador · No) y la página a la derecha con su explicación.
-
-- **Audio y subtítulos** (nuevo):
-  - idioma de audio preferido;
-  - subtítulos sí o no;
-  - tamaño de los subtítulos (normal, grande o muy grande);
-  - «Recordar la elección en cada canal».
-
-  Se aplican al abrir el siguiente canal.
-- **Fuentes y recuperación:**
-  - las reglas de pausa y cuarentena;
-  - el acceso a **Fuentes que descansan**, con «Liberar» y «Liberar todas»;
-  - «Olvidar lo aprendido».
-- **Verificador:**
-  - «Comprobar ahora» hace una pasada **manual** con la app abierta. Prueba hasta 60 fuentes de tus favoritos o de todos los canales, y **solo apunta las que funcionan**: nunca penaliza.
-  - El automático sigue **desactivado**, como acordamos.
-- **Pantalla y rendimiento:**
-  - menú **Arriba** o **En un lateral**, que se despliega al enfocarlo;
-  - Modo ligero;
-  - **Texto más grande** (+15 %);
-  - **Al abrir MiVisor**: Inicio, Agenda, Canales o el último canal;
-  - información de la fuente.
-- **WARP:** si la firma no coincide, sale la tarjeta roja del diseño con «Huella esperada» y «Huella de esta app», y los botones «Abrir WARP» y «Ver diagnóstico».
-- **Motor:** botones de opción del diseño y el bloque «ESTADO».
-- **Acerca de:** licencias y «Repetir la primera configuración», que no borra nada.
-- **Agenda, Diagnóstico y Móvil y copias** tienen su página. El registro completo está dentro de Diagnóstico.
-
-## 2. Correcciones visuales, pantalla por pantalla
-
-La interfaz de TV mide 960 × 540 dp; las pantallas del prototipo, 1920 × 1080 px. Las medidas se han pasado a la mitad para que coincidan.
-
-| Pantalla | Qué se ha corregido |
+| Situación | Cómo queda |
 |---|---|
-| **Icono y banner** | Icono definitivo del diseño: cuadrado redondeado con degradado azul `#3D8BFF → #7CC4FF` y la «M» oscura `#061226` en Inter Black. Va en todas las densidades y como icono adaptativo (fondo en degradado y primer plano). Banner de Android TV con el icono y «MiVisor TV» sobre `#07090D` |
-| **Introducción (asistente)** | Cinco pasos con barra de progreso:<br>1. Bienvenida, con «Empezar» e «Importar copia».<br>2. Proveedores, con el QR del móvil siempre visible.<br>3. Comprobación rápida, con la fila del aparato («Modesto» si tiene poca memoria).<br>4. Estilo del menú, con tarjetas Arriba / En un lateral y Modo ligero.<br>5. Todo listo.<br><br>«Atrás» vuelve al paso anterior |
-| **Inicio** | Fondo con los colores de los dos equipos del destacado.<br>Destacado con escudos grandes, título en dos líneas, «canal · lista, arranca en ~N s» y los botones Ver ahora / Dónde verlo / Favorito.<br>Filas: En directo / Empieza pronto, Seguir viendo («por donde lo dejaste»), Esta noche (recordatorios), Tus favoritos y grupos.<br>Avisos con el estilo del diseño |
-| **Menú** | Barra superior o menú lateral desplegable (opción nueva). Insignia «M» con los colores del icono |
-| **Reproductor** | **Arriba:** logo del canal, nombre, **evento que se emite ahora** (de la agenda), EN DIRECTO / EN PAUSA, **«Retraso N s»** (el retraso real que mide el motor) y la hora.<br>**Abajo:**<br>• datos de la fuente y una barra hasta «Directo»;<br>• **pausa redonda**, Audio y subtítulos, «Fuente x de y», **Canales**, Canal anterior, **corazón redondo** y ajuste de imagen;<br>• el audio activo («Español · subtítulos no»).<br>**Paneles laterales:**<br>• *Audio y subtítulos* con botones de opción, códec y canales de cada pista («E-AC-3 · 5.1»); las pistas que el aparato no puede reproducir salen apagadas;<br>• sección SUBTÍTULOS y «Se recuerda tu elección en este canal»;<br>• *Fuentes*;<br>• *Canales*, nuevo: los canales del grupo con su logo, el evento que emiten y la etiqueta «Ahora».<br>**Zapping:** tarjeta abajo a la izquierda con logo, nombre y «DAZN · 3 de 6».<br>**Avisos de fallo como en el diseño:**<br>• «El motor no ha arrancado» → Reintentar / Probar con Ace Stream / Ver diagnóstico;<br>• «X no tiene fuentes disponibles» → Probar igualmente / Ver cuarentena / Cancelar.<br>**Otros:** el tamaño de subtítulos se aplica al vídeo. Al abrir la app directamente en el último canal, espera a que carguen los proveedores |
-| **Canales (grupo)** | Cabecera con el rótulo del grupo, nombre y «6 canales · 5 listos».<br>Rejilla de tres columnas.<br>Panel del canal enfocado con su logo, el evento EN DIRECTO y su estado |
-| **Agenda** | Días arriba (HOY 30, SÁB 31…) y filtros Todo / Fútbol / Tenis…<br>Filas «equipo contra equipo» con escudos, la pastilla DIRECTO o la hora, y la competición con el mejor canal.<br>Panel **DÓNDE VERLO** a la derecha para el evento enfocado: tus canales del mejor al peor, con «Mejor», estado y «OK: ficha del evento · con/sin recordatorio».<br>Las competiciones de la 3c siguen, al final de la lista |
-| **Ficha del evento («Dónde verlo»)** | Cabecera a todo el ancho sobre los colores de los equipos: EN DIRECTO + COMPETICIÓN, título grande, «Ver en <canal>», Recordarme, la competición y los escudos con «vs» a la derecha.<br>«Dónde verlo» como fila de tarjetas de tus canales («Mejor opción» la primera).<br>Debajo, la lista completa de canales anunciados de la 3c, también los que no están en tus proveedores |
-| **Mi lista** | Pestañas del diseño, sin contadores.<br>**Ordenar** (como los añadiste, A-Z o los que mejor funcionan).<br>Rejilla de 4.<br>Historial con logo, «Hoy, 21:02 · 32 min» y «Ver».<br>Estado vacío con icono |
-| **Buscar** | Teclado en pantalla a la izquierda (a–z, ñ, +, Espacio, Borrar, Móvil) y resultados a la derecha (Eventos y Canales). No abre el teclado del sistema.<br>«Nada para «x»» con sugerencias. Mantener OK en «Borrar» vacía la búsqueda |
-| **Ajustes** | Ver el apartado 1. Las filas pasan a blanco con texto oscuro al enfocarlas, como en el diseño. Esto se aplica a todas las listas de la app |
-| **Componentes** | Interruptor verde al encenderse, botón de opción, insignias, avisos, estado vacío con icono, botón principal blanco con anillo azul claro. Nuevos iconos del menú de Ajustes: altavoz, ajustes, pulso, check, caja y chip |
-| **Foco y transiciones** | Anillo y escala de foco del diseño, fundido de 180 ms entre pantallas (sin él en Modo ligero) y la zona segura de 48 × 27 dp |
+| Carga | Logo y nombre pequeños arriba a la izquierda y la Órbita girando en el centro. Debajo, un estado breve («Conectando con la fuente…», «Probando otra fuente…») y un detalle: fuente x de y, proveedor, emisores y «suele tardar ~N s» |
+| Al empezar la imagen | **Los controles aparecen solos**, con el foco en **Pausar** |
+| Barra de controles | Izquierda: **Info · Fuentes · Mi lista**. Centro: **Pausar/Reanudar**, botón redondo champán. Derecha: **Audio · Subtítulos · Vídeo · Ocultar** |
+| Arriba | Logo, nombre y evento que se emite (o «Televisión en directo»), **EN DIRECTO**, «x / y fuentes», el retraso respecto al directo y la hora |
+| Sin barra de progreso | En directo no la hay; no se dibuja una falsa |
+| Autoocultado | A los **7 s** sin tocar el mando. El diseño recomienda probar entre 5 y 7 s. Nunca se ocultan con un panel abierto ni en pausa |
+| Panel lateral | Pestañas **Info · Fuentes · Audio · Subtítulos · Vídeo** y «Cerrar». Lo seleccionado lleva borde verde agua, distinto del foco champán. La barra de debajo se atenúa y el foco no puede ir «al fondo» |
+| Fuentes | Fuente, proveedor, calidad y estado (Funciona, A prueba, En pausa…). Al elegir una, se prueba sin salir del canal. Mantener OK la abre en Ace Stream |
+| Audio y subtítulos | **Solo las pistas reales** del vídeo, con códec y canales. Si no hay subtítulos, lo dice; no se inventan idiomas |
+| Vídeo | Ajustar, Rellenar o Estirar |
+| Info | Canal, grupo, evento en directo, fuente, calidad, emisores, retraso, tiempo de arranque y audio |
 
-## 3. Elementos del diseño que siguen pendientes
+### Mando en el reproductor
 
-| Elemento | Por qué no está |
+| Tecla | Sin controles | Con controles | Panel abierto |
+|---|---|---|---|
+| OK | Muestra los controles | Activa el botón enfocado | Elige la pestaña, la pista o la fuente |
+| Flechas | **Nada: no cambian de canal** | Recorren los botones | Recorren el panel |
+| CH+/CH− y «canal anterior» | Nada | Nada | Nada |
+| Atrás | **Vuelve a la pantalla de origen** | Oculta los controles | Cierra el panel y devuelve el foco al botón que lo abrió |
+
+Para cambiar de canal: Atrás y otro canal en la lista. Ya no hay atajos ocultos ni el panel «Canales» dentro del reproductor.
+
+**Avisos de error**:
+- Reintentar.
+- Probar con Ace Stream, si está instalada.
+- Cambiar fuente.
+- **Volver a Canales**.
+
+Nunca hay bucles infinitos.
+
+## 3. Lo común a toda la app
+
+- **Colores del diseño 06.**
+  - Fondo grafito `#080F19` y tarjetas `#132232`/`#1A2A39`.
+  - Texto marfil `#F7F0E6`.
+  - Acción y foco en champán `#E9C99E`/`#FFE1B8`.
+  - «Bien» en verde agua `#9FD6C8`.
+  - EN DIRECTO en granate apagado con letra clara, en vez de rojo chillón.
+- **Foco.** Anillo champán y apenas un 2 % de escala, para que el elemento no invada a sus vecinos. Los botones principales son champán.
+- **Rail lateral compacto.** Solo iconos, en el orden del diseño: Inicio, Canales, Agenda, Buscar, Mi lista y Ajustes. Al recibir el foco se despliega **encima** del contenido, sin moverlo, y muestra los nombres. Arriba hay una barra fina con la marca, el estado del motor y de WARP, y la hora. Desaparece la opción «Menú arriba / lateral» de Ajustes y del asistente.
+- **Marca Órbita.** Es el símbolo principal propuesto por el diseñador.
+  - Icono de lanzador en todas las densidades y adaptativo, sobre fondo grafito.
+  - Banner de Android TV hecho a partir del símbolo. No usa la foto del estadio, que no es nuestra.
+- **Pantalla de arranque.** La Órbita girando, «MiVisor TV» y «Preparando tus canales…».
+  - Solo dura lo que tardan en leerse los proveedores guardados: no tiene duración mínima ni botón «Saltar».
+  - Como mucho dura 6 s.
+  - Si tarda, avisa con «Preparación más lenta de lo habitual».
+- **Ajustes › Verificador.** «Comprobar ahora» funciona aunque no tengas favoritos: en ese caso prueba todos los canales, como mucho 60 fuentes. La comprobación automática sigue desactivada, como se acordó.
+
+## 4. WARP: por qué sale «firma distinta» y cómo arreglarlo de verdad
+
+WARP solo obedece a apps firmadas con **su misma clave**. La comprobación compara la huella SHA-256 del certificado; no se ha quitado ni rebajado.
+
+| Firma | Huella | ¿Controla WARP? |
+|---|---|---|
+| La v18 que te funcionaba | La clave de MiVisor/WARP, que empieza por `B2:9F:F0:71…` | Sí |
+| MiVisor TV ahora (sin secretos en GitHub) | `app/debug.keystore`, la clave de desarrollo de la v18, que empieza por `84:43:95:70…` | **No** |
+
+La solución no es tocar el código: es firmar la release con la **misma clave que la v18**.
+
+1. Abre el repositorio de la **v18** en GitHub, en *Settings → Secrets and variables → Actions*. Allí están estos cuatro secretos:
+   - `SIGNING_KEYSTORE_BASE64`, que es el keystore original en base64;
+   - `SIGNING_STORE_PASSWORD`;
+   - `SIGNING_KEY_ALIAS`;
+   - `SIGNING_KEY_PASSWORD`.
+2. GitHub no deja leer el valor de un secreto ya guardado. Necesitas el **archivo keystore original** (el `.jks` o `.keystore` con el que firmabas la v18) y sus contraseñas. Si tienes el archivo, conviértelo en tu ordenador con `base64 -w0 mivisor.jks > keystore.txt`.
+3. En el repositorio de **MiVisor TV**, en *Settings → Secrets and variables → Actions → New repository secret*, crea los **cuatro secretos con los mismos nombres**:
+   - `SIGNING_KEYSTORE_BASE64`: el contenido de `keystore.txt`;
+   - `SIGNING_STORE_PASSWORD`;
+   - `SIGNING_KEY_ALIAS`;
+   - `SIGNING_KEY_PASSWORD`.
+4. Lanza el workflow **MiVisor TV (APK)**.
+   - Con los secretos puestos, firma con ese keystore y comprueba que la huella es la de WARP.
+   - Si no coincide, **la compilación falla**: no se publica una APK que no pueda controlar WARP.
+   - La APK sale sin el sufijo `-sin-control-WARP`.
+5. En la tele, **desinstala una vez** MiVisor TV, porque cambia la firma, e instala la nueva.
+6. Comprueba que Ajustes › WARP dice «Correcto: misma huella SHA-256 y permiso concedido» y que la barra superior dice «WARP conectada» al conectar.
+
+La clave privada nunca va en el código, en el ZIP ni en la APK. Solo vive en los secretos de GitHub.
+
+## 5. Lo que queda pendiente del paquete del diseñador
+
+Esta entrega se ha centrado en **Canales** y el **reproductor**. Del resto del diseño 06 ya se ven los colores, el foco, el rail y la marca, pero **sus pantallas aún no tienen la maquetación nueva**:
+
+| Pieza del diseño 06 | Estado |
 |---|---|
-| **Vista previa en vídeo** en Canales y en el grupo («Sin sonido») | Hace falta un segundo reproductor a la vez, y eso cambia la reproducción. En el panel del grupo se ve el logo y el estado en su lugar. El interruptor sale como «Todavía no disponible» |
-| **Marcador y minuto** («1–0 · 50'», «2.º set») en Agenda, Inicio y ficha | `agenda.json` no los trae. Se muestra DIRECTO o la hora |
-| **Jornada** («LALIGA · JORNADA 11») | `agenda.json` no la trae |
-| **Barra de tiempo con retroceso** en el reproductor | No hay *timeshift*. La barra indica el directo y el retraso real |
-| **Ajustes de tiempos** (retraso objetivo, «reintentar a los 15 s», «cambiar a los 30 s») | Cambiarlos tocaría la lógica de reproducción y Outpace, que pediste no alterar. Se muestran como «Automático» o «Fijo» |
-| **Verificador automático** | Desactivado, como acordamos. Solo existe «Comprobar ahora» |
-| **Código corto del informe** («MV-7K4Q») | El QR ya lleva un token seguro. Se muestra la hora de caducidad en su lugar |
-| **Ace Stream dentro de MiVisor TV** | Más adelante, como en la 3b y la 3c |
-| **«Escribir con el móvil» como ajuste propio** | Aparece junto a cada campo. Desde Ajustes lleva a «Añadir proveedor» |
+| Inicio con portada a sangre (foto de estadio), «Continuar viendo», «Próximas citas» y «Competiciones seguidas» | Pendiente. Mantiene la estructura de la 3d con los colores nuevos |
+| Agenda con fecha → deporte → competiciones y orden cronológico global, más la ficha con panel contextual «Dónde verlo» | Pendiente. Mantiene la de la 3d |
+| Buscar con resultados tipados y Mi lista con «Vistos» | Pendiente. Ya funcionan, con los colores nuevos |
+| Ajustes en 7 grupos (General, Reproductor, Interfaz, Servicios, Canales, Datos, Pruebas) | Pendiente. Mantiene los apartados de la 3d |
+| Variante del icono «Arco» | No se usa: el diseño recomienda una sola marca, la Órbita |
+| Fotos de estadio y logos de DAZN/Movistar del prototipo | No se incluyen: el propio diseñador avisa de que son ilustrativos o de terceros, sin licencia |
 
-## 4. Limitaciones técnicas
+Si te parece bien cómo quedan Canales y el reproductor, el siguiente paso sería aplicar el diseño 06 completo a Inicio y Agenda.
 
-- **Sin trabajo en segundo plano**, como siempre: el verificador manual, los avisos y el servidor del móvil solo funcionan con la app abierta.
-- **Las copias van por el móvil:** exportar e importar necesitan que la tele esté en la red de casa (Wi-Fi o cable). Sin esa red, la pantalla lo dice.
-- **El archivo `.mvb` sin su código no sirve.** Si se pierde el código, hay que hacer otra copia.
-- **«Compartir» del informe** depende de que la tele tenga alguna app que reciba texto. En la mayoría de teles no hay ninguna, y lo avisa.
-- **«Comprobar ahora»** para el reproductor mientras prueba: cada fuente usa el motor. Como mucho prueba 60 fuentes y se para con OK.
-- **El icono adaptativo** se usa en Android 8 o posterior. En Android 6 y 7 se ve el icono redondeado normal.
+## 6. Comprobaciones en la tele
 
-## 5. Comprobaciones en la tele
-
-| # | Comprobación |
-|---|---|
-| 1 | El icono y el banner del lanzador son los del diseño. Si el lanzador guarda el antiguo, reinicia la tele |
-| 2 | Primera configuración (Ajustes › Acerca de › Repetir la primera configuración): se pueden recorrer los 5 pasos con el mando y «Atrás» vuelve al anterior |
-| 3 | Reproductor: con un evento en directo en la agenda, arriba sale su título y «Retraso N s». Abajo funcionan pausa, Audio y subtítulos, Fuente x de y, Canales, Canal anterior y el corazón |
-| 4 | Panel de audio: las pistas muestran el códec; elegir una la recuerda la próxima vez en ese canal |
-| 5 | ▲▼ con los controles ocultos cambian de canal y sale la tarjeta abajo a la izquierda |
-| 6 | Ajustes › Diagnóstico › Probar todo termina con los 7 resultados |
-| 7 | ¿Algo no va bien? › Red de casa: el QR abre el informe en el móvil. Sin red: los QR se leen con la cámara |
-| 8 | Exportar copia: el móvil descarga el `.mvb` y la tele muestra el código de 6 cifras |
-| 9 | Importar copia en otra tele (o en esta): con un código incorrecto avisa y no cambia nada. Con el correcto muestra «Copia comprobada» y, al importar, se conserva lo que había |
-| 10 | Ajustes › Pantalla: menú en un lateral, Texto más grande y «Al abrir MiVisor» cambian la app al momento o al volver a abrirla |
-| 11 | Agenda: los días y los filtros cambian la lista. Al moverse por los eventos se actualiza «DÓNDE VERLO» |
-| 12 | Buscar con el teclado en pantalla y con «Móvil» |
-| 13 | Fuentes que descansan: «Liberar» devuelve la fuente a la lista |
-| 14 | Con la firma de desarrollo, Ajustes › WARP muestra la tarjeta roja con las dos huellas |
-| 15 | Instalada encima de la 3c se conservan proveedores, favoritos, historial, recordatorios y lo aprendido |
+| # | Prueba | Debe pasar |
+|---|---|---|
+| 1 | Abrir la app | Pantalla de Órbita breve y luego Inicio; el icono y el banner son los nuevos |
+| 2 | Rail | Al pulsar ← desde el contenido se despliega encima sin mover nada; ↑↓ recorren las secciones; → vuelve al contenido |
+| 3 | Canales › DAZN › Fútbol | Solo canales de fútbol de DAZN, en orden natural; caben 3 por fila |
+| 4 | **OK en un canal** | **Reproduce directamente** |
+| 5 | Al empezar la imagen | Aparecen los controles con foco en Pausar; se ocultan solos a los 7 s |
+| 6 | Controles ocultos y flechas ↑↓←→ | No pasa nada: el canal no cambia |
+| 7 | Fuentes / Audio / Subtítulos / Vídeo | Abren el panel; Atrás lo cierra y vuelve al botón |
+| 8 | Atrás con controles; Atrás otra vez | Oculta los controles; vuelve a Canales **con el foco en el mismo canal** |
+| 9 | Mantener OK en un canal | Añadido a Mi lista; aparece la estrella y sale en «Favoritos» |
+| 10 | Canal sin logo | Pictograma de señal y nombre completo |
+| 11 | Ajustes › Verificador › Comprobar ahora | Arranca el motor y cuenta las fuentes con imagen |
+| 12 | Con los secretos de la v18 puestos | Ajustes › WARP: misma huella; conectar y desconectar funcionan |
 
 ## Compilación
 
-- **Pruebas:** pasan las **174 pruebas** de los módulos JVM. Son nuevas las de copias cifradas y las de la descarga y subida de copias por el servidor del móvil.
-- **Código Android:** lleva las mismas revisiones de imports y referencias que en las entregas anteriores, pero **no se ha compilado en este entorno ni se ha probado en una tele**. Se comprobará en GitHub Actions; si falla, pasadme el log.
+- **Pruebas:** pasan las **176 pruebas** de los módulos JVM. Son nuevas las de familias de canales y orden natural.
+- **Código Android:** lleva las revisiones de imports y referencias de siempre, pero **no se ha compilado aquí ni se ha probado en una tele**. Se comprobará en GitHub Actions; si falla, pásame el log.
 - **Fuera de este proyecto no se ha tocado nada:** ni la Raspberry, ni MiVisor Web, ni MiVisor Agenda, ni `mivisor-datos`, ni la v18, ni Outpace en producción.

@@ -129,7 +129,7 @@ fun SearchScreen(graph: AppGraph, nav: Nav) {
                     item {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(end = 24.dp)) {
                             items(channels, key = { it.id }) { ch ->
-                                TvChannelTile(ch, graph.sources, favorite = mine.isFavorite(ch.id), onClick = { nav.go(Route.Channel(ch.id)) }, width = 180.dp)
+                                TvChannelTile(ch, graph.sources, favorite = mine.isFavorite(ch.id), onClick = { nav.go(Route.Player(ch.id)) }, width = 180.dp)
                             }
                         }
                     }

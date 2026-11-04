@@ -76,10 +76,11 @@ fun MvButton(
         enabled = enabled,
         shape = RoundedCornerShape(24.dp),
         // Diseño: el principal es blanco con texto oscuro; los demás, superficie. Con foco, blanco con anillo.
-        color = if (primary) MvColors.Text else MvColors.Surface3,
-        focusedColor = MvColors.Text,
+        // Diseño 06: la acción principal es champán; con foco se aclara (action.focus) y lleva el anillo.
+        color = if (primary) MvColors.Accent else MvColors.Surface2,
+        focusedColor = MvColors.Accent2,
         focusRequester = focusRequester,
-        ringColor = MvColors.Accent2,
+        ringColor = MvColors.Text,
         contentAlignment = Alignment.Center
     ) { focused ->
         val fg = if (focused || primary) MvColors.Bg else MvColors.Text
@@ -218,10 +219,11 @@ fun IconBox(@DrawableRes icon: Int) {
 fun MvTag(text: String, color: Color = MvColors.Text2, filled: Boolean = false) {
     Box(
         Modifier
-            .background(if (filled) color else color.copy(alpha = 0.16f), RoundedCornerShape(6.dp))
+            // Diseño 06: fondo apagado del color y texto claro (EN DIRECTO granate con letra rosada, no rojo chillón).
+            .background(if (filled) color.copy(alpha = 0.32f) else color.copy(alpha = 0.16f), RoundedCornerShape(6.dp))
             .padding(horizontal = 8.dp, vertical = 3.dp)
     ) {
-        MvText(text, MvType.Caption, color = if (filled) MvColors.Bg else color, maxLines = 1)
+        MvText(text, MvType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = if (filled) MvColors.Text else color, maxLines = 1)
     }
 }
 

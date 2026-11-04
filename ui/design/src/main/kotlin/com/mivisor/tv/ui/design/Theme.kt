@@ -12,26 +12,42 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Tokens del diseño premium de la fase 2 (los mismos que el prototipo navegable).
- * Medidas en dp/sp sobre el lienzo de TV de 960 × 540 dp (1080p a densidad 2,0): un texto de 12 sp mide 24 px en 1080p.
+ * Tokens del sistema de diseño 06 («Arena editorial»): grafito, marfil, champán y verde agua.
+ * Medidas en dp/sp sobre el lienzo de TV de 960 × 540 dp (1080p a densidad 2,0). El lienzo del diseñador es de
+ * 1600 × 900 px: 1 px del diseño = 0,6 dp aquí (con un mínimo de 12 sp para el texto, legible a 3 m).
  */
 object MvColors {
-    val Bg = Color(0xFF07090D)
-    val Surface1 = Color(0xFF0F131A)
-    val Surface2 = Color(0xFF151A23)
-    val Surface3 = Color(0xFF1C222D)
-    val Surface4 = Color(0xFF262D3A)
-    val Text = Color(0xFFF3F6FA)
-    val Text2 = Color(0xFFB3BDCA)
-    val Text3 = Color(0xFF8A95A5)
-    val Accent = Color(0xFF3D8BFF)
-    val Accent2 = Color(0xFF7CC4FF)
-    val Live = Color(0xFFFF3D4F)
-    val Soon = Color(0xFFFFB547)
-    val Ok = Color(0xFF3DDC84)
-    val Bad = Color(0xFFFF6B6B)
-    val Focus = Color(0xFFFFFFFF)
-    val Scrim = Color(0xCC07090D)
+    /** background.0 */
+    val Bg = Color(0xFF080F19)
+    /** navigation.0: rail y barra superior. */
+    val Nav = Color(0xFF091421)
+    /** surface.1: tarjetas secundarias. */
+    val Surface1 = Color(0xFF132232)
+    /** surface.2: contenedores con interacción. */
+    val Surface2 = Color(0xFF1A2A39)
+    /** surface.focus */
+    val Surface3 = Color(0xFF223546)
+    val Surface4 = Color(0xFF2A4153)
+    /** stroke.default */
+    val Stroke = Color(0xFF304555)
+    val Text = Color(0xFFF7F0E6)
+    val Text2 = Color(0xFFB8C5CE)
+    val Text3 = Color(0xFF8D9FAA)
+    /** action.primary (champán): llamadas a la acción y selección. */
+    val Accent = Color(0xFFE9C99E)
+    /** action.focus */
+    val Accent2 = Color(0xFFFFE1B8)
+    /** status.live */
+    val Live = Color(0xFFE58C83)
+    /** Fondo de la etiqueta EN DIRECTO (rojo apagado del diseño). */
+    val LiveBg = Color(0xFF5A2A2A)
+    val Soon = Color(0xFFE8B86D)
+    /** status.good */
+    val Ok = Color(0xFF9FD6C8)
+    /** status.error */
+    val Bad = Color(0xFFEF9185)
+    val Focus = Color(0xFFFFE1B8)
+    val Scrim = Color(0xCC080F19)
 
     /** Tintes de las placas de texto de los canales (sin logos en 3a). */
     val Plates = listOf(
@@ -74,7 +90,8 @@ object MvDims {
     val Radius = 12.dp
     val RadiusLarge = 16.dp
     val FocusRing = 3.dp
-    const val FocusScale = 1.06f
+    /** Sin escalados que invadan a los vecinos (diseño 06): apenas un 2 %. */
+    const val FocusScale = 1.02f
 }
 
 /** Modo ligero (TVs con poca memoria): sin animaciones ni escalados. */

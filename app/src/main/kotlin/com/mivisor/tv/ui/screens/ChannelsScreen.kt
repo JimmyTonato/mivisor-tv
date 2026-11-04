@@ -56,78 +56,6 @@ import com.mivisor.tv.ui.design.MvType
 import com.mivisor.tv.ui.design.SectionHeader
 import com.mivisor.tv.ui.design.ThemeTile
 
-/** Canales (como el prototipo): cabecera con atajos, «Grupos» por marca y «Por temática». */
-@Composable
-fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
-    val lib by graph.providers.state.collectAsState()
-    val mine by graph.mylist.state.collectAsState()
-    val library = lib.library
-    val first = remember { FocusRequester() }
-
-    if (library.isEmpty && library.links.isEmpty()) {
-        EmptyState(
-            if (lib.loading) "Leyendo tus proveedores…" else "Aún no hay canales",
-            if (lib.providers.isEmpty()) "Añade un proveedor en Ajustes para ver aquí sus canales." else "Tus proveedores no han devuelto canales reproducibles. Prueba a actualizarlos."
-        ) {
-            if (lib.providers.isEmpty()) MvButton("Añadir proveedor", { nav.go(Route.AddProvider()) }, icon = MvIcons.Add, primary = true, focusRequester = first)
-            else MvButton("Actualizar proveedores", { graph.providers.refresh() }, icon = MvIcons.Refresh, primary = true, focusRequester = first)
-        }
-        InitialFocus(first)
-        return
-    }
-
-    val working = remember(library) { library.channels.count { ch -> channelStatus(ch, graph.sources).second == MvColors.Ok } }
-    val previous = graph.previousOf(null)?.let { library.channel(it) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 48.dp)) {
-        item {
-            Column(Modifier.padding(horizontal = MvDims.SafeX)) {
-                MvText("Canales", MvType.Title)
-                Spacer(Modifier.height(4.dp))
-                MvText(
-                    "${library.channels.size} canales · ${library.brandSections.size} grupos · ${library.providerCount} proveedores" +
-                        (if (working > 0) " · $working funcionan" else ""),
-                    MvType.Body.copy(color = MvColors.Text2)
-                )
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    MvButton("Buscar canal", { nav.tab(Route.Search) }, icon = MvIcons.Search, focusRequester = first)
-                    MvButton("Favoritos · ${mine.favorites.size}", { nav.tab(Route.MyList) }, icon = MvIcons.Star)
-                    if (previous != null) MvButton("Canal anterior", { nav.go(Route.Player(previous.id)) }, icon = MvIcons.History)
-                    MvButton("Todos los canales", { nav.go(Route.Group(ALL)) }, icon = MvIcons.Grid)
-                }
-                Spacer(Modifier.height(28.dp))
-            }
-        }
-        if (library.brandSections.isNotEmpty()) item {
-            SectionHeader("Grupos", Modifier.padding(start = MvDims.SafeX))
-            LazyRow(contentPadding = PaddingValues(horizontal = MvDims.SafeX), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                itemsIndexed(library.brandSections, key = { _, s -> s.key }) { _, sec ->
-                    val plate = ChannelPlates.of(sec.name, sec.key)
-                    GroupTile(
-                        name = sec.name, plateTop = plate.top, plateBottom = null, tone = plate.tone.ui(),
-                        detail = groupDetail(sec, graph), onClick = { nav.go(Route.Group(sec.key)) },
-                        art = sec.logo?.let { url -> @Composable { m: Modifier -> ChannelArt(url, plate, m, 300.dp) } }
-                    )
-                }
-            }
-            Spacer(Modifier.height(28.dp))
-        }
-        item {
-            SectionHeader("Por temática", Modifier.padding(start = MvDims.SafeX))
-            LazyRow(contentPadding = PaddingValues(horizontal = MvDims.SafeX), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                itemsIndexed(library.themeSections, key = { _, s -> s.key }) { _, sec ->
-                    ThemeTile(sec.name, "${sec.channels.size} canales", MvPalette.theme(sec.key), onClick = { nav.go(Route.Group(sec.key)) })
-                }
-                if (library.links.isNotEmpty()) item {
-                    ThemeTile("Enlaces externos", "${library.links.size} enlaces", MvPalette.theme("links"), onClick = { nav.go(Route.Links) })
-                }
-            }
-        }
-    }
-    InitialFocus(first)
-}
-
-/** Clave de la «sección» con todos los canales. */
 const val ALL = "all"
 
 private fun groupDetail(sec: TvSection, graph: AppGraph): String {
@@ -176,7 +104,7 @@ fun GroupScreen(graph: AppGraph, nav: Nav, route: Route.Group, toaster: Toaster)
                 Box(Modifier.onFocusChanged { if (it.hasFocus) focused = ch }) {
                     TvChannelTile(
                         ch, graph.sources, favorite = ch.id in favorites,
-                        onClick = { nav.go(Route.Channel(ch.id)) },
+                        onClick = { nav.go(Route.Player(ch.id)) },
                         onLongClick = {
                             graph.mylist.toggleFavorite(ch.id, ch.name)
                             toaster.show(if (ch.id in favorites) "Quitado de Mi lista" else "Añadido a Mi lista")

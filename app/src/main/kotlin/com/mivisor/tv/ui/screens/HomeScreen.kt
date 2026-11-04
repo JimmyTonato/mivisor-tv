@@ -177,7 +177,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
         }
         item { ChannelRow("Tus favoritos", favChannels, graph.sources, favorites, onOpen = { nav.go(Route.Player(it.id)) }, onLong = toggleFav, detail = "${favChannels.size} canales") }
         itemsIndexed(library.brandSections.take(6), key = { i, sec -> "sec-$i-${sec.key}" }) { _, sec ->
-            ChannelRow(sec.name, sec.channels.take(16), graph.sources, favorites, onOpen = { nav.go(Route.Channel(it.id)) }, onLong = toggleFav, detail = "${sec.channels.size} canales")
+            ChannelRow(sec.name, sec.channels.take(16), graph.sources, favorites, onOpen = { nav.go(Route.Player(it.id)) }, onLong = toggleFav, detail = "${sec.channels.size} canales")
         }
         item {
             Row(Modifier.padding(horizontal = MvDims.SafeX, vertical = 8.dp)) {

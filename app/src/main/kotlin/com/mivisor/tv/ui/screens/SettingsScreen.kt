@@ -370,14 +370,11 @@ private fun warpText(phase: WarpPhase, detail: String?): String = when (phase) {
 
 @Composable
 private fun DisplayPage(graph: AppGraph, onLook: () -> Unit) {
-    var side by remember { mutableStateOf(graph.prefs.navStyle == "side") }
     var lite by remember { mutableStateOf(graph.prefs.lite) }
     var big by remember { mutableStateOf(graph.prefs.bigText) }
     var info by remember { mutableStateOf(graph.prefs.showSourceInfo) }
     var start by remember { mutableStateOf(graph.prefs.startScreen) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        MvRow("Menú", { side = !side; graph.prefs.navStyle = if (side) "side" else "top"; onLook() },
-            subtitle = "Arriba, o en un lateral que se despliega", trailing = if (side) "En un lateral" else "Arriba")
         MvRow("Modo ligero", { lite = !lite; graph.prefs.lite = lite; onLook() }) { MvSwitch(lite) }
         MvRow("Vista previa en Canales", {}, subtitle = "Todavía no disponible: llega en una entrega posterior", enabled = false) { MvSwitch(false) }
         MvRow("Texto más grande", { big = !big; graph.prefs.bigText = big; onLook() }) { MvSwitch(big) }
@@ -476,7 +473,6 @@ private fun VerifierPage(graph: AppGraph, onChange: () -> Unit) {
     var last by remember { mutableStateOf(graph.prefs.verifierLast) }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { cancel = true } }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        MvRow("Probar fuentes con MiVisor abierto", {}, subtitle = "Automático: no está disponible en esta entrega; queda desactivado", enabled = false) { MvSwitch(false) }
         MvRow(if (running) "Comprobando… (OK para parar)" else "Comprobar ahora", {
             if (running) { cancel = true; return@MvRow }
             running = true; cancel = false; progress = "Arrancando Outpace…"
@@ -490,8 +486,9 @@ private fun VerifierPage(graph: AppGraph, onChange: () -> Unit) {
             }
         }, subtitle = progress ?: "Una pasada ahora, con la app abierta. Solo apunta las fuentes que funcionan; nunca penaliza")
         MvRow("Solo mis favoritos", { favsOnly = !favsOnly; graph.prefs.verifierFavoritesOnly = favsOnly },
-            subtitle = "Si no, prueba las fuentes de todos los canales (como mucho 60)") { MvSwitch(favsOnly) }
+            subtitle = "Si no tienes favoritos, se prueban todos los canales (como mucho 60 fuentes)") { MvSwitch(favsOnly) }
         if (last.isNotBlank()) MvText("Última comprobación: $last", MvType.Caption)
+        MvText("La comprobación automática en segundo plano sigue desactivada, como se acordó: solo se prueba cuando pulsas «Comprobar ahora».", MvType.Caption)
     }
 }
 

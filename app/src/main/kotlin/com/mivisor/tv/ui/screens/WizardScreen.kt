@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.mivisor.tv.AppGraph
 import com.mivisor.tv.data.CheckResult
 import com.mivisor.tv.outpace.EngineManager
@@ -91,14 +92,7 @@ fun WizardScreen(graph: AppGraph, nav: Nav, onDone: () -> Unit) {
 
 @Composable
 private fun Brand() {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier.size(30.dp).background(Brush.linearGradient(listOf(MvColors.Accent, MvColors.Accent2)), RoundedCornerShape(8.dp)),
-            contentAlignment = Alignment.Center
-        ) { MvText("M", MvType.BodyStrong.copy(fontWeight = FontWeight.Black, color = Color(0xFF061226))) }
-        Spacer(Modifier.width(10.dp))
-        MvText("MiVisor", MvType.Heading.copy(fontWeight = FontWeight.Black))
-    }
+    com.mivisor.tv.ui.design.MvBrand(30.dp, 22.sp)
 }
 
 @Composable
@@ -209,25 +203,20 @@ fun CheckRow(r: CheckResult, warnLabel: String = "Revisar") {
 private fun MenuStyle(graph: AppGraph, onNext: () -> Unit) {
     val context = LocalContext.current
     val lowRam = remember { EngineManager.isLowRam(context) }
-    var side by remember { mutableStateOf(graph.prefs.navStyle == "side") }
     var lite by remember { mutableStateOf(graph.prefs.lite || lowRam) }
     val first = remember { FocusRequester() }
     Column {
-        MvText("¿Cómo quieres el menú?", MvType.Title)
+        // 3e: el menú es siempre el rail lateral del diseño 06; aquí solo queda el rendimiento.
+        MvText("Rendimiento", MvType.Title)
         Spacer(Modifier.height(6.dp))
         MvText(if (lowRam) "Este aparato es modesto: te recomiendo el modo ligero. Se puede cambiar en Ajustes." else "Se puede cambiar en Ajustes.",
             MvType.Body.copy(color = MvColors.Text2))
         Spacer(Modifier.height(18.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            MenuCard("Arriba", "Las secciones en una barra que se esconde al bajar", !side, top = true, fr = first) { side = false }
-            MenuCard("En un lateral", "Iconos a la izquierda que se despliegan", side, top = false, fr = null) { side = true }
-        }
-        Spacer(Modifier.height(16.dp))
         MvRow("Modo ligero", { lite = !lite }, subtitle = if (lowRam) "Recomendado para este aparato" else "Sin animaciones ni sombras",
-            modifier = Modifier.widthIn(max = 640.dp)) { MvSwitch(lite) }
+            modifier = Modifier.widthIn(max = 640.dp), focusRequester = first) { MvSwitch(lite) }
         Spacer(Modifier.height(16.dp))
         MvButton("Continuar", {
-            graph.prefs.navStyle = if (side) "side" else "top"
+            graph.prefs.navStyle = "side"
             graph.prefs.lite = lite
             onNext()
         }, icon = MvIcons.Play, primary = true)

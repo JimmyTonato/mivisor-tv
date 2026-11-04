@@ -266,7 +266,9 @@ class Diagnostics(private val graph: AppGraph) {
      */
     suspend fun verify(onProgress: (done: Int, total: Int, ok: Int) -> Unit, isCancelled: () -> Boolean): String {
         val lib = graph.providers.state.value.library
-        val channels = if (graph.prefs.verifierFavoritesOnly) graph.mylist.state.value.favorites.mapNotNull { lib.channel(it.first) } else lib.channels
+        // Sin favoritos, «Solo mis favoritos» no dejaría nada que comprobar: se usan todos los canales.
+        val favs = graph.mylist.state.value.favorites.mapNotNull { lib.channel(it.first) }
+        val channels = if (graph.prefs.verifierFavoritesOnly && favs.isNotEmpty()) favs else lib.channels
         val sources = channels.flatMap { it.sources }.distinctBy { it.contentId }.take(60)
         if (sources.isEmpty()) return "No hay fuentes que comprobar"
         val engine = EngineManager.ensureStarted(app)

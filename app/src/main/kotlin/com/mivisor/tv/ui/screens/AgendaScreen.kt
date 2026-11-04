@@ -179,7 +179,7 @@ private fun DayTile(top: String, number: String, selected: Boolean, empty: Boole
         shape = RoundedCornerShape(10.dp), color = if (selected) MvColors.Accent else MvColors.Surface1, focusedColor = MvColors.Text,
         ringColor = MvColors.Accent2, contentAlignment = Alignment.Center
     ) { focused ->
-        val fg = if (focused) MvColors.Bg else if (selected) Color.White else if (empty) MvColors.Text3 else MvColors.Text
+        val fg = if (focused) MvColors.Bg else if (selected) MvColors.Bg else if (empty) MvColors.Text3 else MvColors.Text
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             MvText(top, MvType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, letterSpacing = 1.sp), color = if (focused || selected) fg else MvColors.Text2)
             MvText(number, MvType.Title, color = fg)
@@ -292,12 +292,12 @@ fun AgendaEventRow(ev: AgendaEvent, now: Long, bestChannel: String?, reminded: B
         Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(72.dp)) {
                 if (live) Row(
-                    Modifier.background(MvColors.Live, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+                    Modifier.background(MvColors.LiveBg, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(Modifier.size(5.dp).background(Color.White, androidx.compose.foundation.shape.CircleShape))
+                    Box(Modifier.size(5.dp).background(MvColors.Live, androidx.compose.foundation.shape.CircleShape))
                     Spacer(Modifier.width(4.dp))
-                    MvText("DIRECTO", MvType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = Color.White)
+                    MvText("DIRECTO", MvType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = MvColors.Text)
                 }
                 else MvText(if (ev.timeTbd) "Por conf." else hhmm(ev.startMillis), MvType.Heading, color = fg)
             }

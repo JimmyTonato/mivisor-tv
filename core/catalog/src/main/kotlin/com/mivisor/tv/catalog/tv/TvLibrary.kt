@@ -54,8 +54,13 @@ class TvChannel(
     val sources: List<TvSource>,
     val initials: String,
     /** Logo real (3c): el del canal o, si no tiene, el de su grupo. null = se pinta el rótulo de texto. */
-    val logo: String? = null
+    val logo: String? = null,
+    /** Tipo (deportes, cine…) según el catálogo de logos o el nombre. */
+    val category: com.mivisor.tv.catalog.logos.ChannelCategory? = null
 ) {
+    /** Familia del diseño 06 (Fútbol, Motor, Deportes…). */
+    val family: ChannelFamily by lazy { ChannelFamilies.of(name, category) }
+
     val multiaudio: Boolean get() = sources.any { MULTI.containsMatchIn(it.variantName) }
     val bestQuality: Int get() = sources.maxOfOrNull { it.quality } ?: 0
 
@@ -83,6 +88,17 @@ class TvLibrary(
     val themeSections: List<TvSection> get() = sections.filter { !it.isBrand }
     fun section(key: String): TvSection? = sections.firstOrNull { it.key == key }
 
+    /**
+     * «Proveedores» del diseño 06: las marcas reconocidas (DAZN, Movistar Plus+…) y, al final, «Otros / sin identificar»
+     * con todo lo que no es de ninguna marca. Nunca se atribuye un canal a una marca por una coincidencia dudosa:
+     * eso lo decide el catálogo de logos (BuiltinGroups + channel-logos.json).
+     */
+    val providers: List<TvSection> by lazy {
+        val brands = brandSections
+        val others = channels.filter { c -> brands.none { s -> s.channels.any { it.id == c.id } } }
+        brands + if (others.isNotEmpty()) listOf(TvSection(OTHERS_KEY, "Otros / sin identificar", others)) else emptyList()
+    }
+
     /** Sección en la que aparece el canal (para cambiar de canal con ▲▼ dentro de su grupo). */
     fun sectionOf(channelId: String): TvSection? = sections.firstOrNull { s -> s.channels.any { it.id == channelId } }
 
@@ -104,6 +120,16 @@ class TvLibrary(
 
     companion object {
         val EMPTY = TvLibrary(emptyList(), emptyList(), 0)
+        const val OTHERS_KEY = "sin-marca"
+
+        /** Familias que tienen canales en [list], en el orden del diseño. */
+        fun familiesOf(list: List<TvChannel>): List<Pair<ChannelFamily, Int>> {
+            val counts = list.groupingBy { it.family }.eachCount()
+            return ChannelFamily.values().mapNotNull { f -> counts[f]?.let { f to it } }
+        }
+
+        /** Canales en orden natural («DAZN 2» antes que «DAZN 10»). */
+        fun sorted(list: List<TvChannel>): List<TvChannel> = list.sortedWith(compareBy(NaturalOrder) { it.name })
 
         fun build(providers: List<ProviderCatalog>, resolver: ChannelLogoResolver = ChannelLogoResolver(LogoCatalog.EMPTY)): TvLibrary {
             if (providers.isEmpty()) return EMPTY
@@ -114,7 +140,7 @@ class TvLibrary(
                 val sources = g.sources.mapNotNull { s -> toSource(s) }.distinctBy { it.contentId }
                 if (sources.isEmpty()) return@mapNotNull null
                 val logo = resolver.resolve(g.name)
-                TvChannel(g.key, g.name, logo.groupKey, logo.groupName, sources, g.initials, logo.best)
+                TvChannel(g.key, g.name, logo.groupKey, logo.groupName, sources, g.initials, logo.best, logo.category)
             }
             val sections = LogoSections.build(channels, resolver, name = { it.name }, listGroup = { null }).map { sec ->
                 TvSection(sec.key ?: "otros", sec.name, sec.items.map { it.first }, sec.logo.groupLogo)

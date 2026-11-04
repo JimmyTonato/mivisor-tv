@@ -44,6 +44,7 @@ object MvIcons {
     val Check = R.drawable.ic_check
     val Box = R.drawable.ic_box
     val Chip = R.drawable.ic_chip
+    val Signal = R.drawable.ic_signal
 }
 
 @Composable

@@ -5,6 +5,13 @@ import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
+import com.mivisor.tv.ui.design.OrbitaMark
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -77,7 +84,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class Panel { SOURCES, TRACKS, CHANNELS }
+/** Pestañas del panel lateral del reproductor (diseño 06.1). */
+private enum class Panel(val label: String) { INFO("Info"), SOURCES("Fuentes"), AUDIO("Audio"), SUBS("Subtítulos"), VIDEO("Vídeo") }
 
 private val FITS = listOf(
     "Ajustar" to AspectRatioFrameLayout.RESIZE_MODE_FIT,
@@ -85,13 +93,17 @@ private val FITS = listOf(
     "Estirar" to AspectRatioFrameLayout.RESIZE_MODE_FILL
 )
 
+/** Tiempo sin tocar el mando tras el que se ocultan los controles (el diseño recomienda 5–7 s). */
+private const val HIDE_AFTER_MS = 7_000L
+
 /**
- * Reproductor a pantalla completa (como el prototipo).
- *  - OK muestra los controles; Atrás los oculta y, después, sale.
- *  - Con los controles ocultos, ▲▼ (o CH+/CH−) cambian de canal dentro de su grupo; la tecla «canal anterior» vuelve
- *    al último visto.
- *  - Si Outpace no da imagen, se ofrece Ace Stream (o se abre sola, según Ajustes › Motor).
- *  - Con el motor «Ace Stream» elegido en Ajustes, el canal se abre directamente en su app y se vuelve con Atrás.
+ * Reproductor único del diseño 06.1 («Cinema»): el vídeo manda.
+ *  - Carga: spinner en el centro, logo y nombre discretos en la esquina y un estado breve.
+ *  - Al empezar la imagen se muestran los controles (foco en Pausa) y se ocultan solos a los 7 s sin tocar nada.
+ *  - Controles ocultos: OK los muestra; las flechas NO hacen nada (no cambian de canal); Atrás vuelve a la pantalla
+ *    de origen (Canales, ficha, Buscar…), que recupera el foco en el mismo canal.
+ *  - Controles visibles: Atrás los oculta. Panel abierto: Atrás lo cierra y devuelve el foco al botón que lo abrió.
+ *  - Cambiar de canal = volver con Atrás y elegir otro. Sin atajos ocultos.
  */
 @OptIn(UnstableApi::class)
 @Composable
@@ -100,8 +112,8 @@ fun PlayerScreen(
     route: Route.Player,
     toaster: Toaster,
     onBack: () -> Unit,
-    onSwitch: (Route.Player) -> Unit,
-    onChannels: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") onSwitch: (Route.Player) -> Unit,
+    @Suppress("UNUSED_PARAMETER") onChannels: () -> Unit,
     /** Ir a otra pantalla (diagnóstico, cuarentena) desde los avisos del reproductor. */
     onRoute: (Route) -> Unit = {}
 ) {
@@ -111,13 +123,17 @@ fun PlayerScreen(
     val mine by graph.mylist.state.collectAsState()
     val channel = lib.library.channel(route.channelId)
     var controls by remember { mutableStateOf(false) }
+    var shownOnce by remember(route) { mutableStateOf(false) }
     var panel by remember { mutableStateOf<Panel?>(null) }
+    var lastOpener by remember { mutableStateOf<Panel?>(null) }
     var fit by remember { mutableIntStateOf(0) }
     var touch by remember { mutableIntStateOf(0) }
-    var zapLabel by remember { mutableStateOf<String?>(null) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val catcher = remember { FocusRequester() }
-    val firstControl = remember { FocusRequester() }
+    val pauseFocus = remember { FocusRequester() }
+    val panelFocus = remember { FocusRequester() }
+    val openers = remember { Panel.values().associateWith { FocusRequester() } }
+    val dialogFocus = remember { FocusRequester() }
     val aceInstalled = remember { ExternalApps.aceInstalled(context) }
     val scope = rememberCoroutineScope()
 
@@ -132,7 +148,8 @@ fun PlayerScreen(
         if (problem != null) toaster.show(problem) else onBack()
     }
 
-    // Empieza al entrar o al cambiar de canal (o en cuanto la biblioteca tenga el canal).
+    // Empieza al entrar (o en cuanto la biblioteca tenga el canal). La fuente la elige el motor: la más fiable según
+    // lo aprendido, o la primera si ninguna se ha probado; si falla, recupera y pasa a la siguiente solo.
     LaunchedEffect(route, channel != null) {
         val ch = channel ?: return@LaunchedEffect
         graph.watched(ch.id)
@@ -153,60 +170,61 @@ fun PlayerScreen(
             openInAce(ch)
         }
     }
-
+    // Al terminar la carga, los controles aparecen (una vez por canal).
+    LaunchedEffect(ui.phase) {
+        if (ui.phase == Phase.PLAYING && !shownOnce) {
+            shownOnce = true
+            controls = true
+            touch++
+        }
+    }
     LaunchedEffect(Unit) {
         while (true) {
             delay(20_000)
             now = System.currentTimeMillis()
         }
     }
-    LaunchedEffect(zapLabel) {
-        if (zapLabel != null) {
-            delay(1_500)
-            zapLabel = null
-        }
-    }
-    // Los controles se ocultan solos tras 6 s sin tocar el mando (no si hay un panel abierto).
-    LaunchedEffect(controls, panel, touch) {
-        if (controls && panel == null && ui.phase == Phase.PLAYING) {
-            delay(6_000)
+    // Autocierre de los controles (nunca con un panel abierto ni en pausa).
+    LaunchedEffect(controls, panel, touch, ui.paused) {
+        if (controls && panel == null && !ui.paused && ui.phase == Phase.PLAYING) {
+            delay(HIDE_AFTER_MS)
             controls = false
         }
     }
-    LaunchedEffect(controls, panel) {
+    // Foco: panel → su primera fila; controles → Pausa (o el botón que abrió el panel); nada → recogedor de teclas.
+    LaunchedEffect(controls, panel, ui.phase) {
         delay(80)
-        runCatching { if (controls || panel != null) firstControl.requestFocus() else catcher.requestFocus() }
+        runCatching {
+            when {
+                panel != null -> panelFocus.requestFocus()
+                ui.phase == Phase.FAILED -> dialogFocus.requestFocus()
+                controls -> (lastOpener?.let { openers[it] } ?: pauseFocus).requestFocus()
+                else -> catcher.requestFocus()
+            }
+        }
     }
 
     BackHandler {
         when {
-            panel != null -> panel = null
-            controls && ui.phase == Phase.PLAYING -> controls = false
+            panel != null -> { panel = null; touch++ }
+            controls && ui.phase == Phase.PLAYING -> { controls = false; lastOpener = null }
             else -> onBack()
         }
-    }
-
-    fun zap(step: Int) {
-        val next = lib.library.neighbor(route.channelId, step) ?: return
-        val sec = lib.library.sectionOf(next.id)
-        val pos = sec?.channels?.indexOfFirst { it.id == next.id } ?: -1
-        zapLabel = next.id + "\u0000" + (sec?.let { "${it.name} · ${pos + 1} de ${it.channels.size}" } ?: "")
-        onSwitch(Route.Player(next.id))
-    }
-
-    fun previous() {
-        val prev = graph.previousOf(route.channelId)?.takeIf { it != route.channelId && lib.library.channel(it) != null }
-        if (prev == null) toaster.show("Todavía no hay un canal anterior") else onSwitch(Route.Player(prev))
     }
 
     val agenda by graph.agenda.state.collectAsState()
     val liveEvent = channel?.let { remember(it.id, agenda.agenda, now) { liveEventFor(it, agenda.agenda, lib.library) } }
     var delayMs by remember { mutableStateOf<Long?>(null) }
-    LaunchedEffect(controls) {
-        while (controls) {
+    LaunchedEffect(controls, panel) {
+        while (controls || panel != null) {
             delayMs = com.mivisor.tv.engine.EngineDiagnostics.metrics.liveDelayMs
             delay(2_000)
         }
+    }
+    fun open(p: Panel) {
+        lastOpener = p
+        panel = p
+        touch++
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -241,19 +259,22 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Recoge las teclas cuando no hay controles a la vista.
+        // Recoge las teclas cuando no hay controles: OK los muestra; las flechas no hacen nada (sin zapping).
         Box(
             Modifier.fillMaxSize().focusRequester(catcher).onKeyEvent { e ->
                 val n = e.nativeKeyEvent
-                if (n.action != AndroidKeyEvent.ACTION_UP) return@onKeyEvent false
                 when (n.keyCode) {
-                    AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_CHANNEL_UP -> { zap(-1); true }
-                    AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_CHANNEL_DOWN -> { zap(1); true }
-                    AndroidKeyEvent.KEYCODE_LAST_CHANNEL -> { previous(); true }
-                    AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_DPAD_LEFT,
-                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT, AndroidKeyEvent.KEYCODE_MENU, AndroidKeyEvent.KEYCODE_INFO -> { controls = true; touch++; true }
+                    AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER,
+                    AndroidKeyEvent.KEYCODE_MENU, AndroidKeyEvent.KEYCODE_INFO -> {
+                        if (n.action == AndroidKeyEvent.ACTION_UP) { controls = true; touch++ }
+                        true
+                    }
+                    AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_DPAD_LEFT,
+                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT, AndroidKeyEvent.KEYCODE_CHANNEL_UP, AndroidKeyEvent.KEYCODE_CHANNEL_DOWN,
+                    AndroidKeyEvent.KEYCODE_LAST_CHANNEL -> true
                     AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, AndroidKeyEvent.KEYCODE_MEDIA_PLAY, AndroidKeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                        graph.player.togglePause(); true
+                        if (n.action == AndroidKeyEvent.ACTION_UP && phase == Phase.PLAYING) graph.player.togglePause()
+                        true
                     }
                     else -> false
                 }
@@ -262,32 +283,33 @@ fun PlayerScreen(
 
         if (channel == null && (lib.loading || lib.library.channels.isEmpty()) && lib.providers.isNotEmpty()) {
             // Al abrir la app directamente en el último canal: espera a que se lean los proveedores.
-            Status("Cargando tus canales…", "", busy = true) {}
+            Loading(null, "Cargando tus canales…", null)
             return@Box
         }
         if (channel == null) {
-            Status("Canal no disponible", "Este canal ya no está en tus proveedores.", busy = false) {
-                MvButton("Volver", onBack, focusRequester = firstControl)
+            PlayerDialog("Canal no disponible", "Este canal ya no está en tus proveedores.") {
+                MvButton("Volver", onBack, primary = true, focusRequester = dialogFocus)
             }
-            InitialFocus(firstControl)
+            InitialFocus(dialogFocus)
             return@Box
         }
 
+        val sourceTag = if (ui.sourceCount > 0) "${ui.sourceIndex.coerceAtLeast(1)} / ${ui.sourceCount} fuentes" else null
         when (phase) {
-            Phase.IDLE, Phase.STARTING_ENGINE, Phase.TRYING -> if (panel == null) Status(
-                ui.channelName.ifEmpty { channel.name },
+            Phase.IDLE, Phase.STARTING_ENGINE, Phase.TRYING -> if (panel == null) Loading(
+                channel,
+                when {
+                    phase == Phase.STARTING_ENGINE -> "Preparando el motor…"
+                    ui.sourceIndex > 1 -> "Probando otra fuente…"
+                    else -> "Conectando con la fuente…"
+                },
                 listOfNotNull(
-                    ui.message,
-                    if (ui.sourceIndex > 0) "Fuente ${ui.sourceIndex} de ${ui.sourceCount}" + (ui.provider?.let { " · $it" } ?: "") + (ui.quality?.let { " · $it" } ?: "") else null,
-                    if (phase == Phase.TRYING) "${ui.peers} emisores" else null
-                ).joinToString("\n"),
-                busy = true
-            ) {
-                if (controls) {
-                    MvButton("Fuentes", { panel = Panel.SOURCES }, icon = MvIcons.Layers, focusRequester = firstControl)
-                    MvButton("Volver", onBack, icon = MvIcons.Close)
-                }
-            }
+                    sourceTag?.let { "Fuente ${ui.sourceIndex} de ${ui.sourceCount}" },
+                    ui.provider,
+                    if (phase == Phase.TRYING && ui.peers > 0) "${ui.peers} emisores" else null,
+                    graph.sources.typicalStart(channel.sources.map { it.contentId })?.let { "suele tardar ~$it s" }
+                ).joinToString(" · ").ifEmpty { null }
+            )
             Phase.FAILED -> if (panel == null) {
                 val canAce = aceInstalled && graph.prefs.aceFallback != "never" && ui.cause != "offline" && ui.cause != "internet"
                 val allResting = ui.sources.isNotEmpty() && ui.sources.all {
@@ -296,11 +318,11 @@ fun PlayerScreen(
                 when {
                     ui.cause == "engine" -> PlayerDialog(
                         "El motor no ha arrancado",
-                        (ui.message ?: "Outpace no respondió.") + " Suele arreglarse reintentando; si se repite, el informe de diagnóstico dice por qué."
+                        (ui.message ?: "Outpace no respondió.") + " Suele arreglarse reintentando; si se repite, el diagnóstico dice por qué."
                     ) {
-                        MvButton("Reintentar", { graph.player.retry() }, icon = MvIcons.Refresh, primary = true, focusRequester = firstControl)
+                        MvButton("Reintentar", { graph.player.retry() }, icon = MvIcons.Refresh, primary = true, focusRequester = dialogFocus)
                         if (canAce) MvButton("Probar con Ace Stream", { scope.launch { openInAce(channel) } }, icon = MvIcons.Bolt)
-                        MvButton("Ver diagnóstico", { onRoute(Route.Diagnostics) }, icon = MvIcons.Info)
+                        MvButton("Volver a Canales", onBack)
                     }
                     allResting && ui.cause == null -> PlayerDialog(
                         "${channel.name} no tiene fuentes disponibles",
@@ -308,188 +330,174 @@ fun PlayerScreen(
                             (graph.sources.resting().filter { r -> ui.sources.any { it.contentId == r.contentId } }.mapNotNull { it.untilMs }.minOrNull()
                                 ?.let { " La primera vuelve en ${((it - System.currentTimeMillis()) / 60_000).coerceAtLeast(1)} min." } ?: "")
                     ) {
-                        MvButton("Probar igualmente", { graph.player.play(channel.request(), ui.sources.first().contentId) }, icon = MvIcons.Play, primary = true, focusRequester = firstControl)
+                        MvButton("Probar igualmente", { graph.player.play(channel.request(), ui.sources.first().contentId) }, icon = MvIcons.Play, primary = true, focusRequester = dialogFocus)
                         MvButton("Ver cuarentena", { onRoute(Route.Quarantine) }, icon = MvIcons.Layers)
-                        MvButton("Cancelar", onBack)
+                        MvButton("Volver a Canales", onBack)
                     }
                     else -> PlayerDialog(
                         if (ui.cause == null) "Sin imagen" else "No se puede reproducir ahora",
                         ui.message ?: "No se pudo reproducir el canal."
                     ) {
-                        MvButton("Reintentar", { graph.player.retry() }, icon = MvIcons.Refresh, primary = true, focusRequester = firstControl)
+                        MvButton("Reintentar", { graph.player.retry() }, icon = MvIcons.Refresh, primary = true, focusRequester = dialogFocus)
                         if (canAce) MvButton("Probar con Ace Stream", { scope.launch { openInAce(channel) } }, icon = MvIcons.Bolt)
-                        MvButton("Fuentes", { panel = Panel.SOURCES }, icon = MvIcons.Layers)
-                        MvButton("Ver diagnóstico", { onRoute(Route.Diagnostics) }, icon = MvIcons.Info)
+                        MvButton("Cambiar fuente", { open(Panel.SOURCES) }, icon = MvIcons.Layers)
+                        MvButton("Volver a Canales", onBack)
                     }
                 }
             }
-            Phase.PLAYING -> if (controls && panel == null) Controls(
+            Phase.PLAYING -> if (controls || panel != null) Controls(
                 channel = channel,
-                event = liveEvent?.let { ev -> ev.title + (ev.competition?.let { " · $it" } ?: "") },
+                subtitle = liveEvent?.let { ev -> ev.title + (ev.competition?.let { " · $it" } ?: "") }
+                    ?: listOfNotNull(channel.brandName, "Televisión en directo").joinToString(" · "),
+                sourceTag = sourceTag,
                 delayMs = delayMs,
-                audioSummary = audioSummary(ui.tracks),
-                detail = listOfNotNull(
-                    "Fuente ${ui.sourceIndex} de ${ui.sourceCount}", ui.quality, ui.provider, "${ui.peers} emisores", "Outpace"
-                ).joinToString(" · "),
-                sourceLabel = "Fuente ${ui.sourceIndex} de ${ui.sourceCount}",
+                clock = hhmm(now),
                 paused = ui.paused,
                 favorite = mine.isFavorite(channel.id),
-                clock = hhmm(now),
-                fitLabel = FITS[fit].first,
-                first = firstControl,
+                hint = if (panel == null) "Las flechas no cambian de canal · Atrás oculta los controles" else null,
+                pauseFocus = pauseFocus,
+                openers = openers,
+                dimmed = panel != null,
                 onPause = { graph.player.togglePause(); touch++ },
-                onTracks = { panel = Panel.TRACKS },
-                onSources = { panel = Panel.SOURCES },
-                onChannels = { panel = Panel.CHANNELS },
-                onPrevious = { previous() },
+                onPanel = { open(it) },
                 onFavorite = {
+                    val was = mine.isFavorite(channel.id)
                     graph.mylist.toggleFavorite(channel.id, channel.name)
-                    toaster.show(if (mine.isFavorite(channel.id)) "Quitado de Mi lista" else "Añadido a Mi lista")
+                    toaster.show(if (was) "Quitado de Mi lista" else "Añadido a Mi lista")
                     touch++
                 },
-                onFit = { fit = (fit + 1) % FITS.size; touch++ }
+                onHide = { controls = false; lastOpener = null },
+                onTouch = { touch++ }
             )
         }
 
-        // Recuperación de un corte (o espera a que vuelva la red): aviso arriba, sin tapar la imagen.
-        ui.recovering?.let { text ->
-            Box(Modifier.fillMaxWidth().padding(top = MvDims.SafeY + 8.dp), contentAlignment = Alignment.TopCenter) {
-                Row(
-                    Modifier.background(Color(0xD907090D), RoundedCornerShape(24.dp)).padding(horizontal = 18.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+        // Recuperación de un corte: spinner y estado en el centro, sin abrir paneles por su cuenta.
+        if (phase == Phase.PLAYING) ui.recovering?.let { text ->
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(
+                    Modifier.background(Color(0xB3080F19), RoundedCornerShape(16.dp)).padding(horizontal = 22.dp, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Spinner(18.dp)
-                    Spacer(Modifier.width(10.dp))
+                    OrbitaMark(34.dp, spinning = true)
+                    Spacer(Modifier.height(10.dp))
                     MvText(text, MvType.SmallStrong)
                 }
             }
         }
 
-        // Cambio de canal con ▲▼: nombre del canal un momento.
-        zapLabel?.let { label ->
-            val zapped = lib.library.channel(label.substringBefore('\u0000'))
-            Box(Modifier.fillMaxSize().padding(start = MvDims.SafeX, bottom = MvDims.SafeY + 20.dp), contentAlignment = Alignment.BottomStart) {
-                Row(
-                    Modifier.background(Color(0xE607090D), RoundedCornerShape(14.dp)).padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (zapped != null) ChannelLogo(zapped, Modifier.size(width = 64.dp, height = 36.dp), 64.dp)
-                    Spacer(Modifier.width(14.dp))
-                    Column {
-                        MvText(zapped?.name ?: "", MvType.Heading)
-                        MvText(label.substringAfter('\u0000'), MvType.Small)
-                    }
-                }
+        panel?.let { p ->
+            val hasRows = when (p) {
+                Panel.INFO -> false
+                Panel.SOURCES -> ui.sources.isNotEmpty()
+                Panel.AUDIO -> ui.tracks.any { it.type == C.TRACK_TYPE_AUDIO }
+                Panel.SUBS, Panel.VIDEO -> true
             }
-        }
-
-        when (panel) {
-            Panel.SOURCES -> SidePanel("Fuentes", eyebrow = channel.name.uppercase()) {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-                    itemsIndexed(ui.sources, key = { _, r -> r.contentId }) { i, r ->
-                        val (label, color) = stateLabel(r.state)
-                        MvRow(
-                            title = "${r.label} · ${r.provider}",
-                            subtitle = listOfNotNull(r.quality, if (r.current) "Viendo ahora" else if (r.tried) "Probada en este intento" else null).joinToString(" · ").ifEmpty { null },
-                            trailing = label, trailingColor = color, icon = MvIcons.Play,
-                            onClick = { panel = null; graph.player.selectSource(r.contentId) },
-                            onLongClick = if (aceInstalled) ({
-                                graph.player.stop()
-                                ExternalApps.openInAce(context, r.contentId)?.let { toaster.show(it) } ?: onBack()
-                            }) else null,
-                            focusRequester = if (i == 0) firstControl else null
+            SidePanel(channel.name, p, onTab = { panel = it; lastOpener = it }, onClose = { panel = null }, firstFocus = panelFocus, hasRows = hasRows) {
+                when (p) {
+                    Panel.INFO -> InfoTab(channel, ui, liveEvent, delayMs)
+                    Panel.SOURCES -> {
+                        ui.sources.forEachIndexed { i, r ->
+                            val (label, color) = stateLabel(r.state)
+                            PanelRow(
+                                title = "Fuente ${r.index}" + (if (r.current) " · viendo ahora" else ""),
+                                subtitle = listOfNotNull(r.provider, r.quality, if (r.tried && !r.current) "probada en este intento" else null).joinToString(" · "),
+                                trailing = label, trailingColor = color, selected = r.current,
+                                focusRequester = if (i == 0) panelFocus else null,
+                                onLongClick = if (aceInstalled) ({
+                                    graph.player.stop()
+                                    ExternalApps.openInAce(context, r.contentId)?.let { toaster.show(it) } ?: onBack()
+                                }) else null
+                            ) { panel = null; if (!r.current) graph.player.selectSource(r.contentId) }
+                        }
+                        if (ui.sources.isEmpty()) MvText("Este canal no tiene fuentes.", MvType.Small)
+                        Spacer(Modifier.height(8.dp))
+                        MvText(
+                            "Al elegir una, se prueba sin salir del canal." + if (aceInstalled) " Mantén OK para abrirla en Ace Stream." else "",
+                            MvType.Caption
                         )
                     }
-                    if (aceInstalled) item {
-                        MvText("Mantén pulsado OK en una fuente para abrirla en Ace Stream.", MvType.Caption, modifier = Modifier.padding(top = 8.dp))
+                    Panel.AUDIO -> {
+                        val audio = ui.tracks.filter { it.type == C.TRACK_TYPE_AUDIO }
+                        if (audio.isEmpty()) MvText("Esta fuente no informa de pistas de audio.", MvType.Small)
+                        audio.forEachIndexed { i, t ->
+                            PanelRow(
+                                title = t.label, subtitle = t.detail ?: "", selected = t.selected, enabled = t.supported,
+                                trailing = if (t.selected) "Seleccionada" else null, focusRequester = if (i == 0) panelFocus else null
+                            ) { graph.player.selectTrack(t); panel = null }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        MvText("Se recuerda tu elección en este canal.", MvType.Caption)
                     }
-                }
-            }
-            Panel.TRACKS -> SidePanel("Audio y subtítulos", eyebrow = channel.name.uppercase()) {
-                val audio = ui.tracks.filter { it.type == C.TRACK_TYPE_AUDIO }
-                val subs = ui.tracks.filter { it.type == C.TRACK_TYPE_TEXT }
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-                    if (audio.isEmpty()) item { MvText("Esta fuente solo tiene una pista de audio.", MvType.Small) }
-                    itemsIndexed(audio) { i, t ->
-                        MvRow(t.label, { if (t.supported) { graph.player.selectTrack(t); panel = null } }, subtitle = t.detail,
-                            enabled = t.supported, focusRequester = if (i == 0) firstControl else null) { MvRadio(t.selected) }
+                    Panel.SUBS -> {
+                        val subs = ui.tracks.filter { it.type == C.TRACK_TYPE_TEXT }
+                        PanelRow(
+                            title = "Sin subtítulos", subtitle = "", selected = subs.none { it.selected },
+                            trailing = if (subs.none { it.selected }) "Seleccionada" else null, focusRequester = panelFocus
+                        ) { graph.player.disableSubtitles(); panel = null }
+                        subs.forEach { t ->
+                            PanelRow(title = t.label, subtitle = t.detail ?: "", selected = t.selected, enabled = t.supported,
+                                trailing = if (t.selected) "Seleccionada" else null) { graph.player.selectTrack(t); panel = null }
+                        }
+                        if (subs.isEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            MvText("Esta fuente no trae subtítulos.", MvType.Caption)
+                        }
                     }
-                    item { MvText("SUBTÍTULOS", MvType.Eyebrow.copy(color = MvColors.Text2), modifier = Modifier.padding(top = 14.dp, bottom = 4.dp)) }
-                    item {
-                        MvRow("No", { graph.player.disableSubtitles(); panel = null },
-                            focusRequester = if (audio.isEmpty()) firstControl else null) { MvRadio(subs.none { it.selected }) }
-                    }
-                    itemsIndexed(subs) { _, t ->
-                        MvRow(t.label, { graph.player.selectTrack(t); panel = null }, subtitle = t.detail, enabled = t.supported) { MvRadio(t.selected) }
-                    }
-                    item { MvText("Se recuerda tu elección en este canal.", MvType.Caption, modifier = Modifier.padding(top = 8.dp)) }
-                }
-            }
-            Panel.CHANNELS -> SidePanel("Canales", eyebrow = (lib.library.sectionOf(channel.id)?.name ?: channel.name).uppercase()) {
-                val list = lib.library.sectionOf(channel.id)?.channels ?: lib.library.channels
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-                    itemsIndexed(list, key = { _, c -> c.id }) { i, c ->
-                        val ev = liveEventFor(c, agenda.agenda, lib.library)
-                        TvClickable(
-                            onClick = { panel = null; if (c.id != channel.id) onSwitch(Route.Player(c.id)) },
-                            modifier = Modifier.fillMaxWidth(), focusedScale = 1.02f,
-                            color = MvColors.Surface2, focusedColor = MvColors.Surface4,
-                            focusRequester = if (c.id == channel.id || (i == 0 && list.none { it.id == channel.id })) firstControl else null
-                        ) { _ ->
-                            Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                                ChannelLogo(c, Modifier.size(width = 48.dp, height = 27.dp), 48.dp)
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    MvText(c.name, MvType.BodyStrong, maxLines = 1)
-                                    MvText(ev?.title ?: channelStatus(c, graph.sources).first, MvType.Caption, maxLines = 1)
-                                }
-                                if (c.id == channel.id) MvTag("Ahora", MvColors.Text2)
-                            }
+                    Panel.VIDEO -> {
+                        FITS.forEachIndexed { i, (label, _) ->
+                            PanelRow(
+                                title = label,
+                                subtitle = when (i) { 0 -> "Imagen completa, con bandas si hace falta"; 1 -> "Llena la pantalla recortando los bordes"; else -> "Llena la pantalla deformando la imagen" },
+                                selected = fit == i, trailing = if (fit == i) "Seleccionada" else null,
+                                focusRequester = if (i == 0) panelFocus else null
+                            ) { fit = i }
                         }
                     }
                 }
             }
-            null -> Unit
         }
     }
 }
 
+/** Carga (diseño 06.1): canal discreto arriba a la izquierda, Órbita girando en el centro y un estado breve debajo. */
 @Composable
-private fun Status(title: String, body: String, busy: Boolean, actions: @Composable () -> Unit) {
-    Box(Modifier.fillMaxSize().background(MvColors.Scrim), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.widthIn(max = 720.dp)) {
-            if (busy) {
-                Spinner(40.dp)
-                Spacer(Modifier.height(20.dp))
+private fun Loading(channel: TvChannel?, status: String, detail: String?) {
+    Box(Modifier.fillMaxSize().background(Color(0xFF05080D))) {
+        if (channel != null) Row(
+            Modifier.padding(start = MvDims.SafeX, top = MvDims.SafeY + 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            LogoBox(channel, 34.dp)
+            Spacer(Modifier.width(10.dp))
+            MvText(channel.name, MvType.BodyStrong.copy(color = MvColors.Text2))
+        }
+        Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+            OrbitaMark(52.dp, spinning = true)
+            Spacer(Modifier.height(18.dp))
+            MvText(status, MvType.Body.copy(color = MvColors.Text))
+            if (detail != null) {
+                Spacer(Modifier.height(4.dp))
+                MvText(detail, MvType.Caption.copy(color = MvColors.Text3))
             }
-            MvText(title, MvType.Title)
-            Spacer(Modifier.height(10.dp))
-            MvText(body, MvType.Body.copy(color = MvColors.Text2))
-            Spacer(Modifier.height(24.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { actions() }
         }
     }
 }
 
-/** Aviso del reproductor como en el diseño: tarjeta sobre la imagen atenuada. */
+/** Aviso del reproductor: tarjeta sobre la imagen atenuada, con salida siempre visible. */
 @Composable
 private fun PlayerDialog(title: String, body: String, actions: @Composable () -> Unit) {
-    Box(Modifier.fillMaxSize().background(Color(0xB307090D)), contentAlignment = Alignment.Center) {
-        MvPanel(Modifier.widthIn(max = 420.dp), PaddingValues(20.dp)) {
-            MvText(title, MvType.Title)
-            Spacer(Modifier.height(10.dp))
+    Box(Modifier.fillMaxSize().background(Color(0xCC05080D)), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.widthIn(max = 460.dp).background(MvColors.Surface2, RoundedCornerShape(16.dp))
+                .border(1.dp, MvColors.Stroke, RoundedCornerShape(16.dp)).padding(22.dp)
+        ) {
+            MvText(title, MvType.Heading)
+            Spacer(Modifier.height(8.dp))
             MvText(body, MvType.Body.copy(color = MvColors.Text2))
-            Spacer(Modifier.height(22.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { actions() }
+            Spacer(Modifier.height(18.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { actions() }
         }
     }
-}
-
-/** «Español · subtítulos no». */
-private fun audioSummary(tracks: List<com.mivisor.tv.playback.PlaybackController.TrackOption>): String? {
-    val audio = tracks.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.selected } ?: return null
-    val sub = tracks.firstOrNull { it.type == C.TRACK_TYPE_TEXT && it.selected }
-    return audio.label + " · subtítulos " + (sub?.label?.lowercase() ?: "no")
 }
 
 /** Evento en directo que se emite en este canal (según la agenda), para la información del reproductor. */
@@ -500,109 +508,258 @@ fun liveEventFor(ch: TvChannel, agenda: com.mivisor.tv.model.Agenda?, library: c
 }
 
 /**
- * Controles del diseño: arriba logo, canal, evento, EN DIRECTO, retraso y hora; abajo datos de la fuente con la barra
- * hasta «Directo», pausa redonda, Audio y subtítulos, Fuente x de y, Canales, Canal anterior, favorito y el audio activo.
+ * Controles 06.1: arriba logo, canal y su contexto, EN DIRECTO y «x / y fuentes»; abajo una barra con Info, Fuentes y
+ * Mi lista a la izquierda, Pausa en el centro y Audio, Subtítulos, Vídeo y Ocultar a la derecha. Sin barra de progreso
+ * (en directo no la hay).
  */
 @Composable
 private fun Controls(
     channel: TvChannel,
-    event: String?,
+    subtitle: String,
+    sourceTag: String?,
     delayMs: Long?,
-    audioSummary: String?,
-    detail: String,
-    sourceLabel: String,
+    clock: String,
     paused: Boolean,
     favorite: Boolean,
-    clock: String,
-    fitLabel: String,
-    first: FocusRequester,
+    hint: String?,
+    pauseFocus: FocusRequester,
+    openers: Map<Panel, FocusRequester>,
+    dimmed: Boolean,
     onPause: () -> Unit,
-    onTracks: () -> Unit,
-    onSources: () -> Unit,
-    onChannels: () -> Unit,
-    onPrevious: () -> Unit,
+    onPanel: (Panel) -> Unit,
     onFavorite: () -> Unit,
-    onFit: () -> Unit
+    onHide: () -> Unit,
+    onTouch: () -> Unit
 ) {
     Box(Modifier.fillMaxSize()) {
+        // Degradados solo arriba y abajo: el vídeo sigue siendo el protagonista.
+        Box(Modifier.align(Alignment.TopStart).fillMaxWidth().height(120.dp).background(Brush.verticalGradient(listOf(Color(0xCC05080D), Color.Transparent))))
+        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(170.dp).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE605080D)))))
         Row(
-            Modifier.align(Alignment.TopStart).fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color(0xD1000000), Color.Transparent)))
-                .padding(start = MvDims.SafeX, end = MvDims.SafeX, top = MvDims.SafeY, bottom = 60.dp),
+            Modifier.align(Alignment.TopStart).fillMaxWidth().padding(start = MvDims.SafeX, end = MvDims.SafeX, top = MvDims.SafeY + 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ChannelLogo(channel, Modifier.width(72.dp).height(40.dp), 72.dp)
-            Spacer(Modifier.width(18.dp))
+            LogoBox(channel, 40.dp)
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 MvText(channel.name, MvType.Heading, maxLines = 1)
-                MvText(event ?: channel.brandName ?: "", MvType.Body.copy(color = MvColors.Text2), maxLines = 1)
+                MvText(subtitle, MvType.Small.copy(color = MvColors.Text2), maxLines = 1)
             }
-            MvTag(if (paused) "EN PAUSA" else "● EN DIRECTO", if (paused) MvColors.Soon else MvColors.Live, filled = true)
-            if (delayMs != null) {
-                Spacer(Modifier.width(14.dp))
-                Box(Modifier.background(Color(0x99000000), RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 6.dp)) {
-                    MvText("Retraso ${(delayMs / 1000).coerceAtLeast(1)} s", MvType.SmallStrong.copy(color = MvColors.Text2))
-                }
+            Row(
+                Modifier.background(MvColors.LiveBg, RoundedCornerShape(7.dp)).padding(horizontal = 9.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(Modifier.size(6.dp).background(MvColors.Live, CircleShape))
+                Spacer(Modifier.width(6.dp))
+                MvText(if (paused) "EN PAUSA" else "EN DIRECTO", MvType.Caption.copy(color = MvColors.Text, fontWeight = FontWeight.Bold))
             }
-            Spacer(Modifier.width(20.dp))
+            if (sourceTag != null) {
+                Spacer(Modifier.width(8.dp))
+                InfoPill(sourceTag)
+            }
+            if (delayMs != null && delayMs >= 1_000) {
+                Spacer(Modifier.width(8.dp))
+                InfoPill("−${delayMs / 1000} s")
+            }
+            Spacer(Modifier.width(14.dp))
             MvText(clock, MvType.Heading)
         }
         Column(
-            Modifier.align(Alignment.BottomStart).fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE6000000))))
-                .padding(start = MvDims.SafeX, end = MvDims.SafeX, bottom = MvDims.SafeY, top = 80.dp)
+            Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = MvDims.SafeX - 10.dp, end = MvDims.SafeX - 10.dp, bottom = MvDims.SafeY)
+                .then(if (dimmed) Modifier.alpha(0.35f) else Modifier)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                MvText(detail, MvType.Small, maxLines = 1)
-                Spacer(Modifier.width(16.dp))
-                // Barra hasta el directo: en directo siempre está casi al final (la distancia es el retraso).
-                Box(Modifier.weight(1f).height(4.dp).background(Color(0x33FFFFFF), RoundedCornerShape(2.dp))) {
-                    Box(Modifier.fillMaxWidth(if (paused) 0.9f else 0.97f).height(4.dp).background(MvColors.Accent, RoundedCornerShape(2.dp)))
-                }
-                Spacer(Modifier.width(16.dp))
-                MvText("Directo", MvType.Small)
+            Row(Modifier.padding(start = 10.dp, end = 10.dp, bottom = 6.dp)) {
+                MvText(if (paused) "SEÑAL EN PAUSA" else "SEÑAL EN REPRODUCCIÓN", MvType.Caption.copy(color = MvColors.Text2, letterSpacing = 1.sp))
+                Spacer(Modifier.weight(1f))
+                if (hint != null) MvText(hint, MvType.Caption.copy(color = MvColors.Text3))
             }
-            Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                TvClickable(
-                    onClick = onPause, focusRequester = first, shape = CircleShape, modifier = Modifier.size(48.dp),
-                    color = MvColors.Text, focusedColor = MvColors.Text, ringColor = MvColors.Accent2, contentAlignment = Alignment.Center
-                ) { _ ->
-                    if (paused) MvIcon(MvIcons.Play, size = 22.dp, tint = MvColors.Bg)
-                    else Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Box(Modifier.size(width = 4.dp, height = 16.dp).background(MvColors.Bg))
-                        Box(Modifier.size(width = 4.dp, height = 16.dp).background(MvColors.Bg))
+            androidx.compose.runtime.CompositionLocalProvider(LocalBarEnabled provides !dimmed) {
+            Row(
+                Modifier.fillMaxWidth().height(72.dp)
+                    .background(Color(0xE6132232), RoundedCornerShape(16.dp))
+                    .border(1.dp, MvColors.Stroke, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BarButton("Info", MvIcons.Info, openers.getValue(Panel.INFO), onTouch) { onPanel(Panel.INFO) }
+                Spacer(Modifier.width(8.dp))
+                BarButton("Fuentes", MvIcons.Signal, openers.getValue(Panel.SOURCES), onTouch) { onPanel(Panel.SOURCES) }
+                Spacer(Modifier.width(8.dp))
+                BarButton(if (favorite) "En Mi lista" else "Mi lista", MvIcons.Star, null, onTouch, highlighted = favorite, onClick = onFavorite)
+                Spacer(Modifier.weight(1f))
+                // Pausa: botón redondo champán en el centro; al reanudar vuelve al directo.
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    TvClickable(
+                        onClick = onPause, focusRequester = pauseFocus, onFocus = onTouch, shape = CircleShape, focusedScale = 1.04f, enabled = !dimmed,
+                        color = MvColors.Accent, focusedColor = MvColors.Accent2, ringColor = MvColors.Text,
+                        contentAlignment = Alignment.Center, modifier = Modifier.size(46.dp)
+                    ) { _ ->
+                        if (paused) MvIcon(MvIcons.Play, size = 20.dp, tint = MvColors.Bg)
+                        else Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Box(Modifier.size(width = 4.dp, height = 15.dp).background(MvColors.Bg, RoundedCornerShape(1.dp)))
+                            Box(Modifier.size(width = 4.dp, height = 15.dp).background(MvColors.Bg, RoundedCornerShape(1.dp)))
+                        }
                     }
+                    MvText(if (paused) "Reanudar" else "Pausar", MvType.Caption.copy(color = MvColors.Text2))
                 }
-                MvButton("Audio y subtítulos", onTracks, icon = MvIcons.List)
-                MvButton(sourceLabel, onSources, icon = MvIcons.Layers)
-                MvButton("Canales", onChannels, icon = MvIcons.Grid)
-                MvButton("Canal anterior", onPrevious, icon = MvIcons.History)
-                TvClickable(
-                    onClick = onFavorite, shape = CircleShape, modifier = Modifier.size(48.dp),
-                    color = if (favorite) Color(0x553D8BFF) else MvColors.Surface3, focusedColor = MvColors.Text, ringColor = MvColors.Accent2,
-                    contentAlignment = Alignment.Center
-                ) { focused -> MvIcon(MvIcons.Star, size = 20.dp, tint = if (focused) MvColors.Bg else if (favorite) MvColors.Accent2 else MvColors.Text2) }
-                MvButton(fitLabel, onFit, icon = MvIcons.Tv)
-                if (audioSummary != null) MvText(audioSummary, MvType.Small, maxLines = 1)
+                Spacer(Modifier.weight(1f))
+                BarButton("Audio", MvIcons.Volume, openers.getValue(Panel.AUDIO), onTouch) { onPanel(Panel.AUDIO) }
+                Spacer(Modifier.width(8.dp))
+                BarButton("Subtítulos", MvIcons.List, openers.getValue(Panel.SUBS), onTouch) { onPanel(Panel.SUBS) }
+                Spacer(Modifier.width(8.dp))
+                BarButton("Vídeo", MvIcons.Tune, openers.getValue(Panel.VIDEO), onTouch) { onPanel(Panel.VIDEO) }
+                Spacer(Modifier.width(8.dp))
+                BarButton("Ocultar", MvIcons.Close, null, onTouch, onClick = onHide)
             }
-            Spacer(Modifier.height(10.dp))
-            MvText("▲▼ con los controles ocultos: cambiar de canal · Atrás: ocultar controles", MvType.Caption)
+            }
         }
     }
 }
 
 @Composable
-private fun SidePanel(title: String, eyebrow: String? = null, content: @Composable () -> Unit) {
-    Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.CenterEnd) {
-        Column(
-            Modifier.fillMaxHeight().width(300.dp).background(MvColors.Surface1)
-                .padding(start = 20.dp, end = MvDims.SafeX, top = MvDims.SafeY, bottom = MvDims.SafeY)
-        ) {
-            if (eyebrow != null) MvText(eyebrow, MvType.Eyebrow.copy(color = MvColors.Text2), maxLines = 1)
-            MvText(title, MvType.Title, maxLines = 1)
-            Spacer(Modifier.height(16.dp))
-            content()
+private fun InfoPill(text: String) {
+    Box(Modifier.background(Color(0x99091421), RoundedCornerShape(7.dp)).border(1.dp, MvColors.Stroke, RoundedCornerShape(7.dp)).padding(horizontal = 9.dp, vertical = 4.dp)) {
+        MvText(text, MvType.Caption.copy(color = MvColors.Text, fontWeight = FontWeight.Bold))
+    }
+}
+
+/** Con un panel abierto la barra queda atenuada y fuera del recorrido del foco (nunca se navega «al fondo»). */
+private val LocalBarEnabled = androidx.compose.runtime.compositionLocalOf { true }
+
+/** Botón de la barra del reproductor: contorno fino, icono y texto; con foco, superficie clara y anillo champán. */
+@Composable
+private fun BarButton(
+    text: String,
+    icon: Int,
+    focusRequester: FocusRequester?,
+    onTouch: () -> Unit,
+    highlighted: Boolean = false,
+    enabled: Boolean = LocalBarEnabled.current,
+    onClick: () -> Unit
+) {
+    TvClickable(
+        onClick = onClick, focusRequester = focusRequester, enabled = enabled, onFocus = onTouch, shape = RoundedCornerShape(10.dp), focusedScale = 1f,
+        color = if (highlighted) MvColors.Accent.copy(alpha = 0.18f) else MvColors.Surface2, focusedColor = MvColors.Surface4,
+        ringColor = MvColors.Accent2, modifier = Modifier.height(36.dp)
+    ) { _ ->
+        Row(Modifier.fillMaxHeight().padding(horizontal = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+            MvIcon(icon, size = 15.dp, tint = if (highlighted) MvColors.Accent else MvColors.Text)
+            Spacer(Modifier.width(7.dp))
+            MvText(text, MvType.SmallStrong, maxLines = 1)
         }
     }
+}
+
+/** Panel lateral anclado a la derecha con pestañas (Info, Fuentes, Audio, Subtítulos, Vídeo) y «Cerrar». */
+@Composable
+private fun SidePanel(
+    channelName: String,
+    current: Panel,
+    onTab: (Panel) -> Unit,
+    onClose: () -> Unit,
+    firstFocus: FocusRequester,
+    /** La pestaña tiene filas que reciben el foco; si no, lo recibe su propia pestaña. */
+    hasRows: Boolean,
+    content: @Composable () -> Unit
+) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
+        Column(
+            Modifier.padding(end = 32.dp, top = 28.dp, bottom = 28.dp).fillMaxHeight().width(300.dp)
+                .background(Color(0xF2132232), RoundedCornerShape(16.dp))
+                .border(1.dp, MvColors.Stroke, RoundedCornerShape(16.dp))
+                .padding(18.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    MvText(channelName.uppercase(), MvType.Eyebrow.copy(color = MvColors.Accent), maxLines = 1)
+                    MvText(current.label, MvType.Title.copy(fontSize = 22.sp), maxLines = 1)
+                }
+                TvClickable(
+                    onClick = onClose, shape = RoundedCornerShape(9.dp), focusedScale = 1f, color = Color.Transparent,
+                    focusedColor = MvColors.Surface4, ringColor = MvColors.Accent2, modifier = Modifier.height(30.dp)
+                ) { _ ->
+                    Row(Modifier.fillMaxHeight().padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                        MvIcon(MvIcons.Close, size = 13.dp, tint = MvColors.Text)
+                        Spacer(Modifier.width(5.dp))
+                        MvText("Cerrar", MvType.SmallStrong)
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Panel.values().forEach { p ->
+                    TvClickable(
+                        onClick = { onTab(p) }, shape = RoundedCornerShape(8.dp), focusedScale = 1f,
+                        color = if (p == current) MvColors.Surface4 else Color.Transparent, focusedColor = MvColors.Surface4, ringColor = MvColors.Accent2,
+                        focusRequester = if (p == current && !hasRows) firstFocus else null,
+                        modifier = Modifier.height(28.dp)
+                    ) { _ ->
+                        Box(Modifier.fillMaxHeight().padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
+                            MvText(p.label, MvType.Caption.copy(color = if (p == current) MvColors.Accent else MvColors.Text2, fontWeight = FontWeight.Bold), maxLines = 1)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) { content() }
+            MvText("Atrás cierra el panel sin detener el vídeo ni cambiar de canal.", MvType.Caption)
+        }
+    }
+}
+
+/** Fila del panel: título, detalle y estado; seleccionada con borde verde agua (distinto del foco champán). */
+@Composable
+private fun PanelRow(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    trailing: String? = null,
+    trailingColor: Color = MvColors.Text2,
+    enabled: Boolean = true,
+    focusRequester: FocusRequester? = null,
+    onLongClick: (() -> Unit)? = null,
+    onClick: () -> Unit
+) {
+    TvClickable(
+        onClick = onClick, onLongClick = onLongClick, enabled = enabled, focusRequester = focusRequester,
+        shape = RoundedCornerShape(10.dp), focusedScale = 1f,
+        color = if (selected) Color(0x269FD6C8) else MvColors.Surface1, focusedColor = MvColors.Surface4, ringColor = MvColors.Accent2,
+        modifier = Modifier.fillMaxWidth()
+    ) { _ ->
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                MvText(title, MvType.SmallStrong, maxLines = 2)
+                if (subtitle.isNotEmpty()) MvText(subtitle, MvType.Caption.copy(color = MvColors.Text2), maxLines = 2)
+            }
+            if (trailing != null) {
+                Spacer(Modifier.width(8.dp))
+                MvText(trailing, MvType.Caption.copy(color = if (selected) MvColors.Ok else trailingColor, fontWeight = FontWeight.Bold), maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoTab(channel: TvChannel, ui: com.mivisor.tv.playback.PlaybackController.Ui, event: com.mivisor.tv.model.AgendaEvent?, delayMs: Long?) {
+    @Composable
+    fun kv(k: String, v: String) {
+        Row(Modifier.padding(vertical = 2.dp)) {
+            MvText(k, MvType.Caption.copy(color = MvColors.Text3), modifier = Modifier.width(96.dp))
+            MvText(v, MvType.Small.copy(color = MvColors.Text), modifier = Modifier.weight(1f))
+        }
+    }
+    kv("Canal", channel.name)
+    channel.brandName?.let { kv("Grupo", it) }
+    event?.let { kv("Ahora", it.title + (it.competition?.let { c -> " · $c" } ?: "")) }
+    kv("Fuente", if (ui.sourceCount > 0) "${ui.sourceIndex} de ${ui.sourceCount}" + (ui.provider?.let { " · $it" } ?: "") else "—")
+    ui.quality?.let { kv("Calidad", it) }
+    if (ui.peers > 0) kv("Emisores", "${ui.peers}")
+    delayMs?.let { kv("Retraso", "${"%.1f".format(it / 1000.0)} s respecto al directo") }
+    ui.startMs?.let { kv("Arranque", "imagen en ${"%.1f".format(it / 1000.0)} s") }
+    kv("Motor", "Outpace")
+    val audio = ui.tracks.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.selected }
+    audio?.let { kv("Audio", it.label + (it.detail?.let { d -> " · $d" } ?: "")) }
 }
