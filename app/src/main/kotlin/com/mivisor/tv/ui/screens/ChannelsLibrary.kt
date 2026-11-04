@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mivisor.tv.AppGraph
 import com.mivisor.tv.catalog.tv.ChannelFamily
+import com.mivisor.tv.catalog.tv.ChannelSeriesGrouping
 import com.mivisor.tv.catalog.tv.TvChannel
 import com.mivisor.tv.catalog.tv.TvLibrary
 import com.mivisor.tv.ui.InitialFocus
@@ -65,6 +66,9 @@ object ChannelsMemory {
     var view by mutableStateOf(0)
     var provider by mutableStateOf<String?>(null)          // null = Todos
     var family by mutableStateOf<ChannelFamily?>(null)      // null = Todas
+    /** 3e · Serie dentro del proveedor («M+ LaLiga» → 1, 2, 3…); null = todas, [SINGLES] = canales sueltos. */
+    var series by mutableStateOf<String?>(null)
+    const val SINGLES = "__sueltos"
     /** Último canal abierto desde aquí: recibe el foco al volver. */
     var lastChannel: String? = null
     var gridIndex = 0
@@ -81,7 +85,7 @@ private object Lib {
 }
 
 /**
- * Canales (diseño 06): Proveedor → familia → canal. Las versiones HD/FHD/4K de un canal ya vienen juntas como fuentes
+ * Canales (diseño 06): Proveedor → grupo (serie: «M+ LaLiga» → 1, 2, 3…) → canal; «Categorías» filtra por temática. Las versiones HD/FHD/4K de un canal ya vienen juntas como fuentes
  * (no hay tarjetas duplicadas). OK sobre un canal lo reproduce al momento con su fuente más fiable; proveedor y
  * familia solo filtran. Mantener OK: Mi lista.
  */
@@ -117,9 +121,21 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
     }
     val families = remember(base) { TvLibrary.familiesOf(base) }
     val family = mem.family?.takeIf { f -> families.any { it.first == f } }
-    val shown = remember(base, family, mem.view) {
-        val filtered = if (family == null || mem.view == 2) base else base.filter { it.family == family }
-        if (mem.view == 2) filtered else TvLibrary.sorted(filtered)
+    // Proveedor → serie («M+ LaLiga» con sus 1, 2, 3…) → canal. Los canales sin serie van a «Canales sueltos».
+    val allSeries = remember(base) { ChannelSeriesGrouping.group(base) }
+    val multiSeries = allSeries.filter { it.channels.size > 1 }
+    val singles = remember(allSeries) { allSeries.filter { it.channels.size == 1 }.flatMap { it.channels } }
+    val series = mem.series?.takeIf { k -> k == ChannelsMemory.SINGLES && singles.isNotEmpty() || multiSeries.any { it.key == k } }
+    val shown = remember(base, family, series, mem.view) {
+        when (mem.view) {
+            2 -> base
+            1 -> TvLibrary.sorted(if (family == null) base else base.filter { it.family == family })
+            else -> when (series) {
+                null -> TvLibrary.sorted(base)
+                ChannelsMemory.SINGLES -> TvLibrary.sorted(singles)
+                else -> multiSeries.first { it.key == series }.channels
+            }
+        }
     }
 
     // Volver del reproductor: foco en el mismo canal.
@@ -150,8 +166,8 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ViewChip("Proveedores", mem.view == 0, if (entryTarget == null) first else null) { mem.view = 0; mem.family = null }
-            ViewChip("Categorías", mem.view == 1, null) { mem.view = 1; mem.family = null }
+            ViewChip("Proveedores", mem.view == 0, if (entryTarget == null) first else null) { mem.view = 0; mem.family = null; mem.series = null }
+            ViewChip("Categorías", mem.view == 1, null) { mem.view = 1; mem.family = null; mem.series = null }
             ViewChip("Favoritos · ${favorites.size}", mem.view == 2, null) { mem.view = 2 }
             ViewChip("Buscar canal", false, null, MvIcons.Search) { nav.tab(Route.Search) }
             if (library.links.isNotEmpty()) ViewChip("Enlaces · ${library.links.size}", false, null, MvIcons.Link) { nav.go(Route.Links) }
@@ -164,13 +180,23 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
                     items(listOf<Pair<String?, Pair<String, Int>>>(null to ("Todos" to library.channels.size)) +
                         providers.map { it.key to (it.name to it.channels.size) }, key = { it.first ?: "todos" }) { (key, label) ->
                         FilterRow(label.first, label.second, selected = mem.provider == key) {
-                            if (mem.provider != key) { mem.provider = key; mem.family = null; mem.gridIndex = 0 }
+                            if (mem.provider != key) { mem.provider = key; mem.family = null; mem.series = null; mem.gridIndex = 0 }
                         }
                     }
                 }
             }
-            if (mem.view != 2) {
-                FilterColumn(if (mem.view == 0) "FAMILIAS" else "CATEGORÍAS", Lib.FamilyCol) {
+            if (mem.view == 0) {
+                FilterColumn("GRUPOS", Lib.FamilyCol) {
+                    val rows = listOf<Triple<String?, String, Int>>(Triple(null, "Todos", base.size)) +
+                        multiSeries.map { Triple(it.key, it.name, it.channels.size) } +
+                        (if (singles.isNotEmpty() && multiSeries.isNotEmpty()) listOf(Triple(ChannelsMemory.SINGLES, "Canales sueltos", singles.size)) else emptyList())
+                    items(rows, key = { it.first ?: "todos" }) { (k, label, n) ->
+                        FilterRow(label, n, selected = series == k) { if (mem.series != k) { mem.series = k; mem.gridIndex = 0 } }
+                    }
+                }
+            }
+            if (mem.view == 1) {
+                FilterColumn("CATEGORÍAS", Lib.FamilyCol) {
                     items(listOf<Pair<ChannelFamily?, Int>>(null to base.size) + families, key = { it.first?.id ?: "todas" }) { (f, n) ->
                         FilterRow(f?.label ?: "Todas", n, selected = family == f) { if (mem.family != f) { mem.family = f; mem.gridIndex = 0 } }
                     }
@@ -181,7 +207,15 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
                     MvText(
                         when (mem.view) {
                             2 -> "Tus favoritos"
-                            else -> listOfNotNull(if (mem.view == 0) providerSec?.name ?: "Todos" else null, family?.label).joinToString(" · ").ifEmpty { "Todos los canales" }
+                            1 -> family?.label ?: "Todos los canales"
+                            else -> listOfNotNull(
+                                providerSec?.name ?: "Todos",
+                                when (series) {
+                                    null -> null
+                                    ChannelsMemory.SINGLES -> "Canales sueltos"
+                                    else -> multiSeries.firstOrNull { it.key == series }?.name
+                                }
+                            ).joinToString(" · ")
                         },
                         MvType.Heading, maxLines = 1, modifier = Modifier.weight(1f)
                     )
@@ -324,7 +358,10 @@ fun LogoBox(ch: TvChannel, size: androidx.compose.ui.unit.Dp = Lib.Logo) {
         contentAlignment = Alignment.Center
     ) {
         val signal = @Composable { MvIcon(MvIcons.Signal, size = size * 0.45f, tint = MvColors.Text2) }
-        if (ch.logo != null) {
+        if (ch.logo != null && isPicon(ch.logo)) {
+            // picons_dobleM (icon/): iconos ya preparados con su propio fondo; se pintan tal cual, sin deformar.
+            RemoteImage(ch.logo, size, Modifier.size(size * 0.9f)) { signal() }
+        } else if (ch.logo != null) {
             // Placa clara (casi todos los logos están pensados para fondo blanco), imagen sin deformar.
             Box(
                 Modifier.size(size * 0.84f).background(Color(0xFFEEF1F5), RoundedCornerShape(7.dp)).padding(3.dp),
@@ -333,3 +370,6 @@ fun LogoBox(ch: TvChannel, size: androidx.compose.ui.unit.Dp = Lib.Logo) {
         } else signal()
     }
 }
+
+/** Logo de picons_dobleM (se dibuja sin placa clara). */
+fun isPicon(url: String?): Boolean = url != null && url.contains("/picons_dobleM/")

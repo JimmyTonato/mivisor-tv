@@ -147,6 +147,14 @@ class SourceBookImpl(
 
     override fun subtitlesByDefault(): Boolean = prefs.subtitles
 
+    override fun autoSwitchAfterMs(): Long = when (prefs.autoSwitch) {
+        "never" -> 0L
+        "120" -> 120_000L
+        else -> 60_000L
+    }
+
+    override fun autoLiveEdge(): Boolean = prefs.autoLive
+
     /** Quitar la pausa o la cuarentena de una fuente (Ajustes › fuentes del canal). */
     fun release(contentId: String) {
         synchronized(lock) { store.release(contentId, now()) }

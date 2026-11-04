@@ -1,0 +1,59 @@
+# ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# MiVisor TV · copiar la firma de la v18 (la que WARP acepta) a los secretos del repositorio de MiVisor TV.
+#
+# GitHub no deja LEER un secreto, ni siquiera a su dueño, pero un workflow del repositorio de la v18 sí puede
+# usarlos y escribirlos en otro repositorio. Este archivo va en el repositorio de la V18, NO en el de MiVisor TV:
+#   1. Cópialo a  .github/workflows/copiar-firma-v18.yml  del repositorio de la v18.
+#   2. Crea un token (GitHub › Settings › Developer settings › Fine-grained tokens) con acceso SOLO al
+#      repositorio de MiVisor TV y el permiso «Secrets: Read and write». Guárdalo en el repositorio de la v18
+#      como secreto  MIVISOR_TV_TOKEN.
+#   3. Actions › «Copiar firma a MiVisor TV» › Run workflow, escribiendo el repositorio de MiVisor TV
+#      (usuario/nombre).
+#   4. Comprueba en el registro que la huella SHA-256 empieza por B2:9F:F0:71 (la de WARP).
+#   5. Borra este workflow y el token: ya no hacen falta.
+# Nunca imprime la clave ni las contraseñas (GitHub las oculta en el registro) y no deja archivos.
+# ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+name: Copiar firma a MiVisor TV
+
+on:
+  workflow_dispatch:
+    inputs:
+      destino:
+        description: "Repositorio de MiVisor TV (usuario/nombre)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  copiar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comprobar la clave y copiar los cuatro secretos
+        env:
+          GH_TOKEN: ${{ secrets.MIVISOR_TV_TOKEN }}
+          KS: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          SP: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          KA: ${{ secrets.SIGNING_KEY_ALIAS }}
+          KP: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          DEST: ${{ inputs.destino }}
+        run: |
+          set -euo pipefail
+          for v in GH_TOKEN KS SP KA KP; do
+            if [ -z "${!v}" ]; then echo "::error::Falta el secreto $v en este repositorio"; exit 1; fi
+          done
+          # Huella del certificado (no es secreta): debe ser la de WARP.
+          tmp=$(mktemp -d)
+          printf '%s' "$KS" | base64 -d > "$tmp/ks"
+          FP=$(keytool -list -v -keystore "$tmp/ks" -storepass "$SP" -alias "$KA" | awk -F': ' '/SHA256:/{print $2; exit}')
+          rm -rf "$tmp"
+          echo "Huella SHA-256 de la clave de la v18: $FP"
+          case "$FP" in
+            B2:9F:F0:71*) echo "Es la clave que acepta WARP." ;;
+            *) echo "::warning::Esta huella no empieza por B2:9F:F0:71; MiVisor TV fallará al compilar con ella (no podría controlar WARP)." ;;
+          esac
+          printf '%s' "$KS" | gh secret set SIGNING_KEYSTORE_BASE64 -R "$DEST"
+          printf '%s' "$SP" | gh secret set SIGNING_STORE_PASSWORD -R "$DEST"
+          printf '%s' "$KA" | gh secret set SIGNING_KEY_ALIAS -R "$DEST"
+          printf '%s' "$KP" | gh secret set SIGNING_KEY_PASSWORD -R "$DEST"
+          echo "Listo: los cuatro secretos están en $DEST. Lanza allí el workflow «MiVisor TV (APK)»."

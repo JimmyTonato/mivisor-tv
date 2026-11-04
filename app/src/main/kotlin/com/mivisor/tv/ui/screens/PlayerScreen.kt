@@ -134,6 +134,10 @@ fun PlayerScreen(
     val panelFocus = remember { FocusRequester() }
     val openers = remember { Panel.values().associateWith { FocusRequester() } }
     val dialogFocus = remember { FocusRequester() }
+    /** 3e: «Seguir esperando / Probar otra fuente» al cargar (tras 8 s) y al cortarse la imagen. */
+    val waitFocus = remember { FocusRequester() }
+    var waitDismissed by remember { mutableStateOf(false) }
+    var loadingLong by remember { mutableStateOf(false) }
     val aceInstalled = remember { ExternalApps.aceInstalled(context) }
     val scope = rememberCoroutineScope()
 
@@ -191,11 +195,38 @@ fun PlayerScreen(
             controls = false
         }
     }
+    // Carga larga: a los 8 s con la misma fuente se ofrece pasar a otra (sin forzarlo).
+    LaunchedEffect(ui.phase, ui.sourceIndex) {
+        loadingLong = false
+        waitDismissed = false
+        if (ui.phase == Phase.TRYING || ui.phase == Phase.STARTING_ENGINE) {
+            delay(8_000)
+            loadingLong = true
+        }
+    }
+    // Un corte nuevo vuelve a ofrecer los botones.
+    val recoveringNow = ui.phase == Phase.PLAYING && ui.recovering != null
+    LaunchedEffect(recoveringNow) { if (recoveringNow) waitDismissed = false }
+    val offerWait = !waitDismissed && panel == null && ((ui.phase == Phase.TRYING && loadingLong) || recoveringNow)
+    LaunchedEffect(offerWait) {
+        delay(80)
+        runCatching {
+            when {
+                offerWait -> waitFocus.requestFocus()
+                panel != null -> panelFocus.requestFocus()
+                controls && ui.phase == Phase.PLAYING -> pauseFocus.requestFocus()
+                ui.phase == Phase.FAILED -> dialogFocus.requestFocus()
+                else -> catcher.requestFocus()
+            }
+        }
+    }
+
     // Foco: panel → su primera fila; controles → Pausa (o el botón que abrió el panel); nada → recogedor de teclas.
     LaunchedEffect(controls, panel, ui.phase) {
         delay(80)
         runCatching {
             when {
+                offerWait -> waitFocus.requestFocus()
                 panel != null -> panelFocus.requestFocus()
                 ui.phase == Phase.FAILED -> dialogFocus.requestFocus()
                 controls -> (lastOpener?.let { openers[it] } ?: pauseFocus).requestFocus()
@@ -206,6 +237,7 @@ fun PlayerScreen(
 
     BackHandler {
         when {
+            offerWait -> waitDismissed = true
             panel != null -> { panel = null; touch++ }
             controls && ui.phase == Phase.PLAYING -> { controls = false; lastOpener = null }
             else -> onBack()
@@ -309,7 +341,12 @@ fun PlayerScreen(
                     if (phase == Phase.TRYING && ui.peers > 0) "${ui.peers} emisores" else null,
                     graph.sources.typicalStart(channel.sources.map { it.contentId })?.let { "suele tardar ~$it s" }
                 ).joinToString(" · ").ifEmpty { null }
-            )
+            ) {
+                if (offerWait && ui.sourceCount > 1) WaitChoice(
+                    "Esta fuente está tardando. Se pasa sola a la siguiente si a los 30 s no hay imagen.",
+                    waitFocus, onWait = { waitDismissed = true }, onSkip = { waitDismissed = true; graph.player.nextSource() }
+                )
+            }
             Phase.FAILED -> if (panel == null) {
                 val canAce = aceInstalled && graph.prefs.aceFallback != "never" && ui.cause != "offline" && ui.cause != "internet"
                 val allResting = ui.sources.isNotEmpty() && ui.sources.all {
@@ -355,6 +392,8 @@ fun PlayerScreen(
                 paused = ui.paused,
                 favorite = mine.isFavorite(channel.id),
                 hint = if (panel == null) "Las flechas no cambian de canal · Atrás oculta los controles" else null,
+                behind = delayMs?.let { it - com.mivisor.tv.engine.EngineDiagnostics.metrics.liveTargetMs.coerceAtLeast(6_000L) > 8_000L } == true,
+                onGoLive = { graph.player.goLive(); touch++ },
                 pauseFocus = pauseFocus,
                 openers = openers,
                 dimmed = panel != null,
@@ -381,6 +420,11 @@ fun PlayerScreen(
                     OrbitaMark(34.dp, spinning = true)
                     Spacer(Modifier.height(10.dp))
                     MvText(text, MvType.SmallStrong)
+                    if (offerWait) WaitChoice(
+                        if (graph.prefs.autoSwitch == "never") "Se sigue intentando con esta fuente hasta que vuelva o elijas otra."
+                        else "Se sigue intentando con esta fuente; si no vuelve, se pasará sola a otra.",
+                        waitFocus, onWait = { waitDismissed = true }, onSkip = { waitDismissed = true; graph.player.nextSource() }
+                    )
                 }
             }
         }
@@ -461,7 +505,7 @@ fun PlayerScreen(
 
 /** Carga (diseño 06.1): canal discreto arriba a la izquierda, Órbita girando en el centro y un estado breve debajo. */
 @Composable
-private fun Loading(channel: TvChannel?, status: String, detail: String?) {
+private fun Loading(channel: TvChannel?, status: String, detail: String?, extra: @Composable () -> Unit = {}) {
     Box(Modifier.fillMaxSize().background(Color(0xFF05080D))) {
         if (channel != null) Row(
             Modifier.padding(start = MvDims.SafeX, top = MvDims.SafeY + 8.dp),
@@ -479,6 +523,20 @@ private fun Loading(channel: TvChannel?, status: String, detail: String?) {
                 Spacer(Modifier.height(4.dp))
                 MvText(detail, MvType.Caption.copy(color = MvColors.Text3))
             }
+            extra()
+        }
+    }
+}
+
+/** «Seguir esperando» (foco por defecto: un OK sin querer no cambia de fuente) o «Probar otra fuente». */
+@Composable
+private fun WaitChoice(text: String, focus: FocusRequester, onWait: () -> Unit, onSkip: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 18.dp).widthIn(max = 460.dp)) {
+        MvText(text, MvType.Small.copy(color = MvColors.Text2, textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            MvButton("Seguir esperando", onWait, icon = MvIcons.Clock, focusRequester = focus)
+            MvButton("Probar otra fuente", onSkip, icon = MvIcons.Signal, primary = true)
         }
     }
 }
@@ -522,6 +580,9 @@ private fun Controls(
     paused: Boolean,
     favorite: Boolean,
     hint: String?,
+    /** 3e: la imagen va bastante por detrás del directo (tras un corte o una pausa). */
+    behind: Boolean,
+    onGoLive: () -> Unit,
     pauseFocus: FocusRequester,
     openers: Map<Panel, FocusRequester>,
     dimmed: Boolean,
@@ -586,6 +647,10 @@ private fun Controls(
                 BarButton("Fuentes", MvIcons.Signal, openers.getValue(Panel.SOURCES), onTouch) { onPanel(Panel.SOURCES) }
                 Spacer(Modifier.width(8.dp))
                 BarButton(if (favorite) "En Mi lista" else "Mi lista", MvIcons.Star, null, onTouch, highlighted = favorite, onClick = onFavorite)
+                if (behind) {
+                    Spacer(Modifier.width(8.dp))
+                    BarButton("Ir al directo", MvIcons.Live, null, onTouch, highlighted = true, onClick = onGoLive)
+                }
                 Spacer(Modifier.weight(1f))
                 // Pausa: botón redondo champán en el centro; al reanudar vuelve al directo.
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {

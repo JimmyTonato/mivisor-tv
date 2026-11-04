@@ -78,6 +78,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("remember_audio", true)
         set(v) = sp.edit().putBoolean("remember_audio", v).apply()
 
+    /** 3e · Con la imagen cortada, pasar sola a otra fuente tras: "60", "120" segundos o "never" (solo a mano). */
+    var autoSwitch: String
+        get() = sp.getString("auto_switch", "60") ?: "60"
+        set(v) = sp.edit().putString("auto_switch", v).apply()
+
+    /** 3e · Volver solo al directo cuando la imagen se queda atrás. */
+    var autoLive: Boolean
+        get() = sp.getBoolean("auto_live", true)
+        set(v) = sp.edit().putBoolean("auto_live", v).apply()
+
     /** Verificador (3d): solo manual y con la app abierta; estas opciones afectan a «Comprobar ahora». */
     var verifierFavoritesOnly: Boolean
         get() = sp.getBoolean("verifier_favs", true)

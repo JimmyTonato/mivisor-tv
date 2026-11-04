@@ -443,9 +443,16 @@ private fun SourcesPage(graph: AppGraph, nav: Nav, forgotten: Int, onForget: () 
     val known = remember(forgotten) { graph.sources.knownSources() }
     val resting = remember(forgotten) { graph.sources.resting().size }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        MvRow("Retraso respecto al directo", {}, subtitle = "Más retraso, menos cortes · lo ajusta Outpace según la fuente", trailing = "Automático")
-        MvRow("Sin imagen: reintentar la misma fuente", {}, subtitle = "Con escalones de recuperación antes de cambiar", trailing = "Fijo")
-        MvRow("Cambiar de fuente", {}, subtitle = "Cuando la fuente no responde o lleva demasiado sin datos", trailing = "Fijo")
+        var autoSwitch by remember { mutableStateOf(graph.prefs.autoSwitch) }
+        var autoLive by remember { mutableStateOf(graph.prefs.autoLive) }
+        MvRow("Si la imagen se corta mientras ves un canal", {
+            autoSwitch = when (autoSwitch) { "60" -> "120"; "120" -> "never"; else -> "60" }
+            graph.prefs.autoSwitch = autoSwitch
+        }, subtitle = "Se salta al directo y se recarga la misma fuente cada 15 s. «Probar otra fuente» está siempre a mano",
+            trailing = when (autoSwitch) { "120" -> "Otra fuente a los 2 min"; "never" -> "Solo con el botón"; else -> "Otra fuente al 1 min" })
+        MvRow("Volver solo al directo tras un corte", { autoLive = !autoLive; graph.prefs.autoLive = autoLive },
+            subtitle = if (autoLive) "Si te quedas atrás, se recupera solo el directo" else "Te quedas donde estabas; usa «Ir al directo» en los controles") { MvSwitch(autoLive) }
+        MvRow("Al empezar un canal", {}, subtitle = "Sin imagen en 30 s (o 15 s sin emisores) se prueba la siguiente; puedes pasar antes con «Probar otra fuente»", trailing = "Automático")
         MvRow("No penalizar fuentes por fallos de la red, de la VPN o del aparato", {},
             subtitle = "Si el corte es de casa, la fuente no va a cuarentena") { MvSwitch(true) }
         MvRow("Fuentes que descansan", { nav.go(Route.Quarantine) },

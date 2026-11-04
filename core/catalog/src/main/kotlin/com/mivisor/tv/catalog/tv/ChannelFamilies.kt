@@ -78,3 +78,32 @@ object NaturalOrder : Comparator<String> {
     private fun fold(s: String): String =
         java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").trim()
 }
+
+/**
+ * 3e · Serie de canales numerados dentro de un proveedor: «M+ LaLiga» agrupa M+ LaLiga 1, 2, 3…; «DAZN» agrupa
+ * DAZN, DAZN 1, DAZN 2…; «M+ Liga de Campeones» agrupa sus 1, 2… Un canal sin número forma su propia serie.
+ */
+class ChannelSeries(val key: String, val name: String, val channels: List<TvChannel>)
+
+object ChannelSeriesGrouping {
+    private val TRAILING_NUMBER = Regex("""\s+\d{1,3}\s*$""")
+
+    /** Nombre visible de la serie: el del canal sin el número final («M+ LaLiga 2» → «M+ LaLiga»). */
+    fun baseName(name: String): String {
+        val clean = com.mivisor.tv.catalog.ChannelGrouping.cleanName(name).trim()
+        val base = clean.replace(TRAILING_NUMBER, "").trim()
+        return base.ifEmpty { clean }
+    }
+
+    /** Clave para juntar («M+ LaLiga» y «Movistar LaLiga» son la misma serie). */
+    fun key(name: String): String = com.mivisor.tv.catalog.ChannelGrouping.key(baseName(name)).ifEmpty { baseName(name).lowercase() }
+
+    /** Series de una lista, en orden natural; dentro de cada una, los canales en orden natural (2 antes que 10). */
+    fun group(list: List<TvChannel>): List<ChannelSeries> =
+        list.groupBy { key(it.name) }.map { (k, chs) ->
+            val sorted = chs.sortedWith(compareBy(NaturalOrder) { it.name })
+            // Nombre: el más corto sin número de la serie (prefiere «M+ LaLiga» a «Movistar LaLiga»).
+            val name = sorted.map { baseName(it.name) }.minByOrNull { it.length } ?: k
+            ChannelSeries(k, name, sorted)
+        }.sortedWith(compareBy(NaturalOrder) { it.name })
+}

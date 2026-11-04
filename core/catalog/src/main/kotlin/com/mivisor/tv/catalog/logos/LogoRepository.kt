@@ -22,11 +22,15 @@ class LogoRepository(
     private val dir: File,
     private val ttlMs: Long = TimeUnit.HOURS.toMillis(24),
     private val clock: () -> Long = System::currentTimeMillis,
-    private val download: (url: String, etag: String?) -> AgendaRepository.Download = AgendaRepository::httpGet
+    private val download: (url: String, etag: String?) -> AgendaRepository.Download = AgendaRepository::httpGet,
+    /** 3e: descarga de la lista de picons_dobleM (API de GitHub). */
+    private val piconsDownload: (url: String, etag: String?) -> AgendaRepository.Download = AgendaRepository::httpGet
 ) {
     private val catalogFile get() = File(dir, "channel-logos.json")
     private val metaFile get() = File(dir, "channel-logos.meta")
     private val harvestFile get() = File(dir, "harvested.json")
+    private val piconsFile get() = File(dir, "picons.txt")
+    private val piconsMetaFile get() = File(dir, "picons.meta")
     private val harvested = LinkedHashMap<String, LogoEntry>()
     private var harvestLoaded = false
 
@@ -58,7 +62,33 @@ class LogoRepository(
                 // Sin red o catálogo inválido: se sigue con lo guardado (o sin logos).
             }
         }
-        ChannelLogoResolver(catalog ?: LogoCatalog.EMPTY, harvestedEntries())
+        ChannelLogoResolver(catalog ?: LogoCatalog.EMPTY, Picons.entries(picons(force)) + harvestedEntries())
+    }
+
+    /**
+     * 3e: lista de picons_dobleM (nombres de archivo), guardada en disco y renovada como mucho una vez por semana.
+     * Sin red o si GitHub limita las peticiones: la última copia (o ninguna; entonces se usan los demás logos).
+     */
+    private fun picons(force: Boolean): List<String> {
+        val cached = runCatching { if (piconsFile.isFile) piconsFile.readLines().filter { it.isNotBlank() } else null }.getOrNull()
+        val last = runCatching { piconsMetaFile.readText().trim().toLong() }.getOrNull() ?: 0L
+        val stale = cached == null || force || clock() - last !in 0..PICONS_TTL_MS
+        if (!stale) return cached.orEmpty()
+        try {
+            val root = piconsDownload(Picons.ROOT_TREE_URL, null)
+            val sha = root.body?.takeIf { root.status == 200 }?.let { Picons.iconTreeSha(it) }
+            val tree = sha?.let { piconsDownload(Picons.treeUrl(it), null) }
+            val names = tree?.body?.takeIf { tree.status == 200 }?.let { Picons.pngNames(it) }.orEmpty()
+            dir.mkdirs()
+            if (names.isNotEmpty()) piconsFile.writeText(names.joinToString("\n"))
+            // Aunque falle, no se reintenta hasta mañana (para no gastar el límite de la API de GitHub).
+            piconsMetaFile.writeText(if (names.isNotEmpty()) "${clock()}" else "${clock() - PICONS_TTL_MS + ttlMs}")
+            return names.ifEmpty { cached.orEmpty() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return cached.orEmpty()
+        }
     }
 
     /** Añade logos encontrados en la app. Devuelve true si hay algo nuevo (para recalcular la UI). */
@@ -130,6 +160,7 @@ class LogoRepository(
 
     companion object {
         const val MAX_HARVESTED = 600
+        val PICONS_TTL_MS: Long = TimeUnit.DAYS.toMillis(7)
 
         /** .../agenda-data/agenda.json → .../agenda-data/channel-logos.json */
         fun urlFor(agendaUrl: String): String {

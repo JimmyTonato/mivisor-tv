@@ -135,6 +135,8 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     private val liveDelay = LiveDelayController()
     /** Escalón de recuperación ya aplicado en el corte actual (0 = ninguno). */
     private var recoverStep = 0
+    /** Última recarga de la misma fuente en el corte actual (3e: se recarga cada 15 s mientras se espera). */
+    private var lastReloadAt = 0L
     /** Fuentes saltadas en este ciclo porque su red (WARP) no estaba disponible: no se penalizan. */
     private var skippedForNetwork = 0
     private var audioApplied = false
@@ -238,6 +240,42 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     }
 
     /** Menú de fuentes: ver otra fuente concreta (o reintentar una que falló). */
+    /**
+     * 3e · «Probar otra fuente» a mano (cargando o con la imagen cortada). No penaliza a la fuente actual: ha sido
+     * una decisión del usuario, no un fallo comprobado. Si ya se probaron todas, se vuelve a empezar por la mejor.
+     */
+    fun nextSource() {
+        val src = currentSource ?: return
+        val c = cycle ?: return
+        monitor?.cancel()
+        ++generation
+        book.log("Fuente", "${mask(src.contentId)}: el usuario pasa a otra fuente (sin penalizarla)")
+        if (_ui.value.phase == Phase.PLAYING) endSession()
+        closeCurrent()
+        _ui.value = _ui.value.copy(message = "Probando otra fuente…", recovering = null)
+        val nextId = c.peekNext()
+        if (nextId == null) {
+            // Todas probadas: otra vuelta empezando por la siguiente en el orden.
+            val order = c.order
+            val i = order.indexOf(src.contentId)
+            val again = order[(i + 1 + order.size) % order.size]
+            c.choose(again)?.let { attempt(it) }
+        } else advanceSoon()
+    }
+
+    /** 3e · «Ir al directo»: salto limpio al borde (menos el retraso objetivo), descartando lo atrasado. */
+    fun goLive() {
+        val p = player ?: return
+        if (_ui.value.phase != Phase.PLAYING) return
+        resyncing = true
+        resyncStartedAt = SystemClock.elapsedRealtime()
+        if (!p.playWhenReady) p.play()
+        runCatching { p.seekToDefaultPosition() }
+        liveDelay.onInterruption(SystemClock.elapsedRealtime())
+        _ui.value = _ui.value.copy(paused = false)
+        book.log("Directo", "Salto al directo pedido por el usuario")
+    }
+
     fun selectSource(contentId: String) {
         val c = cycle ?: return
         if (contentId == currentSource?.contentId && _ui.value.phase == Phase.PLAYING) return
@@ -432,14 +470,22 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                         controlLiveDelay(status)
                         val now = SystemClock.elapsedRealtime()
                         if (bufferingSince > 0) {
-                            val step = StartPolicy.recoveryStep(now - bufferingSince)
-                            if (step > recoverStep) {
-                                if (step >= 3) {
-                                    dropped("${(now - bufferingSince) / 1000} s sin imagen tras saltar al directo y recargar")
-                                    return@launch
-                                }
-                                recover(step, base, src)
+                            // 3e: un corte no cambia de fuente a los 26 s. Se salta al directo (8 s), se recarga la
+                            // misma fuente (16 s y luego cada 15 s) y solo se pasa SOLA a otra tras el tiempo de
+                            // Ajustes (1 min por defecto; «Nunca» = solo con el botón «Probar otra fuente»).
+                            val stalled = now - bufferingSince
+                            val switchAfter = book.autoSwitchAfterMs()
+                            if (switchAfter > 0 && stalled >= maxOf(switchAfter, StartPolicy.SWITCH_MS)) {
+                                dropped("${stalled / 1000} s sin imagen tras saltar al directo y recargar")
+                                return@launch
                             }
+                            val step = StartPolicy.recoveryStep(stalled).coerceAtMost(2)
+                            if (step > recoverStep) recover(step, base, src)
+                            else if (step == 2 && now - lastReloadAt >= RELOAD_EVERY_MS) recover(2, base, src)
+                            _ui.value = _ui.value.copy(
+                                recovering = (if (recoverStep >= 2) "Recargando la fuente" else "Recuperando la imagen") +
+                                    " · ${stalled / 1000} s" + if (switchAfter > 0) " (otra fuente a los ${maxOf(switchAfter, StartPolicy.SWITCH_MS) / 1000} s)" else ""
+                            )
                         } else if (resyncing && now - resyncStartedAt > StartPolicy.STALL_MS) {
                             dropped("El salto al directo no volvió a dar imagen")
                             return@launch
@@ -482,6 +528,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             resyncStartedAt = SystemClock.elapsedRealtime()
             runCatching { p.seekToDefaultPosition() }
         } else {
+            lastReloadAt = SystemClock.elapsedRealtime()
             _ui.value = _ui.value.copy(recovering = "Recuperando la imagen: recargando la fuente…")
             resyncing = false
             p.stop()
@@ -742,7 +789,11 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         val duration = p.duration
         val lag = if (resyncing || !p.isCurrentMediaItemLive || duration == C.TIME_UNSET || duration <= 0) null
         else (duration - p.currentPosition).coerceAtLeast(0)
-        when (val action = liveDelay.onTick(now, lag, target, playing)) {
+        // 3e: con «Volver solo al directo» desactivado, no se acelera ni se salta: el usuario decide con «Ir al directo».
+        val auto = book.autoLiveEdge()
+        val action = liveDelay.onTick(now, lag, target, playing).let { if (auto) it else LiveDelayController.Action.None }
+        if (!auto && p.playbackParameters.speed != 1f) p.setPlaybackSpeed(1f)
+        when (action) {
             is LiveDelayController.Action.SetSpeed -> p.setPlaybackSpeed(action.speed)
             is LiveDelayController.Action.Resync -> {
                 resyncing = true
@@ -761,4 +812,9 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     }
 
     private fun mask(id: String) = AceStreamLink.masked(id)
+
+    private companion object {
+        /** Mientras se espera a que vuelva la imagen, la misma fuente se recarga cada… */
+        const val RELOAD_EVERY_MS = 15_000L
+    }
 }

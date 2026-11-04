@@ -118,6 +118,10 @@ fun ChannelArt(url: String?, plate: Plate, modifier: Modifier, sizeHint: Dp = 20
         BrandPlate(plate.top, plate.bottom, plate.tone.ui(), modifier)
         return
     }
+    if (isPicon(url)) {
+        RemoteImage(url, sizeHint, modifier) { BrandPlate(plate.top, plate.bottom, plate.tone.ui(), Modifier.fillMaxSize()) }
+        return
+    }
     LogoPlate(modifier) {
         RemoteImage(url, sizeHint, Modifier.fillMaxSize()) {
             BrandPlate(plate.top, plate.bottom, plate.tone.ui(), Modifier.fillMaxSize())
@@ -129,6 +133,7 @@ fun ChannelArt(url: String?, plate: Plate, modifier: Modifier, sizeHint: Dp = 20
 fun ChannelLogo(ch: TvChannel, modifier: Modifier, sizeHint: Dp = 120.dp) {
     val plate = ch.plate()
     if (ch.logo == null) BrandPlate(plate.top, plate.bottom, plate.tone.ui(), modifier, scale = sizeHint.value / 200f)
+    else if (isPicon(ch.logo)) RemoteImage(ch.logo, sizeHint, modifier) { BrandPlate(plate.top, plate.bottom, plate.tone.ui(), Modifier.fillMaxSize(), scale = sizeHint.value / 200f) }
     else LogoPlate(modifier) { RemoteImage(ch.logo, sizeHint, Modifier.fillMaxSize()) { BrandPlate(plate.top, plate.bottom, plate.tone.ui(), Modifier.fillMaxSize(), scale = sizeHint.value / 200f) } }
 }
 

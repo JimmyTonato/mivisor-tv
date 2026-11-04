@@ -74,6 +74,9 @@ class SourceCycle(val order: List<String>) {
     /** Siguiente sin probar, o null si ya se probaron todas. */
     fun next(): String? = order.firstOrNull { it !in tried }?.also { tried += it; current = it }
 
+    /** La siguiente sin probar, sin marcarla (3e: «Probar otra fuente»). */
+    fun peekNext(): String? = order.firstOrNull { it !in tried }
+
     /** Elegida a mano: se prueba ya aunque se hubiera probado antes. */
     fun choose(cid: String): String? = cid.takeIf { it in order }?.also { tried += it; current = it }
 

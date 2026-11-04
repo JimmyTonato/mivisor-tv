@@ -1,4 +1,81 @@
-# MiVisor TV · Entrega 3e: Canales y reproductor del diseño 06.1
+# MiVisor TV · Entrega 3e.1: WARP, fuentes, iconos y grupos de canales
+
+La 3e.1 corrige y amplía la 3e. Esta va al final del documento.
+
+Se conserva todo lo anterior y el paquete `com.mivisor.tv`. La base de datos no cambia.
+
+## A. WARP: copiar la firma de la v18 sin tener el archivo de la clave
+
+No puedo «copiar la clave» yo:
+- no está en el código de la v18;
+- vive en los **secretos de GitHub** del repositorio de la v18;
+- y GitHub no deja leer un secreto, ni a ti ni a mí.
+
+Lo que sí puede hacerse es que un workflow del **repositorio de la v18** los lea y los escriba en el de MiVisor TV. Eso hace `tools/warp/copiar-firma-v18.yml`:
+
+1. **Copiar el workflow.** Pon ese archivo en `.github/workflows/` del repositorio de la **v18**. Es el único cambio en la v18 y lo borras al terminar.
+2. **Crear un token.** En GitHub › Settings › Developer settings › *Fine-grained tokens*, crea uno con acceso **solo** al repositorio de MiVisor TV y el permiso **Secrets: Read and write**. Guárdalo en el repositorio de la v18 como secreto `MIVISOR_TV_TOKEN`.
+3. **Lanzarlo.** En el repositorio de la v18, ve a Actions › **Copiar firma a MiVisor TV** › *Run workflow* y escribe `usuario/repositorio-de-MiVisor-TV`.
+4. **Comprobar la huella.** En el registro debe salir **«Huella SHA-256 … B2:9F:F0:71…»** y «Es la clave que acepta WARP».
+5. **Compilar.** En MiVisor TV, lanza **MiVisor TV (APK)**. Ahora firma con la clave de la v18 y la APK sale **sin** `-sin-control-WARP`.
+6. **Instalar.** **Desinstala MiVisor TV una vez** en la tele (cambia la firma) e instala la nueva. Ajustes › WARP debe decir «misma huella SHA-256».
+7. **Limpiar.** Borra el workflow de la v18 y el token.
+
+La comprobación SHA-256 sigue igual: si la clave no fuera la de WARP, la compilación fallaría en vez de publicar una APK que no funciona. No se ha generado ninguna clave nueva y nada secreto va en el ZIP.
+
+## B. Fuentes: menos cambios precipitados, más control
+
+**Antes:** con la imagen cortada, a los 26 s se pasaba sola a otra fuente aunque la caída fuera momentánea.
+
+**Ahora, si la imagen se corta mientras ves un canal:**
+- 8 s: salto al directo.
+- 16 s: se recarga la **misma** fuente, y luego **cada 15 s** mientras se espera.
+- **Solo pasa sola a otra fuente al minuto.** En Ajustes › Fuentes y recuperación puedes cambiarlo a **2 minutos** o a **«Solo con el botón»**.
+- En pantalla, la Órbita y «Recargando la fuente · 32 s (otra fuente a los 60 s)», con dos botones:
+  - **Seguir esperando**: tiene el foco, así que un OK sin querer no cambia nada.
+  - **Probar otra fuente.**
+- Pasar a otra fuente a mano **no penaliza** a la fuente que dejas.
+
+**Al empezar un canal:**
+- Se mantiene la regla: a los 30 s sin imagen (o 15 s sin emisores) se prueba la siguiente.
+- **A los 8 s** aparecen los mismos botones para poder pasar antes.
+
+**Volver al directo:**
+- **Ya volvía solo:** tras un corte, si te quedas más de 3 s por detrás, salta al directo.
+- **Nuevo en Ajustes:** «Volver solo al directo tras un corte» (activado). Si lo desactivas, te quedas donde estabas.
+- **Nuevo botón** «Ir al directo» en la barra del reproductor, cuando vas más de ~8 s por detrás. Arriba ya se ve cuánto («−32 s»).
+
+## C. Iconos de los canales: picons_dobleM
+
+- **Fuente principal:** [picons_dobleM](https://github.com/davidmuma/picons_dobleM), carpeta `icon/`. Por ejemplo, «M+ LaLiga» → `icon/M+ LaLiga.png`.
+- **Cómo se obtienen:** la app pide la lista de iconos a GitHub **una vez por semana** y la guarda. Las imágenes se descargan solo al verse.
+- **Cómo se emparejan con tus canales:** con la misma normalización que agrupa los canales. «Movistar LaLiga 2 FHD» encuentra `M+ LaLiga 2.png`, porque se quita la calidad y M+ y Movistar se tratan como lo mismo.
+- **Si un canal no está en picons,** se usan los logos de antes (catálogo de mivisor-datos, agenda, TheSportsDB) y, si no hay ninguno, el pictograma de señal.
+- **Cómo se pintan:** tal cual, sin la placa clara, porque ya traen su propio fondo.
+
+> No he podido descargar el repositorio desde aquí: el acceso a GitHub está bloqueado en este entorno. Lo que no se ha visto es el aspecto exacto de los iconos sobre el fondo oscuro. Si alguno queda mal, dímelo y uso otra carpeta (`color`, `blanco`…).
+
+## D. Canales: proveedor → grupo → canal
+
+En **Proveedores**, la columna central se llama ahora **«Grupos»** y junta los canales numerados:
+
+- **Movistar Plus+** › **M+ LaLiga** (1, 2, 3…) · **M+ Liga de Campeones** (1, 2…) · …
+- **DAZN** › **DAZN** (DAZN, 1, 2, 3, 4) · **DAZN LaLiga** (1, 2…) · …
+
+Cómo funciona:
+- **Dónde caen los demás:** los canales sin número ni hermanos van a **«Canales sueltos»**. «Todos» enseña el proveedor entero.
+- **Orden:** dentro de cada grupo, natural (2 antes que 10).
+- **Temática:** la clasificación por temas (Fútbol, Motor, Cine…) sigue en la pestaña **Categorías**.
+- **Al volver del reproductor:** se recuerdan el proveedor, el grupo y el canal.
+
+## Compilación
+
+- **Pruebas:** pasan las **180 pruebas** de los módulos JVM. Son nuevas las de picons, grupos y orden natural.
+- **Código Android:** no se ha compilado aquí. Se comprueba en GitHub Actions.
+
+---
+
+# Entrega 3e: Canales y reproductor del diseño 06.1
 
 La 3e va encima de la 3d y la sustituye entera.
 

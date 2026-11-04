@@ -160,7 +160,7 @@ class ChannelLogosTest {
             var now = 1_000_000L
             val calls = ArrayList<String?>()
             var reply: () -> AgendaRepository.Download = { AgendaRepository.Download(200, catalogJson, "\"v1\"") }
-            fun repo() = LogoRepository(dir, clock = { now }, download = { _, etag -> calls += etag; reply() })
+            fun repo() = LogoRepository(dir, clock = { now }, download = { _, etag -> calls += etag; reply() }, piconsDownload = { _, _ -> AgendaRepository.Download(404, null, null) })
             val url = LogoRepository.urlFor("https://raw.githubusercontent.com/u/r/agenda-data/agenda.json")
             assertEquals("https://raw.githubusercontent.com/u/r/agenda-data/channel-logos.json", url)
 

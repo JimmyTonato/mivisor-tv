@@ -19,6 +19,8 @@ import java.text.Normalizer
  * Todo se busca con el nombre NORMALIZADO ([ChannelNameNormalizer] + alias), nunca con el texto decorativo.
  */
 enum class LogoSource(val id: String, val rank: Int) {
+    /** 3e: picons_dobleM (github.com/davidmuma/picons_dobleM, carpeta icon/), la fuente principal. */
+    PICONS("picons", -1),
     MANUAL("manual", 0), FUTBOLENLATV("futbolenlatv", 1), IPTV_ORG("iptv-org", 2), THESPORTSDB("thesportsdb", 3);
 
     companion object {

@@ -26,3 +26,17 @@ class ChannelFamiliesTest {
         assertEquals(ChannelFamily.GENERAL, ChannelFamilies.of("Movistar", ChannelCategory.GENERAL))
     }
 }
+
+class ChannelSeriesTest {
+    private fun ch(name: String) = com.mivisor.tv.catalog.tv.TvChannel(name.lowercase(), name, null, null, emptyList(), "XX")
+
+    @Test fun groupsNumberedChannelsIntoSeries() {
+        val list = listOf("M+ LaLiga 2", "M+ LaLiga 1", "M+ LaLiga 10", "M+ Liga de Campeones 1", "M+ Liga de Campeones 2", "Movistar Plus+", "DAZN 1", "DAZN 2", "DAZN F1").map(::ch)
+        val series = com.mivisor.tv.catalog.tv.ChannelSeriesGrouping.group(list)
+        val byName = series.associate { it.name to it.channels.map { c -> c.name } }
+        assertEquals(listOf("M+ LaLiga 1", "M+ LaLiga 2", "M+ LaLiga 10"), byName["M+ LaLiga"])
+        assertEquals(listOf("M+ Liga de Campeones 1", "M+ Liga de Campeones 2"), byName["M+ Liga de Campeones"])
+        assertEquals(listOf("DAZN 1", "DAZN 2"), byName["DAZN"])
+        assertEquals(series.joinToString { it.name + "=" + it.channels.map { c -> c.name } }, listOf("DAZN F1"), byName["DAZN F1"])
+    }
+}

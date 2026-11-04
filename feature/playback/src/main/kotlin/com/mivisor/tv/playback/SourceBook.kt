@@ -44,4 +44,13 @@ interface SourceBook {
 
     /** Ajustes › Audio y subtítulos: mostrar subtítulos al empezar si la fuente los trae. */
     fun subtitlesByDefault(): Boolean = false
+
+    /**
+     * 3e · Ajustes › Fuentes: cuánto se espera con la imagen cortada (mientras se veía) antes de pasar SOLO a otra
+     * fuente. Mientras tanto se sigue recargando la misma; el usuario puede pasar a otra a mano. 0 = nunca sola.
+     */
+    fun autoSwitchAfterMs(): Long = 60_000L
+
+    /** 3e · Volver solo al directo cuando la imagen se ha quedado atrás (tras un corte). false = el usuario decide. */
+    fun autoLiveEdge(): Boolean = true
 }
