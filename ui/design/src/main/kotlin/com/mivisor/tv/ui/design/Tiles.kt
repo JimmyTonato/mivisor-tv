@@ -102,9 +102,12 @@ fun ChannelTile(
             shape = RoundedCornerShape(MvDims.Radius),
             color = MvColors.Surface2, focusedColor = MvColors.Surface3
         ) { _ ->
-            Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(plateGlow(tone), Color.Transparent))))
-            val plateModifier = Modifier.align(Alignment.Center).fillMaxWidth(0.62f).aspectRatio(2.3f)
-            if (art != null) art(plateModifier) else BrandPlate(plateTop, plateBottom, tone, plateModifier, scale = width.value / 200f)
+            // 3f · Con logo real, el logo ocupa TODA la tarjeta (si trae fondo, la tarjeta es ese fondo): un solo borde.
+            if (art != null) art(Modifier.fillMaxSize())
+            else {
+                Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(plateGlow(tone), Color.Transparent))))
+                BrandPlate(plateTop, plateBottom, tone, Modifier.align(Alignment.Center).fillMaxWidth(0.62f).aspectRatio(2.3f), scale = width.value / 200f)
+            }
             if (multiaudio) Box(Modifier.align(Alignment.TopStart).padding(8.dp)) { MvTag("Multiaudio", MvColors.Accent2) }
             if (favorite) Box(Modifier.align(Alignment.TopEnd).padding(8.dp)) { MvIcon(MvIcons.Star, size = 16.dp, tint = MvColors.Accent2) }
         }

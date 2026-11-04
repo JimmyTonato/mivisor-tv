@@ -50,6 +50,21 @@ class Prefs(context: Context) {
         get() = sp.getString("nav_style", "top") ?: "top"
         set(v) = sp.edit().putString("nav_style", v).apply()
 
+    /** 3f · Posición del menú: "top" (barra arriba, por defecto) o "side" (rail lateral). En el móvil siempre lateral. */
+    var navPosition: String
+        get() = sp.getString("nav_position", "top") ?: "top"
+        set(v) = sp.edit().putString("nav_position", v).apply()
+
+    /** 3f · Tipo de pantalla: "auto" (se detecta), "tv", "tablet" o "phone". */
+    var deviceClass: String
+        get() = sp.getString("device_class", "auto") ?: "auto"
+        set(v) = sp.edit().putString("device_class", v).apply()
+
+    /** 3f · Competiciones seguidas (nombre tal como lo trae la agenda), en orden de alta. */
+    var followedCompetitions: List<String>
+        get() = (sp.getString("followed_competitions", "") ?: "").split('\n').filter { it.isNotBlank() }
+        set(v) = sp.edit().putString("followed_competitions", v.distinct().joinToString("\n")).apply()
+
     /** Texto un 15 % más grande. */
     var bigText: Boolean
         get() = sp.getBoolean("big_text", false)
@@ -102,7 +117,10 @@ class Prefs(context: Context) {
         "lite" to lite.toString(), "nav_style" to navStyle, "big_text" to bigText.toString(), "start_screen" to startScreen,
         "audio_language" to audioLanguage, "subtitles" to subtitles.toString(), "subtitle_size" to subtitleSize,
         "remember_audio" to rememberAudio.toString(), "engine" to engine, "ace_fallback" to aceFallback,
-        "agenda_url" to agendaUrl, "show_source_info" to showSourceInfo.toString()
+        "agenda_url" to agendaUrl, "show_source_info" to showSourceInfo.toString(),
+        // 3f (el tipo de pantalla NO: depende de cada aparato).
+        "nav_position" to navPosition, "followed_competitions" to followedCompetitions.joinToString(","),
+        "auto_switch" to autoSwitch, "auto_live" to autoLive.toString()
     )
 
     fun import(settings: Map<String, String>) {
@@ -118,6 +136,10 @@ class Prefs(context: Context) {
         settings["ace_fallback"]?.takeIf { it in setOf("ask", "auto", "never") }?.let { aceFallback = it }
         settings["agenda_url"]?.takeIf { it.isBlank() || it.startsWith("https://") }?.let { agendaUrl = it }
         settings["show_source_info"]?.let { showSourceInfo = it == "true" }
+        settings["nav_position"]?.takeIf { it in setOf("top", "side") }?.let { navPosition = it }
+        settings["followed_competitions"]?.let { v -> followedCompetitions = v.split(',').map { it.trim() }.filter { it.matches(Regex("[A-Z0-9_]{1,40}")) } }
+        settings["auto_switch"]?.takeIf { it in setOf("60", "120", "never") }?.let { autoSwitch = it }
+        settings["auto_live"]?.let { autoLive = it == "true" }
     }
 
     /** Motor: "outpace" (por defecto) o "ace" (app de Ace Stream). */

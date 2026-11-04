@@ -49,6 +49,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -123,6 +124,7 @@ fun PlayerScreen(
     val mine by graph.mylist.state.collectAsState()
     val channel = lib.library.channel(route.channelId)
     var controls by remember { mutableStateOf(false) }
+    val form = com.mivisor.tv.ui.design.LocalUiForm.current
     var shownOnce by remember(route) { mutableStateOf(false) }
     var panel by remember { mutableStateOf<Panel?>(null) }
     var lastOpener by remember { mutableStateOf<Panel?>(null) }
@@ -311,6 +313,8 @@ fun PlayerScreen(
                     else -> false
                 }
             }.focusable()
+                // 3f · Tablet y móvil: un toque en el vídeo enseña los controles (no hay botón OK).
+                .pointerInput(Unit) { androidx.compose.foundation.gestures.detectTapGestures(onTap = { controls = true; touch++ }) }
         )
 
         if (channel == null && (lib.loading || lib.library.channels.isEmpty()) && lib.providers.isNotEmpty()) {
@@ -392,7 +396,8 @@ fun PlayerScreen(
                 clock = hhmm(now),
                 paused = ui.paused,
                 favorite = mine.isFavorite(channel.id),
-                hint = if (panel == null) "Las flechas no cambian de canal · Atrás oculta los controles" else null,
+                hint = if (panel != null) null else if (form.touch) "Toca el vídeo para ocultar los controles" else "Las flechas no cambian de canal · Atrás oculta los controles",
+                onClose = if (form.touch) onBack else null,
                 behind = delayMs?.let { it - com.mivisor.tv.engine.EngineDiagnostics.metrics.liveTargetMs.coerceAtLeast(6_000L) > 8_000L } == true,
                 onGoLive = { graph.player.goLive(); touch++ },
                 pauseFocus = pauseFocus,
@@ -591,9 +596,12 @@ private fun Controls(
     onPanel: (Panel) -> Unit,
     onFavorite: () -> Unit,
     onHide: () -> Unit,
-    onTouch: () -> Unit
+    onTouch: () -> Unit,
+    /** 3f · Solo en pantallas táctiles: flecha para salir del reproductor (no hay botón Atrás a la vista). */
+    onClose: (() -> Unit)? = null
 ) {
-    Box(Modifier.fillMaxSize()) {
+    // 3f · Un toque fuera de los botones oculta los controles (los botones se quedan su propio toque).
+    Box(Modifier.fillMaxSize().pointerInput(Unit) { androidx.compose.foundation.gestures.detectTapGestures(onTap = { onHide() }) }) {
         // Degradados solo arriba y abajo: el vídeo sigue siendo el protagonista.
         Box(Modifier.align(Alignment.TopStart).fillMaxWidth().height(120.dp).background(Brush.verticalGradient(listOf(Color(0xCC05080D), Color.Transparent))))
         Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(170.dp).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE605080D)))))
@@ -601,6 +609,14 @@ private fun Controls(
             Modifier.align(Alignment.TopStart).fillMaxWidth().padding(start = MvDims.SafeX, end = MvDims.SafeX, top = MvDims.SafeY + 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (onClose != null) {
+                TvClickable(
+                    onClick = onClose, shape = CircleShape, focusedScale = 1f, color = Color(0x66000000),
+                    focusedColor = MvColors.Surface3, ringColor = MvColors.Accent2,
+                    modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center
+                ) { _ -> MvIcon(MvIcons.Back, size = 22.dp, tint = MvColors.Text) }
+                Spacer(Modifier.width(12.dp))
+            }
             LogoBox(channel, 40.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {

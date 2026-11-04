@@ -94,6 +94,16 @@ object MvDims {
     const val FocusScale = 1.02f
 }
 
+/**
+ * 3f · Tipo de pantalla en la que se dibuja la app (la misma APK sirve en tele, tablet y móvil).
+ * Las pantallas lo leen para elegir el menú, el número de columnas y si hace falta enseñar botones táctiles.
+ */
+enum class UiForm { TV, TABLET, PHONE;
+    val touch: Boolean get() = this != TV
+}
+
+val LocalUiForm = staticCompositionLocalOf { UiForm.TV }
+
 /** Modo ligero (TVs con poca memoria): sin animaciones ni escalados. */
 val LocalLite = staticCompositionLocalOf { false }
 

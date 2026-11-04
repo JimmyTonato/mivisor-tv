@@ -100,10 +100,19 @@ class Backdrop {
 fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
     var lite by remember { mutableStateOf(graph.prefs.lite) }
     var bigText by remember { mutableStateOf(graph.prefs.bigText) }
+    var deviceOverride by remember { mutableStateOf(graph.prefs.deviceClass) }
+    var navPosition by remember { mutableStateOf(graph.prefs.navPosition) }
     val onLook = {
         lite = graph.prefs.lite
         bigText = graph.prefs.bigText
+        deviceOverride = graph.prefs.deviceClass
+        navPosition = graph.prefs.navPosition
     }
+    // 3f · Tele, tablet o móvil: decide la escala, el menú y la orientación.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val config = androidx.compose.ui.platform.LocalConfiguration.current
+    val device = remember(deviceOverride, config.smallestScreenWidthDp) { Devices.detect(context, deviceOverride) }
+    LaunchedEffect(device) { Devices.applyOrientation(context as? android.app.Activity, device) }
     // Preparación (diseño 06): la Órbita se ve solo mientras se leen los proveedores guardados; sin duración mínima.
     var booting by remember { mutableStateOf(true) }
     val libState by graph.providers.state.collectAsState()
@@ -119,7 +128,15 @@ fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
     val toaster = remember { Toaster() }
     val backdrop = remember { Backdrop() }
     val density = LocalDensity.current
-    CompositionLocalProvider(LocalDensity provides if (bigText) Density(density.density, density.fontScale * 1.15f) else density) {
+    val metrics = context.resources.displayMetrics
+    val drawDensity = remember(device, config.screenWidthDp, config.screenHeightDp, density.density) {
+        com.mivisor.tv.model.DeviceClass.density(device, metrics.widthPixels, metrics.heightPixels, density.density)
+    }
+    val form = device.ui()
+    CompositionLocalProvider(
+        LocalDensity provides Density(drawDensity, density.fontScale * (if (bigText) 1.15f else 1f)),
+        com.mivisor.tv.ui.design.LocalUiForm provides form
+    ) {
     MvTheme(lite = lite) {
         Box(Modifier.fillMaxSize().background(MvColors.Bg)) {
             val route = nav.current
@@ -148,14 +165,25 @@ fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
                         if (lite) Screen(graph, nav, route, toaster, backdrop, onLook)
                         else Crossfade(targetState = route, animationSpec = tween(180), label = "pantalla") { r -> Screen(graph, nav, r, toaster, backdrop, onLook) }
                     }
-                    // Diseño 06: rail compacto reservado a la izquierda (se despliega SOBRE el contenido, sin moverlo) y
-                    // barra superior fina con la marca, el estado de los servicios y la hora.
-                    Box(Modifier.fillMaxSize()) {
-                        Column(Modifier.fillMaxSize().padding(start = RAIL_W - MvDims.SafeX + 37.dp)) {
-                            HeaderBar(graph)
+                    when {
+                        // 3f · Móvil (en horizontal): barra lateral fina solo con iconos; nada de cabecera, la altura vale oro.
+                        form == com.mivisor.tv.ui.design.UiForm.PHONE -> Row(Modifier.fillMaxSize()) {
+                            PhoneRail(route, onTab = { nav.tab(it) })
+                            Box(Modifier.weight(1f).fillMaxHeight().padding(top = 10.dp)) { content() }
+                        }
+                        // Rail del diseño 06 (Ajustes › Pantalla › Menú › Lateral): se despliega SOBRE el contenido.
+                        navPosition == "side" -> Box(Modifier.fillMaxSize()) {
+                            Column(Modifier.fillMaxSize().padding(start = RAIL_W - MvDims.SafeX + 37.dp)) {
+                                HeaderBar(graph)
+                                Box(Modifier.fillMaxSize()) { content() }
+                            }
+                            Rail(route, onTab = { nav.tab(it) })
+                        }
+                        // 3f · Por defecto: barra superior (como Google TV o Netflix). Todo el ancho para el contenido.
+                        else -> Column(Modifier.fillMaxSize()) {
+                            TopNav(graph, route, onTab = { nav.tab(it) })
                             Box(Modifier.fillMaxSize()) { content() }
                         }
-                        Rail(route, onTab = { nav.tab(it) })
                     }
                 }
             }
@@ -259,6 +287,118 @@ private fun selectedTabOf(route: Route): Route = when (route) {
     is Route.Event, is Route.Competition -> Route.Agenda
     is Route.AddProvider, Route.Diagnostics, Route.Report, Route.Checks, is Route.Backup, Route.Quarantine -> Route.Settings
     else -> route
+}
+
+/** Pestañas de la barra superior; Buscar y Ajustes van como iconos a la derecha. */
+private val TOP_TABS = listOf(Route.Home, Route.Channels, Route.Agenda, Route.MyList)
+
+/**
+ * 3f · Barra superior: marca a la izquierda, las cuatro secciones como texto, y a la derecha Buscar, Ajustes, el
+ * estado de los servicios y la hora. Con el mando se llega pulsando ↑ desde el contenido. Sección activa = texto
+ * champán con una raya debajo; enfocada = pastilla con anillo (como en el resto de la app).
+ */
+@Composable
+private fun TopNav(graph: AppGraph, route: Route, onTab: (Route) -> Unit) {
+    val selected = selectedTabOf(route)
+    val engine by EngineManager.state.collectAsState()
+    val warp by graph.warp.state.collectAsState()
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(20_000)
+            now = System.currentTimeMillis()
+        }
+    }
+    Row(
+        Modifier.fillMaxWidth().height(64.dp).padding(start = MvDims.SafeX, end = MvDims.SafeX, top = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        com.mivisor.tv.ui.design.OrbitaMark(26.dp)
+        Spacer(Modifier.width(10.dp))
+        com.mivisor.tv.ui.design.MvWordmark(18.sp)
+        Spacer(Modifier.width(30.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            for (tab in TOP_TABS) {
+                val on = tab == selected
+                TvClickable(
+                    onClick = { onTab(tab) }, shape = RoundedCornerShape(20.dp), focusedScale = 1f,
+                    color = Color.Transparent, focusedColor = MvColors.Surface3, ringColor = MvColors.Accent2,
+                    modifier = Modifier.height(40.dp)
+                ) { focused ->
+                    Column(Modifier.fillMaxHeight().padding(horizontal = 16.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                        MvText(tabLabel(tab), MvType.BodyStrong, color = if (on) MvColors.Accent else if (focused) MvColors.Text else MvColors.Text2, maxLines = 1)
+                        Spacer(Modifier.height(3.dp))
+                        Box(Modifier.width(18.dp).height(2.dp).background(if (on) MvColors.Accent else Color.Transparent, RoundedCornerShape(1.dp)))
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        NavIcon(MvIcons.Search, selected == Route.Search) { onTab(Route.Search) }
+        Spacer(Modifier.width(6.dp))
+        NavIcon(MvIcons.Settings, selected == Route.Settings) { onTab(Route.Settings) }
+        Spacer(Modifier.width(18.dp))
+        LiveDot(
+            when (engine.phase) {
+                EngineSupervisor.Phase.READY -> MvColors.Ok
+                EngineSupervisor.Phase.STARTING -> MvColors.Soon
+                EngineSupervisor.Phase.FAILED -> MvColors.Bad
+                EngineSupervisor.Phase.STOPPED -> MvColors.Text3
+            }, 6.dp
+        )
+        Spacer(Modifier.width(5.dp))
+        MvText("Motor", MvType.Caption.copy(color = MvColors.Text3))
+        Spacer(Modifier.width(10.dp))
+        LiveDot(
+            when (warp.phase) {
+                WarpPhase.CONNECTED -> MvColors.Ok
+                WarpPhase.CONNECTING, WarpPhase.DISCONNECTING -> MvColors.Soon
+                WarpPhase.SIGNATURE_MISMATCH, WarpPhase.ERROR -> MvColors.Bad
+                else -> MvColors.Text3
+            }, 6.dp
+        )
+        Spacer(Modifier.width(5.dp))
+        MvText("WARP", MvType.Caption.copy(color = MvColors.Text3))
+        Spacer(Modifier.width(16.dp))
+        MvText(hhmm(now), MvType.BodyStrong)
+    }
+}
+
+@Composable
+private fun NavIcon(icon: Int, selected: Boolean, onClick: () -> Unit) {
+    TvClickable(
+        onClick = onClick, shape = CircleShape, focusedScale = 1f,
+        color = if (selected) MvColors.Accent.copy(alpha = 0.14f) else Color.Transparent,
+        focusedColor = MvColors.Surface3, ringColor = MvColors.Accent2,
+        modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center
+    ) { _ -> MvIcon(icon, size = 20.dp, tint = if (selected) MvColors.Accent else MvColors.Text2) }
+}
+
+/** 3f · Móvil: barra lateral fina con las seis secciones (solo iconos, con la etiqueta pequeña debajo). */
+@Composable
+private fun PhoneRail(route: Route, onTab: (Route) -> Unit) {
+    val selected = selectedTabOf(route)
+    Column(
+        Modifier.fillMaxHeight().width(68.dp).background(MvColors.Nav).padding(vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        com.mivisor.tv.ui.design.OrbitaMark(24.dp)
+        Spacer(Modifier.height(6.dp))
+        for (tab in RAIL_TABS) {
+            val on = tab == selected
+            TvClickable(
+                onClick = { onTab(tab) }, shape = RoundedCornerShape(12.dp), focusedScale = 1f,
+                color = if (on) MvColors.Accent.copy(alpha = 0.14f) else Color.Transparent,
+                focusedColor = MvColors.Surface3, ringColor = MvColors.Accent2,
+                modifier = Modifier.width(58.dp).weight(1f, fill = false).height(50.dp), contentAlignment = Alignment.Center
+            ) { _ ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    MvIcon(tabIcon(tab), size = 20.dp, tint = if (on) MvColors.Accent else MvColors.Text2)
+                    MvText(tabLabel(tab), MvType.Caption.copy(fontSize = 10.sp, color = if (on) MvColors.Accent else MvColors.Text3), maxLines = 1)
+                }
+            }
+        }
+    }
 }
 
 /** Barra superior fina (diseño 06): marca, estado de los servicios en una línea y la hora. No es enfocable. */

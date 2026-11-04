@@ -73,7 +73,7 @@ private val SPORT_NAMES = mapOf(
 fun sportName(id: String) = SPORT_NAMES[id] ?: id.replaceFirstChar { it.uppercase() }
 
 /** Logo de la competición: el primero que traiga alguno de sus eventos. */
-private fun competitionLogo(c: Competition, events: List<AgendaEvent>): String? =
+fun competitionLogo(c: Competition, events: List<AgendaEvent>): String? =
     events.firstOrNull { Competition.of(it) == c && it.competitionLogo != null }?.competitionLogo
 
 /**
@@ -372,8 +372,15 @@ fun CompetitionScreen(graph: AppGraph, nav: Nav, route: Route.Competition) {
                 }
             }
             Spacer(Modifier.height(16.dp))
+            // 3f · Seguir la competición: sale en Inicio › «Competiciones seguidas».
+            var followed by remember { mutableStateOf(competition.name in graph.prefs.followedCompetitions) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MvButton("Toda la agenda", { nav.back() }, icon = MvIcons.Calendar, focusRequester = first)
+                MvButton(if (followed) "Siguiendo" else "Seguir competición", {
+                    val list = graph.prefs.followedCompetitions
+                    graph.prefs.followedCompetitions = if (followed) list - competition.name else list + competition.name
+                    followed = !followed
+                }, icon = if (followed) MvIcons.Check else MvIcons.Star, primary = !followed)
             }
         }
         if (events.isEmpty()) item {

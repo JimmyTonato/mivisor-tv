@@ -374,7 +374,23 @@ private fun DisplayPage(graph: AppGraph, onLook: () -> Unit) {
     var big by remember { mutableStateOf(graph.prefs.bigText) }
     var info by remember { mutableStateOf(graph.prefs.showSourceInfo) }
     var start by remember { mutableStateOf(graph.prefs.startScreen) }
+    var deviceClass by remember { mutableStateOf(graph.prefs.deviceClass) }
+    var navPos by remember { mutableStateOf(graph.prefs.navPosition) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val detected = remember { com.mivisor.tv.ui.Devices.detect(context, "auto") }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // 3f · La misma APK en tele, tablet y móvil. Si un aparato se identifica mal, aquí se fuerza.
+        MvRow("Tipo de pantalla", {
+            deviceClass = when (deviceClass) { "auto" -> "tv"; "tv" -> "tablet"; "tablet" -> "phone"; else -> "auto" }
+            graph.prefs.deviceClass = deviceClass
+            onLook()
+        }, subtitle = "Detectado: ${detected.label}. Cambia el menú, el tamaño y los controles táctiles",
+            trailing = com.mivisor.tv.model.DeviceClass.entries.firstOrNull { it.id == deviceClass }?.label ?: "Automático")
+        MvRow("Menú", {
+            navPos = if (navPos == "side") "top" else "side"
+            graph.prefs.navPosition = navPos
+            onLook()
+        }, subtitle = "En el móvil siempre va en un lateral fino", trailing = if (navPos == "side") "Lateral" else "Arriba")
         MvRow("Modo ligero", { lite = !lite; graph.prefs.lite = lite; onLook() }) { MvSwitch(lite) }
         MvRow("Vista previa en Canales", {}, subtitle = "Todavía no disponible: llega en una entrega posterior", enabled = false) { MvSwitch(false) }
         MvRow("Texto más grande", { big = !big; graph.prefs.bigText = big; onLook() }) { MvSwitch(big) }

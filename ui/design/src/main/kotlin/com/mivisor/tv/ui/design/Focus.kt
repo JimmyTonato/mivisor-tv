@@ -62,7 +62,11 @@ fun TvClickable(
     contentAlignment: Alignment = Alignment.TopStart,
     content: @Composable BoxScope.(focused: Boolean) -> Unit
 ) {
-    var focused by remember { mutableStateOf(false) }
+    var hasFocus by remember { mutableStateOf(false) }
+    // 3f · Con el dedo no se pinta el foco: en tablet y móvil el anillo y el escalado solo salen si se usa un mando o
+    // un teclado (Android cambia solo de modo táctil a modo teclado).
+    val keyboardMode = androidx.compose.ui.platform.LocalInputModeManager.current.inputMode == androidx.compose.ui.input.InputMode.Keyboard
+    val focused = hasFocus && keyboardMode
     val press = remember { PressState() }
     val currentClick by rememberUpdatedState(onClick)
     val currentLongClick by rememberUpdatedState(onLongClick)
@@ -82,8 +86,8 @@ fun TvClickable(
             }
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged {
-                val was = focused
-                focused = it.isFocused
+                val was = hasFocus
+                hasFocus = it.isFocused
                 if (!it.isFocused) press.down = false
                 if (it.isFocused && !was) currentFocus?.invoke()
             }

@@ -35,6 +35,7 @@ object MvIcons {
     val List = R.drawable.ic_list
     val Grid = R.drawable.ic_grid
     val ChevronRight = R.drawable.ic_chevron_right
+    val Back = R.drawable.ic_chevron_left
     val Clock = R.drawable.ic_clock
     val Trophy = R.drawable.ic_trophy
     val Link = R.drawable.ic_link

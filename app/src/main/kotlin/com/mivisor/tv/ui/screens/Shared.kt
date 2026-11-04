@@ -31,9 +31,9 @@ import com.mivisor.tv.playback.PlayRequest
 import com.mivisor.tv.playback.PlaySource
 import com.mivisor.tv.reliability.SourceState
 import com.mivisor.tv.ui.design.BrandPlate
-import com.mivisor.tv.ui.design.LogoPlate
-import com.mivisor.tv.ui.RemoteImage
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import com.mivisor.tv.ui.design.LiveDot
 import com.mivisor.tv.ui.design.MvColors
 import com.mivisor.tv.ui.design.MvDims
@@ -111,20 +111,19 @@ fun TvChannelTile(
     )
 }
 
-/** Logo real sobre el fondo claro; si no carga, el rótulo de texto de siempre. */
+/**
+ * 3f · Logo real en la placa de la tarjeta: si trae fondo propio, la placa toma ese fondo (sin doble borde); si es un
+ * logo suelto, va sobre el fondo de la tarjeta (o sobre placa clara si es oscuro). Sin logo o si falla, el rótulo.
+ */
 @Composable
 fun ChannelArt(url: String?, plate: Plate, modifier: Modifier, sizeHint: Dp = 200.dp) {
     if (url == null) {
         BrandPlate(plate.top, plate.bottom, plate.tone.ui(), modifier)
         return
     }
-    if (isPicon(url)) {
-        RemoteImage(url, sizeHint, modifier) { BrandPlate(plate.top, plate.bottom, plate.tone.ui(), Modifier.fillMaxSize()) }
-        return
-    }
-    LogoPlate(modifier) {
-        RemoteImage(url, sizeHint, Modifier.fillMaxSize()) {
-            BrandPlate(plate.top, plate.bottom, plate.tone.ui(), Modifier.fillMaxSize())
+    com.mivisor.tv.ui.LogoImage(url, sizeHint, modifier, RoundedCornerShape(MvDims.Radius), plain = MvColors.Surface2, padding = 0.2f) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            BrandPlate(plate.top, plate.bottom, plate.tone.ui(), Modifier.fillMaxWidth(0.62f).aspectRatio(2.3f))
         }
     }
 }
@@ -133,8 +132,9 @@ fun ChannelArt(url: String?, plate: Plate, modifier: Modifier, sizeHint: Dp = 20
 fun ChannelLogo(ch: TvChannel, modifier: Modifier, sizeHint: Dp = 120.dp) {
     val plate = ch.plate()
     if (ch.logo == null) BrandPlate(plate.top, plate.bottom, plate.tone.ui(), modifier, scale = sizeHint.value / 200f)
-    else if (isPicon(ch.logo)) RemoteImage(ch.logo, sizeHint, modifier) { BrandPlate(plate.top, plate.bottom, plate.tone.ui(), Modifier.fillMaxSize(), scale = sizeHint.value / 200f) }
-    else LogoPlate(modifier) { RemoteImage(ch.logo, sizeHint, Modifier.fillMaxSize()) { BrandPlate(plate.top, plate.bottom, plate.tone.ui(), Modifier.fillMaxSize(), scale = sizeHint.value / 200f) } }
+    else com.mivisor.tv.ui.LogoImage(ch.logo, sizeHint, modifier, RoundedCornerShape(8.dp), plain = MvColors.Surface2, padding = 0.1f) {
+        BrandPlate(plate.top, plate.bottom, plate.tone.ui(), Modifier.fillMaxSize(), scale = sizeHint.value / 200f)
+    }
 }
 
 /** Canales de tus proveedores para un evento de la agenda (por los nombres de canal del evento). */

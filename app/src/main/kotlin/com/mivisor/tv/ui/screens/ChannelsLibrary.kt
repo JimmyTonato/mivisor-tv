@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -74,20 +77,25 @@ object ChannelsMemory {
     var gridIndex = 0
 }
 
-/** Medidas del diseño 06 (lienzo 1600 px → 960 dp: × 0,6). */
+/** Medidas de Canales (3f). */
 private object Lib {
-    val PadX = 37.dp            // 62 px
-    val ProviderCol = 132.dp    // 205 px (+ texto mínimo legible)
-    val FamilyCol = 124.dp      // 201 px
-    val Row = 36.dp             // 53 px
-    val Card = 70.dp            // 110 px
-    val Logo = 40.dp            // 65 px
+    val Logo = 40.dp
+    /** Ancho mínimo de una tarjeta: 4 columnas en la tele, 3 en el móvil en horizontal, 5-6 en una tablet grande. */
+    val TileMin = 190.dp
+}
+
+/** Una entrada de la rejilla: título de grupo (ocupa toda la fila) o canal. */
+private sealed class Entry(val key: String) {
+    class Header(val title: String, val count: Int, val hint: String?) : Entry("h-$title-$count")
+    class Item(val channel: TvChannel) : Entry(channel.id)
 }
 
 /**
- * Canales (diseño 06): Proveedor → grupo (serie: «M+ LaLiga» → 1, 2, 3…) → canal; «Categorías» filtra por temática. Las versiones HD/FHD/4K de un canal ya vienen juntas como fuentes
- * (no hay tarjetas duplicadas). OK sobre un canal lo reproduce al momento con su fuente más fiable; proveedor y
- * familia solo filtran. Mantener OK: Mi lista.
+ * Canales (3f): sin columnas laterales. Arriba, el modo (Proveedores · Categorías · Favoritos) y una fila de fichas
+ * con los proveedores (o las categorías). Debajo, la rejilla a todo el ancho con los canales agrupados por series
+ * («M+ LaLiga»: LaLiga, 2, 3…), cada grupo con su título; una segunda fila de fichas salta a un grupo concreto.
+ * Las versiones HD/FHD/4K de un canal van juntas como fuentes. OK sobre un canal lo reproduce al momento;
+ * proveedor, grupo y categoría solo filtran. Mantener OK (o pulsación larga): Mi lista.
  */
 @Composable
 fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
@@ -111,7 +119,6 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
 
     val mem = ChannelsMemory
     val favorites = mine.favorites.map { it.first }.toSet()
-    // Lista a la izquierda (proveedores o categorías) y la familia elegida.
     val providers = library.providers
     val providerSec = providers.firstOrNull { it.key == mem.provider }
     val base: List<TvChannel> = when (mem.view) {
@@ -121,119 +128,113 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
     }
     val families = remember(base) { TvLibrary.familiesOf(base) }
     val family = mem.family?.takeIf { f -> families.any { it.first == f } }
-    // Proveedor → serie («M+ LaLiga» con sus 1, 2, 3…) → canal. Los canales sin serie van a «Canales sueltos».
+    // Proveedor → serie («M+ LaLiga» con sus 1, 2, 3…) → canal. Los canales sin hermanos van a «Otros canales».
     val allSeries = remember(base) { ChannelSeriesGrouping.group(base) }
     val multiSeries = allSeries.filter { it.channels.size > 1 }
-    val singles = remember(allSeries) { allSeries.filter { it.channels.size == 1 }.flatMap { it.channels } }
+    val singles = remember(allSeries) { TvLibrary.sorted(allSeries.filter { it.channels.size == 1 }.flatMap { it.channels }) }
     val series = mem.series?.takeIf { k -> k == ChannelsMemory.SINGLES && singles.isNotEmpty() || multiSeries.any { it.key == k } }
-    val shown = remember(base, family, series, mem.view) {
-        when (mem.view) {
-            2 -> base
-            1 -> TvLibrary.sorted(if (family == null) base else base.filter { it.family == family })
-            else -> when (series) {
-                null -> TvLibrary.sorted(base)
-                ChannelsMemory.SINGLES -> TvLibrary.sorted(singles)
-                else -> multiSeries.first { it.key == series }.channels
+    val entries: List<Entry> = remember(base, family, series, mem.view, multiSeries.size) {
+        when {
+            mem.view == 2 -> base.map { Entry.Item(it) }
+            mem.view == 1 -> TvLibrary.sorted(if (family == null) base else base.filter { it.family == family }).map { Entry.Item(it) }
+            series == ChannelsMemory.SINGLES -> singles.map { Entry.Item(it) }
+            series != null -> multiSeries.first { it.key == series }.channels.map { Entry.Item(it) }
+            multiSeries.isEmpty() -> TvLibrary.sorted(base).map { Entry.Item(it) }
+            else -> buildList<Entry> {
+                for (sr in multiSeries) {
+                    add(Entry.Header(sr.name, sr.channels.size, null))
+                    sr.channels.forEach { add(Entry.Item(it)) }
+                }
+                if (singles.isNotEmpty()) {
+                    add(Entry.Header("Otros canales", singles.size, null))
+                    singles.forEach { add(Entry.Item(it)) }
+                }
             }
         }
     }
+    val shownCount = entries.count { it is Entry.Item }
 
-    // Volver del reproductor: foco en el mismo canal.
+    // Volver del reproductor: foco en el mismo canal (decidido UNA vez al entrar).
     val grid = remember { LazyGridState(mem.gridIndex) }
     val restore = remember { FocusRequester() }
-    val target = mem.lastChannel?.takeIf { id -> shown.any { it.id == id } }
-    // El foco inicial se decide UNA vez al entrar (no se le quita al usuario mientras cambia de filtro).
+    val target = mem.lastChannel?.takeIf { id -> entries.any { it is Entry.Item && it.channel.id == id } }
     val entryTarget = remember { target }
     LaunchedEffect(entryTarget) {
         if (entryTarget != null) {
-            val i = shown.indexOfFirst { it.id == entryTarget }
+            val i = entries.indexOfFirst { it is Entry.Item && it.channel.id == entryTarget }
             if (i >= 0) grid.scrollToItem(i)
             delay(60)
             runCatching { restore.requestFocus() }
         }
     }
+    val form = com.mivisor.tv.ui.design.LocalUiForm.current
 
     Column(Modifier.fillMaxSize().padding(start = MvDims.SafeX, end = MvDims.SafeX)) {
-        MvText("BIBLIOTECA · CANALES", MvType.Eyebrow.copy(color = MvColors.Accent))
-        Spacer(Modifier.height(2.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             MvText("Canales", MvType.Title)
-            Spacer(Modifier.width(14.dp))
-            MvText(
-                "${library.channels.size} canales · ${providers.size} proveedores · ${library.providerCount} listas",
-                MvType.Small, modifier = Modifier.padding(bottom = 5.dp)
-            )
+            Spacer(Modifier.width(12.dp))
+            MvText("${library.channels.size} canales · ${providers.size} proveedores", MvType.Small, modifier = Modifier.weight(1f), maxLines = 1)
+            SmallAction("Buscar", MvIcons.Search) { nav.tab(Route.Search) }
+            if (library.links.isNotEmpty()) { Spacer(Modifier.width(6.dp)); SmallAction("Enlaces · ${library.links.size}", MvIcons.Link) { nav.go(Route.Links) } }
+            Spacer(Modifier.width(6.dp))
+            SmallAction("Proveedores", MvIcons.Settings) { nav.tab(Route.Settings) }
         }
         Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ViewChip("Proveedores", mem.view == 0, if (entryTarget == null) first else null) { mem.view = 0; mem.family = null; mem.series = null }
-            ViewChip("Categorías", mem.view == 1, null) { mem.view = 1; mem.family = null; mem.series = null }
-            ViewChip("Favoritos · ${favorites.size}", mem.view == 2, null) { mem.view = 2 }
-            ViewChip("Buscar canal", false, null, MvIcons.Search) { nav.tab(Route.Search) }
-            if (library.links.isNotEmpty()) ViewChip("Enlaces · ${library.links.size}", false, null, MvIcons.Link) { nav.go(Route.Links) }
-            ViewChip("Gestionar proveedores", false, null, MvIcons.Settings) { nav.tab(Route.Settings) }
+        // Modo: pestañas segmentadas.
+        Row(
+            Modifier.background(MvColors.Surface1, RoundedCornerShape(12.dp)).padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Segment("Proveedores", mem.view == 0, if (entryTarget == null) first else null) { if (mem.view != 0) { mem.view = 0; mem.family = null; mem.series = null; mem.gridIndex = 0 } }
+            Segment("Categorías", mem.view == 1, null) { if (mem.view != 1) { mem.view = 1; mem.family = null; mem.series = null; mem.gridIndex = 0 } }
+            Segment("Favoritos · ${favorites.size}", mem.view == 2, null) { if (mem.view != 2) { mem.view = 2; mem.gridIndex = 0 } }
         }
-        Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (mem.view == 0) {
-                FilterColumn("PROVEEDORES", Lib.ProviderCol) {
-                    items(listOf<Pair<String?, Pair<String, Int>>>(null to ("Todos" to library.channels.size)) +
-                        providers.map { it.key to (it.name to it.channels.size) }, key = { it.first ?: "todos" }) { (key, label) ->
-                        FilterRow(label.first, label.second, selected = mem.provider == key) {
-                            if (mem.provider != key) { mem.provider = key; mem.family = null; mem.series = null; mem.gridIndex = 0 }
+        Spacer(Modifier.height(10.dp))
+        // Filtros: proveedores (o categorías) y, dentro de un proveedor, sus grupos.
+        when (mem.view) {
+            0 -> {
+                ChipRow(listOf<Triple<String?, String, Int>>(Triple(null, "Todos", library.channels.size)) +
+                    providers.map { Triple(it.key, it.name, it.channels.size) }, mem.provider) { k ->
+                    if (mem.provider != k) { mem.provider = k; mem.family = null; mem.series = null; mem.gridIndex = 0 }
+                }
+                if (multiSeries.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    ChipRow(
+                        listOf<Triple<String?, String, Int>>(Triple(null, "Todos los grupos", base.size)) +
+                            multiSeries.map { Triple(it.key, it.name, it.channels.size) } +
+                            (if (singles.isNotEmpty()) listOf(Triple(ChannelsMemory.SINGLES, "Otros canales", singles.size)) else emptyList()),
+                        series, small = true
+                    ) { k -> if (mem.series != k) { mem.series = k; mem.gridIndex = 0 } }
+                }
+            }
+            1 -> ChipRow(listOf<Triple<String?, String, Int>>(Triple(null, "Todas", base.size)) + families.map { Triple(it.first.id, it.first.label, it.second) },
+                family?.id) { id -> val f = families.firstOrNull { it.first.id == id }?.first; if (mem.family != f) { mem.family = f; mem.gridIndex = 0 } }
+            else -> Unit
+        }
+        Spacer(Modifier.height(10.dp))
+        if (shownCount == 0) {
+            MvText(
+                if (mem.view == 2) (if (form.touch) "Aún no tienes favoritos. Mantén pulsado un canal para añadirlo." else "Aún no tienes favoritos. Mantén pulsado OK sobre un canal para añadirlo.")
+                else "No hay canales aquí.",
+                MvType.Body.copy(color = MvColors.Text2), modifier = Modifier.padding(top = 12.dp)
+            )
+        }
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(Lib.TileMin), state = grid, modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 40.dp, start = 3.dp, end = 3.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            entries.forEachIndexed { i, e ->
+                when (e) {
+                    is Entry.Header -> item(key = e.key, span = { GridItemSpan(maxLineSpan) }) {
+                        Row(Modifier.padding(top = if (i == 0) 0.dp else 10.dp), verticalAlignment = Alignment.Bottom) {
+                            MvText(e.title, MvType.Heading, maxLines = 1)
+                            Spacer(Modifier.width(10.dp))
+                            MvText("${e.count} ${if (e.count == 1) "canal" else "canales"}", MvType.Small.copy(color = MvColors.Text3), modifier = Modifier.padding(bottom = 2.dp))
                         }
                     }
-                }
-            }
-            if (mem.view == 0) {
-                FilterColumn("GRUPOS", Lib.FamilyCol) {
-                    val rows = listOf<Triple<String?, String, Int>>(Triple(null, "Todos", base.size)) +
-                        multiSeries.map { Triple(it.key, it.name, it.channels.size) } +
-                        (if (singles.isNotEmpty() && multiSeries.isNotEmpty()) listOf(Triple(ChannelsMemory.SINGLES, "Canales sueltos", singles.size)) else emptyList())
-                    items(rows, key = { it.first ?: "todos" }) { (k, label, n) ->
-                        FilterRow(label, n, selected = series == k) { if (mem.series != k) { mem.series = k; mem.gridIndex = 0 } }
-                    }
-                }
-            }
-            if (mem.view == 1) {
-                FilterColumn("CATEGORÍAS", Lib.FamilyCol) {
-                    items(listOf<Pair<ChannelFamily?, Int>>(null to base.size) + families, key = { it.first?.id ?: "todas" }) { (f, n) ->
-                        FilterRow(f?.label ?: "Todas", n, selected = family == f) { if (mem.family != f) { mem.family = f; mem.gridIndex = 0 } }
-                    }
-                }
-            }
-            Column(Modifier.weight(1f).fillMaxHeight()) {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    MvText(
-                        when (mem.view) {
-                            2 -> "Tus favoritos"
-                            1 -> family?.label ?: "Todos los canales"
-                            else -> listOfNotNull(
-                                providerSec?.name ?: "Todos",
-                                when (series) {
-                                    null -> null
-                                    ChannelsMemory.SINGLES -> "Canales sueltos"
-                                    else -> multiSeries.firstOrNull { it.key == series }?.name
-                                }
-                            ).joinToString(" · ")
-                        },
-                        MvType.Heading, maxLines = 1, modifier = Modifier.weight(1f)
-                    )
-                    MvText("${shown.size} ${if (shown.size == 1) "canal" else "canales"}", MvType.Small)
-                }
-                Spacer(Modifier.height(8.dp))
-                if (shown.isEmpty()) {
-                    MvText(
-                        if (mem.view == 2) "Aún no tienes favoritos. Mantén pulsado OK sobre un canal para añadirlo." else "No hay canales aquí.",
-                        MvType.Body.copy(color = MvColors.Text2), modifier = Modifier.padding(top = 12.dp)
-                    )
-                }
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3), state = grid, modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = 4.dp, bottom = 40.dp, start = 3.dp, end = 3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    itemsIndexed(shown, key = { _, c -> c.id }) { i, ch ->
+                    is Entry.Item -> item(key = e.key) {
+                        val ch = e.channel
                         ChannelCard(
                             ch, graph, favorite = ch.id in favorites,
                             focusRequester = if (ch.id == entryTarget) restore else null,
@@ -256,59 +257,65 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
     if (entryTarget == null) InitialFocus(first)
 }
 
+/** Botón pequeño de la cabecera (Buscar, Enlaces, Proveedores). */
 @Composable
-private fun ViewChip(text: String, selected: Boolean, fr: FocusRequester?, icon: Int? = null, onClick: () -> Unit) {
+private fun SmallAction(text: String, icon: Int, onClick: () -> Unit) {
+    TvClickable(
+        onClick = onClick, shape = RoundedCornerShape(9.dp), focusedScale = 1f,
+        color = MvColors.Surface1, focusedColor = MvColors.Surface3, ringColor = MvColors.Accent2,
+        modifier = Modifier.height(32.dp)
+    ) { _ ->
+        Row(Modifier.fillMaxHeight().padding(horizontal = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+            MvIcon(icon, size = 14.dp, tint = MvColors.Text2)
+            Spacer(Modifier.width(6.dp))
+            MvText(text, MvType.SmallStrong, maxLines = 1)
+        }
+    }
+}
+
+/** Pestaña del selector de modo. */
+@Composable
+private fun Segment(text: String, selected: Boolean, fr: FocusRequester?, onClick: () -> Unit) {
     TvClickable(
         onClick = onClick, focusRequester = fr, shape = RoundedCornerShape(9.dp), focusedScale = 1f,
-        color = if (selected) MvColors.Accent.copy(alpha = 0.16f) else MvColors.Surface1,
-        focusedColor = MvColors.Surface3, ringColor = MvColors.Accent2,
-        modifier = Modifier.height(30.dp)
+        color = if (selected) MvColors.Surface3 else Color.Transparent, focusedColor = MvColors.Surface4, ringColor = MvColors.Accent2,
+        modifier = Modifier.height(34.dp)
     ) { _ ->
-        Row(Modifier.fillMaxHeight().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (icon != null) {
-                MvIcon(icon, size = 14.dp, tint = MvColors.Text2)
-                Spacer(Modifier.width(6.dp))
-            }
-            MvText(text, MvType.SmallStrong, color = if (selected) MvColors.Accent else MvColors.Text, maxLines = 1)
+        Box(Modifier.fillMaxHeight().padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+            MvText(text, MvType.SmallStrong, color = if (selected) MvColors.Accent else MvColors.Text2, maxLines = 1)
         }
     }
 }
 
-/** Columna de filtro (Proveedores / Familias) del diseño: panel con su título y filas de 36 dp. */
-@Composable
-private fun FilterColumn(title: String, width: androidx.compose.ui.unit.Dp, content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
-    Column(
-        Modifier.width(width).fillMaxHeight().padding(bottom = 20.dp)
-            .background(MvColors.Surface1, RoundedCornerShape(12.dp))
-            .border(1.dp, MvColors.Stroke, RoundedCornerShape(12.dp))
-            .padding(6.dp)
-    ) {
-        MvText(title, MvType.Caption.copy(color = MvColors.Text2, letterSpacing = 1.2.sp), modifier = Modifier.padding(start = 8.dp, top = 6.dp, bottom = 6.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(3.dp)) { content() }
-    }
-}
-
 /**
- * Fila de filtro: OK la elige (nunca reproduce). Pasar por encima no cambia nada, para que moverse con las flechas
- * entre la rejilla y las columnas no cambie el filtro sin querer. Seleccionado (champán) ≠ enfocado (anillo).
+ * Fila de fichas de filtro (proveedores, grupos o categorías). OK o un toque la elige; pasar por encima no cambia
+ * nada. Elegida = champán; enfocada = anillo.
  */
 @Composable
-private fun FilterRow(label: String, count: Int, selected: Boolean, onSelect: () -> Unit) {
-    TvClickable(
-        onClick = onSelect, shape = RoundedCornerShape(9.dp), focusedScale = 1f,
-        color = if (selected) MvColors.Surface3 else Color.Transparent, focusedColor = MvColors.Surface3, ringColor = MvColors.Accent2,
-        modifier = Modifier.fillMaxWidth().height(Lib.Row)
-    ) { _ ->
-        Row(Modifier.fillMaxSize().padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-            MvText(label, MvType.SmallStrong, color = if (selected) MvColors.Accent else MvColors.Text, maxLines = 2, modifier = Modifier.weight(1f))
-            MvText("$count", MvType.Caption.copy(color = if (selected) MvColors.Accent else MvColors.Text3))
+private fun ChipRow(items: List<Triple<String?, String, Int>>, selected: String?, small: Boolean = false, onSelect: (String?) -> Unit) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 3.dp, vertical = 3.dp)) {
+        items(items, key = { it.first ?: "todos" }) { (k, label, n) ->
+            val on = k == selected
+            TvClickable(
+                onClick = { onSelect(k) }, shape = RoundedCornerShape(20.dp), focusedScale = 1f,
+                color = if (on) MvColors.Accent else if (small) Color.Transparent else MvColors.Surface1,
+                focusedColor = if (on) MvColors.Accent2 else MvColors.Surface3, ringColor = MvColors.Accent2,
+                modifier = Modifier.height(if (small) 30.dp else 36.dp)
+                    .then(if (small && !on) Modifier.border(1.dp, MvColors.Stroke, RoundedCornerShape(20.dp)) else Modifier)
+            ) { _ ->
+                Row(Modifier.fillMaxHeight().padding(horizontal = if (small) 12.dp else 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    MvText(label, if (small) MvType.SmallStrong else MvType.BodyStrong, color = if (on) MvColors.Bg else MvColors.Text, maxLines = 1)
+                    Spacer(Modifier.width(7.dp))
+                    MvText("$n", MvType.Caption.copy(color = if (on) MvColors.Bg.copy(alpha = 0.7f) else MvColors.Text3))
+                }
+            }
         }
     }
 }
 
 /**
- * Tarjeta compacta de canal (diseño 06): logo en su recuadro de 40 dp (sin deformar), nombre en dos líneas como
- * máximo y su estado con un punto de color y texto (el color nunca va solo).
+ * Tarjeta de canal (3f): el logo a todo el recuadro (si el logo trae fondo, el recuadro es ese fondo: un solo borde),
+ * y debajo el nombre completo y su estado con un punto de color y texto (el color nunca va solo).
  */
 @Composable
 fun ChannelCard(
@@ -321,54 +328,45 @@ fun ChannelCard(
 ) {
     val (status, color) = channelStatus(ch, graph.sources)
     val n = ch.sources.size
-    TvClickable(
-        onClick = onClick, onLongClick = onLongClick, focusRequester = focusRequester,
-        shape = RoundedCornerShape(12.dp), focusedScale = 1f,
-        color = MvColors.Surface1, focusedColor = MvColors.Surface3, ringColor = MvColors.Accent2,
-        modifier = Modifier.fillMaxWidth().height(Lib.Card)
-    ) { _ ->
-        Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            LogoBox(ch)
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                MvText(ch.name, MvType.SmallStrong.copy(lineHeight = 17.sp), maxLines = 2)
-                Spacer(Modifier.height(3.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(6.dp).background(color, CircleShape))
-                    Spacer(Modifier.width(5.dp))
-                    MvText(
-                        status.substringBefore(" · ") + " · $n ${if (n == 1) "fuente" else "fuentes"}",
-                        MvType.Caption.copy(color = MvColors.Text2), maxLines = 1, modifier = Modifier.weight(1f, fill = false)
-                    )
-                    if (favorite) {
-                        Spacer(Modifier.width(4.dp))
-                        MvIcon(MvIcons.Star, size = 11.dp, tint = MvColors.Accent)
-                    }
+    Column(Modifier.fillMaxWidth()) {
+        TvClickable(
+            onClick = onClick, onLongClick = onLongClick, focusRequester = focusRequester,
+            shape = RoundedCornerShape(12.dp), focusedScale = 1.03f,
+            color = MvColors.Surface1, focusedColor = MvColors.Surface1, ringColor = MvColors.Accent2,
+            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+        ) { _ ->
+            com.mivisor.tv.ui.LogoImage(ch.logo, 120.dp, Modifier.fillMaxSize(), RoundedCornerShape(12.dp), plain = MvColors.Surface2, padding = 0.18f) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    MvIcon(MvIcons.Signal, size = 26.dp, tint = MvColors.Text3)
+                    Spacer(Modifier.height(6.dp))
+                    MvText(ch.name, MvType.SmallStrong.copy(color = MvColors.Text2), maxLines = 2, modifier = Modifier.padding(horizontal = 10.dp))
                 }
             }
+            if (favorite) Box(
+                Modifier.align(Alignment.TopEnd).padding(6.dp).size(22.dp).background(Color(0x99000000), CircleShape),
+                contentAlignment = Alignment.Center
+            ) { MvIcon(MvIcons.Star, size = 13.dp, tint = MvColors.Accent) }
+        }
+        Spacer(Modifier.height(7.dp))
+        MvText(ch.name, MvType.SmallStrong, maxLines = 1)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(6.dp).background(color, CircleShape))
+            Spacer(Modifier.width(5.dp))
+            MvText(
+                status.substringBefore(" · ") + " · $n ${if (n == 1) "fuente" else "fuentes"}",
+                MvType.Caption.copy(color = MvColors.Text3), maxLines = 1
+            )
         }
     }
 }
 
-/** Logo del canal en su recuadro fijo: imagen «contain» sobre placa clara; sin logo, el pictograma de señal. */
+/** Logo del canal en su recuadro pequeño (reproductor): sin doble borde si el logo trae su propio fondo. */
 @Composable
 fun LogoBox(ch: TvChannel, size: androidx.compose.ui.unit.Dp = Lib.Logo) {
-    Box(
-        Modifier.size(size).background(Color(0xFF0E1A27), RoundedCornerShape(9.dp)).border(1.dp, MvColors.Stroke, RoundedCornerShape(9.dp)),
-        contentAlignment = Alignment.Center
-    ) {
-        val signal = @Composable { MvIcon(MvIcons.Signal, size = size * 0.45f, tint = MvColors.Text2) }
-        if (ch.logo != null && isPicon(ch.logo)) {
-            // picons_dobleM (icon/): iconos ya preparados con su propio fondo; se pintan tal cual, sin deformar.
-            RemoteImage(ch.logo, size, Modifier.size(size * 0.9f)) { signal() }
-        } else if (ch.logo != null) {
-            // Placa clara (casi todos los logos están pensados para fondo blanco), imagen sin deformar.
-            Box(
-                Modifier.size(size * 0.84f).background(Color(0xFFEEF1F5), RoundedCornerShape(7.dp)).padding(3.dp),
-                contentAlignment = Alignment.Center
-            ) { RemoteImage(ch.logo, size, Modifier.fillMaxSize()) { signal() } }
-        } else signal()
-    }
+    com.mivisor.tv.ui.LogoImage(
+        ch.logo, size * 2, Modifier.size(width = size * 1.6f, height = size), RoundedCornerShape(9.dp),
+        plain = Color(0xFF0E1A27), frame = MvColors.Stroke, padding = 0.1f
+    ) { MvIcon(MvIcons.Signal, size = size * 0.45f, tint = MvColors.Text2) }
 }
 
 /** Logo de picons_dobleM (se dibuja sin placa clara). */

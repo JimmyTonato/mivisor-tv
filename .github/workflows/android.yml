@@ -193,7 +193,7 @@ jobs:
         id: apk
         run: |
           SUFFIX=""
-          [ "$WARP_COMPAT" = "si" ] || SUFFIX="-sin-control-WARP"
+          # 3f · El nombre ya no cambia según la firma; si es o no compatible con WARP lo dicen el resumen y la release.
           NAME="MiVisor-TV-1.0.${{ github.run_number }}${SUFFIX}.apk"
           cp app/build/outputs/apk/release/app-release.apk "$NAME"
           sha256sum "$NAME" | tee "$NAME.sha256"
@@ -202,7 +202,7 @@ jobs:
       - name: Subir APK como artefacto (diagnóstico)
         uses: actions/upload-artifact@v4
         with:
-          name: MiVisor-TV-1.0.${{ github.run_number }}${{ env.WARP_COMPAT != 'si' && '-sin-control-WARP' || '' }}
+          name: MiVisor-TV-1.0.${{ github.run_number }}
           path: |
             ${{ steps.apk.outputs.name }}
             ${{ steps.apk.outputs.name }}.sha256
@@ -230,7 +230,7 @@ jobs:
           tag_name: tv-build-${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           name: >-
-            MiVisor TV 1.0.${{ github.run_number }}${{ env.WARP_COMPAT != 'si' && ' · SIN control de WARP' || '' }}
+            MiVisor TV 1.0.${{ github.run_number }}
           prerelease: true
           files: |
             ${{ steps.apk.outputs.name }}

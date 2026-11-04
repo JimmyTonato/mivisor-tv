@@ -7,6 +7,11 @@ import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -149,6 +154,95 @@ fun RemoteImage(
             Image(image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = if (crop) ContentScale.Crop else ContentScale.Fit)
         } else {
             fallback()
+        }
+    }
+}
+
+/**
+ * 3f · Cómo es un logo, para pintarlo sin «borde dentro de borde»:
+ *  - [card]: el logo trae su propio fondo (una tarjeta blanca, azul…, a veces con su propio marco). Se recorta su
+ *    contenido (sin el margen transparente ni su marco) y la tarjeta de la app se pinta de [background], el mismo color
+ *    que el fondo del logo: se ve una sola pieza.
+ *  - Si no ([card] = false) es un logo recortado sobre transparente: va sobre el fondo de la app o, si es oscuro
+ *    ([needsLight]), sobre una placa clara para que se lea.
+ */
+class LogoLook(val image: ImageBitmap, val card: Boolean, val background: androidx.compose.ui.graphics.Color?, val needsLight: Boolean, val bytes: Int = 0)
+
+object LogoAnalyzer {
+    /** Acotada por memoria (como [ImageLoader]): 1/32 del heap, máx. 6 MB. Solo guarda los recortes nuevos. */
+    private val cache: LruCache<String, LogoLook> by lazy {
+        val kb = (Runtime.getRuntime().maxMemory() / 1024 / 32).toInt().coerceIn(1024, 6 * 1024)
+        object : LruCache<String, LogoLook>(kb) {
+            override fun sizeOf(key: String, value: LogoLook) = maxOf(1, value.bytes / 1024)
+        }
+    }
+
+    fun peek(url: String, sizePx: Int): LogoLook? = cache.get("$sizePx|$url")
+
+    suspend fun load(context: Context, url: String, sizePx: Int): LogoLook? {
+        peek(url, sizePx)?.let { return it }
+        val bitmap = ImageLoader.load(context, url, sizePx) ?: return null
+        val look = withContext(Dispatchers.Default) { runCatching { analyze(bitmap) }.getOrNull() } ?: LogoLook(bitmap.asImageBitmap(), false, null, false)
+        cache.put("$sizePx|$url", look)
+        return look
+    }
+
+    /** Análisis por muestreo (regla en [com.mivisor.tv.catalog.logos.LogoShape], con pruebas). */
+    fun analyze(b: Bitmap): LogoLook {
+        val shape = com.mivisor.tv.catalog.logos.LogoShape.analyze(b.width, b.height) { x, y -> b.getPixel(x, y) }
+        val crop = shape.crop
+        if (!shape.card || crop == null) return LogoLook(b.asImageBitmap(), false, null, shape.needsLight)
+        val cut = Bitmap.createBitmap(b, crop[0], crop[1], crop[2], crop[3])
+        return LogoLook(cut.asImageBitmap(), true, shape.background?.let { androidx.compose.ui.graphics.Color(it) }, false, cut.byteCount)
+    }
+}
+
+/** Placa clara para logos oscuros sobre transparente. */
+val LogoLightPlate = androidx.compose.ui.graphics.Color(0xFFEEF1F5)
+
+/**
+ * 3f · Logo de canal en su recuadro, sin doble borde: si el logo trae fondo, el recuadro ES ese fondo; si no, el
+ * logo va sobre [plain] (o sobre placa clara si es oscuro) con un margen. [shape] recorta el conjunto.
+ * [frame]: fino contorno de la app, solo para logos sin fondo propio.
+ */
+@Composable
+fun LogoImage(
+    url: String?,
+    sizeHint: Dp,
+    modifier: Modifier,
+    shape: androidx.compose.ui.graphics.Shape,
+    plain: androidx.compose.ui.graphics.Color,
+    frame: androidx.compose.ui.graphics.Color? = null,
+    padding: Float = 0.12f,
+    fallback: @Composable () -> Unit
+) {
+    val context = LocalContext.current
+    val px = with(LocalDensity.current) { sizeHint.roundToPx() }
+    val look by produceState(url?.let { LogoAnalyzer.peek(it, px) }, url, px) {
+        if (value == null && !url.isNullOrBlank()) value = LogoAnalyzer.load(context, url, px)
+    }
+    val l = look
+    val bg = when {
+        l == null -> plain
+        l.card -> l.background ?: plain
+        l.needsLight -> LogoLightPlate
+        else -> plain
+    }
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier.clip(shape).background(bg, shape)
+            .then(if (frame != null && (l == null || !l.card)) Modifier.border(1.dp, frame, shape) else Modifier),
+        contentAlignment = Alignment.Center
+    ) {
+        when {
+            l == null -> fallback()
+            l.card -> Image(
+                l.image, contentDescription = null, modifier = Modifier.fillMaxSize(),
+                contentScale = if (l.background != null) ContentScale.Fit else ContentScale.Crop
+            )
+            else -> {
+                val pad = minOf(maxWidth, maxHeight) * padding
+                Image(l.image, contentDescription = null, modifier = Modifier.fillMaxSize().padding(pad), contentScale = ContentScale.Fit)
+            }
         }
     }
 }
