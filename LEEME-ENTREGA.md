@@ -1,4 +1,60 @@
-# MiVisor TV · Entrega 3e.1: WARP, fuentes, iconos y grupos de canales
+# MiVisor TV · Entrega 3e.2: canales numerados y el minuto de espera
+
+Corrige la 3e.1, que va justo debajo.
+
+## 1. Cada número es un canal distinto
+
+**El fallo.** «M+ Liga de Campeones 2» se juntaba con «M+ Liga de Campeones» como si fuera otra fuente del mismo canal. Por eso no aparecía el número. Lo mismo pasaba con DAZN 1/2/3 y M+ LaLiga 2/3.
+
+**Ahora:**
+- Cada número es su propio canal, con su nombre completo.
+- Las fuentes de un canal son solo las que tienen el mismo nombre y el mismo número. Por ejemplo, «Movistar LaLiga 2 FHD» y «M+ LaLiga 2» son dos fuentes del mismo canal, M+ LaLiga 2.
+- En Canales › Proveedores, los canales se juntan en grupos:
+
+| Proveedor | Grupo | Canales |
+|---|---|---|
+| Movistar Plus+ | M+ Liga de Campeones | M+ Liga de Campeones, M+ Liga de Campeones 2… |
+| Movistar Plus+ | M+ LaLiga | M+ LaLiga, 2, 3… |
+| DAZN | DAZN | DAZN 1, 2, 3… |
+
+«1» y «sin número» se tratan como canales distintos. Si en tus listas significan lo mismo, dímelo y los uno.
+
+Un canal que antes era favorito por el nombre sin número (por ejemplo «DAZN») y que en tus listas solo existe con número («DAZN 1», «DAZN 2») deja de aparecer en Mi lista. Hay que volver a marcarlo una vez.
+
+## 2. Iconos: solo los de picons_dobleM que coinciden
+
+- Cada canal busca el icono con **su nombre exacto**. «M+ Liga de Campeones 2» busca `M+ Liga de Campeones 2.png`.
+- Si un canal numerado no tiene icono propio, **ya no se le pone el del canal sin número**, para que no parezca el mismo canal. Se usa el logo de la marca (Movistar, DAZN…) o el pictograma de señal.
+
+## 3. Un minuto antes de pasar a otra fuente
+
+Antes había varios caminos que cambiaban de fuente antes del minuto:
+
+| Caso | Antes | Ahora |
+|---|---|---|
+| Sin imagen al empezar un canal | Otra fuente a los 30 s | Se espera 1 min |
+| Sin emisores al empezar | Otra fuente a los 15 s | Se espera 1 min |
+| Error del reproductor al empezar (p. ej. el 503 del motor a los 30 s) | Otra fuente al momento | Se reintenta la misma cada 3 s hasta el minuto |
+| Error del reproductor mientras ves el canal | Otra fuente al momento | Cuenta como corte: se recarga la misma cada 15 s |
+| El salto al directo no recuperaba la imagen | Otra fuente a los 20 s | Cuenta como corte: se recarga la misma cada 15 s |
+| El directo se detenía | Otra fuente al momento | Cuenta como corte: se recarga la misma cada 15 s |
+
+En todos los casos se pasa sola a otra fuente **al minuto** como pronto.
+- El ajuste «Pasar sola a otra fuente si no hay imagen» (1 min / 2 min / Solo con el botón) vale ahora también al empezar un canal.
+- En pantalla se ve cuánto lleva: «Buscando imagen · 34 s (otra fuente a los 60 s)».
+- A los 8 s sale el botón «Probar otra fuente», para no tener que esperar.
+- Con «Solo con el botón», la app no cambia nunca de fuente por su cuenta.
+
+Una excepción: si el motor Outpace deja de responder, se sigue avisando al momento con «Reintentar», porque esperar no lo arregla.
+
+## Compilación
+
+- **Pruebas:** pasan las **181 pruebas** de los módulos JVM. Es nueva la de canales numerados; las de umbrales e iconos se han actualizado.
+- **Código Android:** no se ha compilado aquí. Se comprueba en GitHub Actions.
+
+---
+
+# Entrega 3e.1: WARP, fuentes, iconos y grupos de canales
 
 La 3e.1 corrige y amplía la 3e. Esta va al final del documento.
 

@@ -7,11 +7,17 @@ import org.junit.Test
 
 class StartPolicyTest {
     @Test fun esperaHastaLosUmbrales() {
-        assertNull(StartPolicy.earlyFailure(10_000, sawStatus = true, maxPeers = 0))
-        assertEquals(FailureKind.NO_PEERS, StartPolicy.earlyFailure(15_000, sawStatus = true, maxPeers = 0))
-        assertNull(StartPolicy.earlyFailure(20_000, sawStatus = true, maxPeers = 3))
-        assertEquals(FailureKind.NO_VIDEO, StartPolicy.earlyFailure(30_000, sawStatus = true, maxPeers = 3))
-        assertEquals(FailureKind.NOT_FOUND, StartPolicy.earlyFailure(30_000, sawStatus = false, maxPeers = 0))
+        // 3e.1: un minuto completo antes de pasar a otra fuente, haya emisores o no.
+        assertNull(StartPolicy.earlyFailure(15_000, sawStatus = true, maxPeers = 0))
+        assertNull(StartPolicy.earlyFailure(30_000, sawStatus = true, maxPeers = 3))
+        assertNull(StartPolicy.earlyFailure(59_000, sawStatus = false, maxPeers = 0))
+        assertEquals(FailureKind.NO_PEERS, StartPolicy.earlyFailure(60_000, sawStatus = true, maxPeers = 0))
+        assertEquals(FailureKind.NO_VIDEO, StartPolicy.earlyFailure(60_000, sawStatus = true, maxPeers = 3))
+        assertEquals(FailureKind.NOT_FOUND, StartPolicy.earlyFailure(60_000, sawStatus = false, maxPeers = 0))
+        assertNull(StartPolicy.earlyFailure(100_000, sawStatus = true, maxPeers = 3, timeoutMs = 120_000))
+        assertEquals(60_000L, StartPolicy.switchAfter(30_000))
+        assertEquals(120_000L, StartPolicy.switchAfter(120_000))
+        assertEquals(Long.MAX_VALUE, StartPolicy.switchAfter(0))
     }
 
     @Test fun losErroresDelMotorNoCulpanALaFuente() {

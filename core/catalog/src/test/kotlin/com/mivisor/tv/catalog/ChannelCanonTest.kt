@@ -104,7 +104,9 @@ class ChannelCanonTest {
         assertEquals("https://l/dazn1.png", logoOf("DAZN 1 Italia Elcano ...2ef").channelLogo)
         assertEquals("https://l/dazn2.png", logoOf("DAZN 2 Elcano ...11b").channelLogo)
         assertEquals("https://l/laliga.png", r.resolve("ES: DAZN LALIGA New Loop").channelLogo)
-        assertEquals("https://l/laliga.png", r.resolve("DAZN LaLiga 2").channelLogo)       // variante sin logo → el del canal
+        // 3e.1: «DAZN LaLiga 2» es otro canal: sin icono propio NO toma el de «DAZN LaLiga» (se vería igual); va la marca.
+        assertTrue(r.resolve("DAZN LaLiga 2").channelLogo == null)
+        assertEquals("https://l/dazn.png", r.resolve("DAZN LaLiga 2").best)
         assertEquals("https://l/dazn.png", r.resolve("DAZN 4").best)                        // → marca, NUNCA el de DAZN 1
         assertTrue(r.resolve("DAZN 4").channelLogo != "https://l/dazn1.png")
     }

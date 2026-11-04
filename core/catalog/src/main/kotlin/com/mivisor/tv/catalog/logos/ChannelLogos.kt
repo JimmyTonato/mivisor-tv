@@ -140,8 +140,10 @@ class ChannelLogoResolver(private val catalog: LogoCatalog, extra: List<LogoEntr
         // Variante exacta ("DAZN LaLiga 2") → el canal sin número ("DAZN LaLiga"), sin coger nunca el logo de
         // OTRA variante numerada (DAZN 4 no toma el de DAZN 1).
         val canon = com.mivisor.tv.catalog.ChannelCanon.parse(name)
+        // 3e.1: el icono es el del canal EXACTO (picons_dobleM primero). Un canal numerado sin icono propio no toma el
+        // del canal sin número: «M+ Liga de Campeones 2» con el icono de «M+ Liga de Campeones» parecería el mismo.
         val entry = channelIndex[canon.variantKey]
-            ?: channelIndex[canon.baseKey]?.takeIf { canon.baseKey != canon.variantKey && it.logo !in numberedLogos }
+            ?: channelIndex[canon.baseKey]?.takeIf { canon.number == null && canon.baseKey != canon.variantKey && it.logo !in numberedLogos }
         val groupKey = groupOf(name) ?: entry?.group?.takeIf { it in groupsByKey } ?: listGroup?.let { groupOf(it) }
         val group = groupsByKey[groupKey]
         val category = ChannelCategory.of(entry?.category) ?: ChannelCategories.guess(canon.variantKey.split(' '))

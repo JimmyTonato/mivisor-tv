@@ -1,6 +1,7 @@
 package com.mivisor.tv.catalog.tv
 
 import com.mivisor.tv.catalog.AceStreamLink
+import com.mivisor.tv.catalog.CatalogBuilder
 import com.mivisor.tv.catalog.ChannelGroup
 import com.mivisor.tv.catalog.ChannelGrouping
 import com.mivisor.tv.catalog.ChannelMatcher
@@ -136,12 +137,15 @@ class TvLibrary(
             val groups: List<ChannelGroup> = ChannelGrouping.group(providers.map { p ->
                 Triple(p.id, p.name, p.catalog.sections.flatMap { it.channels }.map { it.withProvider(p.id, p.name) })
             })
-            val channels = groups.mapNotNull { g ->
-                val sources = g.sources.mapNotNull { s -> toSource(s) }.distinctBy { it.contentId }
+            // 3e.1: cada número es un CANAL distinto, no otra fuente: «M+ Liga de Campeones» y «M+ Liga de Campeones 2»
+            // son dos canales (que la pantalla junta luego en el grupo «M+ Liga de Campeones»). Las fuentes de un
+            // canal son solo las del mismo nombre con el mismo número, vengan de un proveedor o de varios.
+            val channels = groups.flatMap { g -> g.variants }.mapNotNull { v ->
+                val sources = v.sources.mapNotNull { s -> toSource(s) }.distinctBy { it.contentId }
                 if (sources.isEmpty()) return@mapNotNull null
-                val logo = resolver.resolve(g.name)
-                TvChannel(g.key, g.name, logo.groupKey, logo.groupName, sources, g.initials, logo.best, logo.category)
-            }
+                val logo = resolver.resolve(v.name)
+                TvChannel(v.key, v.name, logo.groupKey, logo.groupName, sources, CatalogBuilder.initialsOf(v.name), logo.best, logo.category)
+            }.distinctBy { it.id }
             val sections = LogoSections.build(channels, resolver, name = { it.name }, listGroup = { null }).map { sec ->
                 TvSection(sec.key ?: "otros", sec.name, sec.items.map { it.first }, sec.logo.groupLogo)
             }

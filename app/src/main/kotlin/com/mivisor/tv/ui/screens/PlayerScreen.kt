@@ -332,6 +332,7 @@ fun PlayerScreen(
                 channel,
                 when {
                     phase == Phase.STARTING_ENGINE -> "Preparando el motor…"
+                    phase == Phase.TRYING && loadingLong && ui.message != null -> ui.message!!
                     ui.sourceIndex > 1 -> "Probando otra fuente…"
                     else -> "Conectando con la fuente…"
                 },
@@ -343,7 +344,7 @@ fun PlayerScreen(
                 ).joinToString(" · ").ifEmpty { null }
             ) {
                 if (offerWait && ui.sourceCount > 1) WaitChoice(
-                    "Esta fuente está tardando. Se pasa sola a la siguiente si a los 30 s no hay imagen.",
+                    "Esta fuente está tardando. Puedes seguir esperando o probar otra ya.",
                     waitFocus, onWait = { waitDismissed = true }, onSkip = { waitDismissed = true; graph.player.nextSource() }
                 )
             }

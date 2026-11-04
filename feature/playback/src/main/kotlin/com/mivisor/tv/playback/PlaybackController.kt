@@ -137,6 +137,8 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     private var recoverStep = 0
     /** Última recarga de la misma fuente en el corte actual (3e: se recarga cada 15 s mientras se espera). */
     private var lastReloadAt = 0L
+    /** Último error del reproductor al arrancar (se reintenta la misma fuente hasta el minuto). */
+    private var lastStartError: String? = null
     /** Fuentes saltadas en este ciclo porque su red (WARP) no estaba disponible: no se penalizan. */
     private var skippedForNetwork = 0
     private var audioApplied = false
@@ -179,7 +181,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                     resyncing = false
                     if (_ui.value.recovering != null) _ui.value = _ui.value.copy(recovering = null)
                 }
-                Player.STATE_ENDED -> if (_ui.value.active) dropped("El directo terminó")
+                Player.STATE_ENDED -> if (_ui.value.active) stallFromError("El directo se detuvo")
                 else -> Unit
             }
         }
@@ -198,10 +200,12 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         override fun onPlayerError(error: PlaybackException) {
             if (!_ui.value.active) return
             val (kind, detail) = classify(error)
+            // 3e.1: un error del reproductor NO cambia de fuente al momento. Se reintenta la MISMA fuente y solo se
+            // pasa a otra cuando ha pasado el minuto (o lo de Ajustes), o si el usuario pulsa «Probar otra fuente».
             when {
                 kind == null -> engineFailed(detail)
-                _ui.value.phase == Phase.PLAYING -> dropped(detail)
-                else -> failed(kind, detail)
+                _ui.value.phase == Phase.PLAYING -> stallFromError(detail)
+                else -> retryStart(kind, detail)
             }
         }
     }
@@ -404,6 +408,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         recoverStep = 0
         audioApplied = false
         attemptStartedAt = SystemClock.elapsedRealtime()
+        lastStartError = null
         playingSince = 0
         bufferingSince = 0
         stalls = 0
@@ -461,9 +466,16 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                 when (_ui.value.phase) {
                     Phase.TRYING -> {
                         val elapsed = SystemClock.elapsedRealtime() - attemptStartedAt
-                        StartPolicy.earlyFailure(elapsed, sawStatus, maxPeers)?.let { kind ->
-                            failed(kind, "${elapsed / 1000} s sin imagen · emisores máx. $maxPeers")
+                        val limit = StartPolicy.switchAfter(book.autoSwitchAfterMs())
+                        StartPolicy.earlyFailure(elapsed, sawStatus, maxPeers, limit)?.let { kind ->
+                            failed(lastStartError ?: kind, "${elapsed / 1000} s sin imagen · emisores máx. $maxPeers")
                             return@launch
+                        }
+                        if (elapsed >= 8_000) {
+                            _ui.value = _ui.value.copy(
+                                message = "Buscando imagen · ${elapsed / 1000} s" +
+                                    if (limit != Long.MAX_VALUE && (_ui.value.sourceCount) > 1) " (otra fuente a los ${limit / 1000} s)" else ""
+                            )
                         }
                     }
                     Phase.PLAYING -> {
@@ -474,8 +486,8 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                             // misma fuente (16 s y luego cada 15 s) y solo se pasa SOLA a otra tras el tiempo de
                             // Ajustes (1 min por defecto; «Nunca» = solo con el botón «Probar otra fuente»).
                             val stalled = now - bufferingSince
-                            val switchAfter = book.autoSwitchAfterMs()
-                            if (switchAfter > 0 && stalled >= maxOf(switchAfter, StartPolicy.SWITCH_MS)) {
+                            val switchAfter = StartPolicy.switchAfter(book.autoSwitchAfterMs())
+                            if (stalled >= switchAfter) {
                                 dropped("${stalled / 1000} s sin imagen tras saltar al directo y recargar")
                                 return@launch
                             }
@@ -484,11 +496,15 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                             else if (step == 2 && now - lastReloadAt >= RELOAD_EVERY_MS) recover(2, base, src)
                             _ui.value = _ui.value.copy(
                                 recovering = (if (recoverStep >= 2) "Recargando la fuente" else "Recuperando la imagen") +
-                                    " · ${stalled / 1000} s" + if (switchAfter > 0) " (otra fuente a los ${maxOf(switchAfter, StartPolicy.SWITCH_MS) / 1000} s)" else ""
+                                    " · ${stalled / 1000} s" + if (switchAfter != Long.MAX_VALUE) " (otra fuente a los ${switchAfter / 1000} s)" else ""
                             )
-                        } else if (resyncing && now - resyncStartedAt > StartPolicy.STALL_MS) {
-                            dropped("El salto al directo no volvió a dar imagen")
-                            return@launch
+                        } else if (resyncing && now - resyncStartedAt > StartPolicy.NUDGE_MS) {
+                            // 3e.1: el salto al directo no volvió a dar imagen: pasa a ser un corte normal (se recarga
+                            // la misma fuente y se espera el minuto), en vez de cambiar de fuente a los 20 s.
+                            resyncing = false
+                            bufferingSince = resyncStartedAt
+                            stalls++
+                            recoverStep = 1
                         }
                     }
                     else -> break
@@ -537,6 +553,46 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             p.play()
         }
         book.log("Recuperación", "${mask(src.contentId)}: escalón $step")
+    }
+
+    /**
+     * 3e.1 · Error del reproductor al ARRANCAR: se vuelve a pedir la misma fuente al motor (cada 3 s como mucho).
+     * El monitor decide pasar a otra solo cuando se cumple el minuto ([StartPolicy.switchAfter]).
+     */
+    private fun retryStart(kind: String, detail: String) {
+        val src = currentSource ?: return
+        val base = baseUrl ?: return
+        lastStartError = kind
+        book.log("Fuente", "${mask(src.contentId)}: $detail al arrancar · se reintenta la misma fuente")
+        val gen = generation
+        scope.launch {
+            delay(3_000)
+            if (gen != generation || _ui.value.phase != Phase.TRYING) return@launch
+            val p = player ?: return@launch
+            p.stop()
+            p.setMediaItem(mediaItemFor(base, src.contentId))
+            p.prepare()
+            p.play()
+        }
+    }
+
+    /**
+     * 3e.1 · Error del reproductor (o fin del directo) mientras se veía: cuenta como un corte. Se recarga la MISMA
+     * fuente (el monitor la repite cada 15 s) y solo se pasa a otra al cumplirse el minuto o con el botón.
+     */
+    private fun stallFromError(detail: String) {
+        val src = currentSource ?: return
+        val base = baseUrl ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (bufferingSince == 0L) {
+            bufferingSince = now
+            stalls++
+            liveDelay.onInterruption(now)
+        }
+        resyncing = false
+        book.log("Recuperación", "${mask(src.contentId)}: $detail · se recarga la misma fuente")
+        if (now - lastReloadAt >= 3_000) recover(2, base, src)
+        else recoverStep = 2
     }
 
     /**

@@ -5,10 +5,10 @@ package com.mivisor.tv.reliability
  * traducidos a los tipos de [FailureKind] de la fiabilidad).
  */
 object StartPolicy {
-    /** Sin primera imagen en este tiempo: fallo. */
-    const val TIMEOUT_MS = 30_000L
-    /** El motor resolvió la fuente pero no hay emisores: se abandona antes. */
-    const val NO_PEERS_MS = 15_000L
+    /** 3e.1: sin primera imagen en este tiempo (1 min, o lo que diga Ajustes): se pasa a otra fuente. */
+    const val TIMEOUT_MS = 60_000L
+    /** 3e.1: ya no se abandona antes por falta de emisores; se espera el mismo minuto. */
+    const val NO_PEERS_MS = TIMEOUT_MS
     /** Más de esto cargando mientras se veía: la fuente se ha caído. */
     const val STALL_MS = 20_000L
     /** Si se cae antes de este tiempo viéndose, cuenta como arranque fallido ("stalled_early"); después, congelación. */
@@ -18,15 +18,15 @@ object StartPolicy {
      * ¿Abandonar ya el intento? [sawStatus] = el motor llegó a resolver la fuente; [maxPeers] = máximo de emisores.
      * null = seguir esperando.
      */
-    fun earlyFailure(elapsedMs: Long, sawStatus: Boolean, maxPeers: Int): String? = when {
-        elapsedMs >= TIMEOUT_MS -> when {
-            !sawStatus -> FailureKind.NOT_FOUND
-            maxPeers == 0 -> FailureKind.NO_PEERS
-            else -> FailureKind.NO_VIDEO
-        }
-        elapsedMs >= NO_PEERS_MS && sawStatus && maxPeers == 0 -> FailureKind.NO_PEERS
-        else -> null
+    fun earlyFailure(elapsedMs: Long, sawStatus: Boolean, maxPeers: Int, timeoutMs: Long = TIMEOUT_MS): String? = when {
+        elapsedMs < timeoutMs -> null
+        !sawStatus -> FailureKind.NOT_FOUND
+        maxPeers == 0 -> FailureKind.NO_PEERS
+        else -> FailureKind.NO_VIDEO
     }
+
+    /** Tiempo hasta pasar SOLA a otra fuente según Ajustes ([settingMs] ≤ 0 = nunca); nunca menos de 1 min. */
+    fun switchAfter(settingMs: Long): Long = if (settingMs <= 0) Long.MAX_VALUE else maxOf(settingMs, TIMEOUT_MS)
 
     /** Respuesta HTTP del motor local. null = no es culpa de la fuente (el motor falla). */
     fun fromHttpStatus(code: Int): String? = when (code) {
