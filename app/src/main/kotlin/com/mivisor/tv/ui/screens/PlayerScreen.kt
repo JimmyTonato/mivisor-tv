@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.gestures.detectTapGestures

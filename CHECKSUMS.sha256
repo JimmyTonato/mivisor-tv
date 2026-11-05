@@ -38,7 +38,7 @@ d29349556c44ad49e0526102debafc93d34d7c33fdf67449111db8f70780929e  ./app/src/main
 e65f36cc3d669d54f964a3c264e110cdb6e4af9b3e0675dff61f00aa9a7045fb  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/EventScreen.kt
 356924bc8c49e0e9d77ec6817723e4a61f0aa331db01b5d542e9e60bfb2e7e17  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/HomeScreen.kt
 a72fdcbba8f301bdd678ba8af56112a94209a1da9eb895f87f4f721eda74da9f  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/MyListScreen.kt
-1e66bf30ff0eb703f25effd45701a05ec456c25d29abbb5d216817d9017bb2be  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/PlayerScreen.kt
+73cc018b54c95f6e4cc85b21641587ddf7a93f55f694bcaa39083461acdebe95  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/PlayerScreen.kt
 627ec8c2345fdfb706e87e90caf1033d792687089d73ffaea340206149dcfc8a  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/Reminders.kt
 36da4eeecf1d97d8ba54b93b2603ea7d5b21e189f449ac1004832d640507d8d5  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/SearchScreen.kt
 7f01168aff796e0fdc46bb745e86680dcb0e011978fdf1d9d2fa392f24a21c6d  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/SettingsScreen.kt
