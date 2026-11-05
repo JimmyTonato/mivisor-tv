@@ -133,7 +133,8 @@ class Diagnostics(private val graph: AppGraph) {
 
     suspend fun report(): String {
         val f = facts()
-        return DiagnosticReport.build(f, recentLines(), graph.redactor)
+        // 3g · Tiempos de este arranque al principio del registro del informe.
+        return DiagnosticReport.build(f, PerfLog.lines(app).map { "Rendimiento  $it" } + recentLines(), graph.redactor)
     }
 
     // ------------------------------------------------------------------ «Probar todo»

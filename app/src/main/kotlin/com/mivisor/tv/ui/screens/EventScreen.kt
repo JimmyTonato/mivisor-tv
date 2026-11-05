@@ -158,7 +158,7 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
                                 },
                                 icon = MvIcons.Clock, focusRequester = if (best == null) first else null
                             )
-                            MvButton(Competition.of(event).label, { nav.go(Route.Competition(Competition.of(event).name)) }, icon = MvIcons.Trophy)
+                            MvButton(competitionLabel(event), { nav.go(Route.Competition(competitionRoute(event))) }, icon = MvIcons.Trophy)
                         }
                         if (reminded) {
                             Spacer(Modifier.height(8.dp))
@@ -319,3 +319,17 @@ private fun WatchRow(opt: WatchOption, graph: AppGraph, onPlay: (TvChannel) -> U
 
 @Suppress("unused")
 private val keepRepo: Class<*> = TvChannelsRepository::class.java
+
+
+/** 3g · Si la competición fija es genérica («Más fútbol», «Tenis»…) y el evento trae la suya, se abre la real. */
+private val GENERIC = setOf(Competition.FUTBOL, Competition.TENIS, Competition.BALONCESTO, Competition.MOTOR, Competition.OTHER)
+
+fun competitionRoute(event: AgendaEvent): String {
+    val fixed = Competition.of(event)
+    return if (fixed in GENERIC && !event.competition.isNullOrBlank()) com.mivisor.tv.model.CompetitionNames.id(event) else fixed.name
+}
+
+fun competitionLabel(event: AgendaEvent): String {
+    val fixed = Competition.of(event)
+    return if (fixed in GENERIC && !event.competition.isNullOrBlank()) event.competition!!.trim() else fixed.label
+}

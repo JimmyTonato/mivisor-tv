@@ -93,6 +93,8 @@ class ProvidersRepository(
         }
         _state.value = _state.value.copy(loading = true, providers = rows.map { it.info(warp) })
         val offline = java.util.concurrent.atomic.AtomicBoolean(false)
+        val stage = if (mode == StreamRepository.Mode.CACHE_ONLY) "guardados" else "de Internet"
+        val tRead = PerfLog.now()
         val catalogs = withContext(Dispatchers.IO) {
             rows.map { row ->
                 async {
@@ -122,13 +124,24 @@ class ProvidersRepository(
                 }
             }.awaitAll().filterNotNull()
         }
+        PerfLog.record("Leer proveedores ($stage)", PerfLog.now() - tRead, "${catalogs.size} de ${rows.size} · ${catalogs.sumOf { it.catalog.channelCount }} enlaces")
         // 3f · Los logos NUNCA retrasan los canales: se usa lo que hay en disco y, si toca descargar el catálogo o la
         // lista de picons, se hace después y la biblioteca se vuelve a montar al llegar (ver [refreshLogos]).
         val logoResolver = resolver
             ?: runCatching { logos.cached() }.getOrNull()?.also { resolver = it }
             ?: ChannelLogoResolver(LogoCatalog.EMPTY)
         lastCatalogs = catalogs
-        val library = withContext(Dispatchers.Default) { TvLibrary.build(catalogs, logoResolver) }
+        // 3g · Si lo leído es igual que lo que ya está montado (lo normal al abrir la app), no se vuelve a montar.
+        val print = TvLibrary.fingerprint(catalogs)
+        val current = _state.value.library
+        val reuse = print == builtPrint && builtWith === logoResolver && !current.isEmpty
+        val tBuild = PerfLog.now()
+        val library = if (reuse) current
+        else withContext(Dispatchers.Default) { TvLibrary.build(catalogs, logoResolver) }.also {
+            builtPrint = print
+            builtWith = logoResolver
+        }
+        PerfLog.record("Montar canales ($stage)", PerfLog.now() - tBuild, if (reuse) "sin cambios: se reutiliza" else "${library.channels.size} canales")
         val fresh = withContext(Dispatchers.IO) { db.providers() }
         _state.value = LibraryState(
             library = if (library.isEmpty && !_state.value.library.isEmpty && mode == StreamRepository.Mode.CACHE_ONLY) _state.value.library else library,
@@ -142,6 +155,8 @@ class ProvidersRepository(
     }
 
     private var logoJob: Job? = null
+    @Volatile private var builtPrint: Long = 0
+    @Volatile private var builtWith: ChannelLogoResolver? = null
 
     /** 3f · Descarga los logos que toque (como mucho 1 vez al día / a la semana) sin bloquear nada. */
     private fun refreshLogos() {
@@ -151,10 +166,19 @@ class ProvidersRepository(
             if (!needed) return@launch
             val r = withContext(Dispatchers.IO) { runCatching { logos.load(logoUrl()) }.getOrNull() } ?: return@launch
             resolver = r
-            if (lastCatalogs.isEmpty()) return@launch
-            val library = withContext(Dispatchers.Default) { TvLibrary.build(lastCatalogs, r) }
-            _state.value = _state.value.copy(library = library)
+            relogo(r)
         }
+    }
+
+    /** 3g · Logos nuevos: solo se cambian los logos de la biblioteca ya montada (sin reagrupar). */
+    private suspend fun relogo(r: ChannelLogoResolver) {
+        val current = _state.value.library
+        if (current.isEmpty) return
+        val t0 = PerfLog.now()
+        val library = withContext(Dispatchers.Default) { TvLibrary.relogo(current, r) }
+        PerfLog.record("Cambiar logos", PerfLog.now() - t0, "${library.channels.size} canales")
+        builtWith = r
+        _state.value = _state.value.copy(library = library)
     }
 
     /**
@@ -198,8 +222,7 @@ class ProvidersRepository(
             if (!changed || lastCatalogs.isEmpty()) return@launch
             val r = withContext(Dispatchers.IO) { runCatching { logos.load(logoUrl()) }.getOrNull() } ?: return@launch
             resolver = r
-            val library = withContext(Dispatchers.Default) { TvLibrary.build(lastCatalogs, r) }
-            _state.value = _state.value.copy(library = library)
+            relogo(r)
         }
     }
 

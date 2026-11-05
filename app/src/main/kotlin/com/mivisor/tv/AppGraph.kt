@@ -50,7 +50,8 @@ class AppGraph(context: Context) {
         domain = BuildConfig.STREAM_DOMAIN
     )
 
-    val agenda = AgendaStore(AgendaRepository(File(app.cacheDir, "agenda")), prefs, BuildConfig.AGENDA_URL, log, scope)
+    val agenda = AgendaStore(AgendaRepository(File(app.cacheDir, "agenda")), prefs, BuildConfig.AGENDA_URL, log, scope,
+        com.mivisor.tv.catalog.CompetitionBook(File(app.filesDir, "competitions.json")))
     /** Logos (3c): channel-logos.json junto a agenda.json en mivisor-datos, con caché en filesDir/logos. */
     val logos = LogoRepository(File(app.filesDir, "logos"))
     val providers = ProvidersRepository(db, CodeVault(), prefs, streams, log, scope, logos, { LogoRepository.urlFor(agenda.url) })

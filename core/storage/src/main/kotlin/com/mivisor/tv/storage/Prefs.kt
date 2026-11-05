@@ -65,6 +65,11 @@ class Prefs(context: Context) {
         get() = (sp.getString("followed_competitions", "") ?: "").split('\n').filter { it.isNotBlank() }
         set(v) = sp.edit().putString("followed_competitions", v.distinct().joinToString("\n")).apply()
 
+    /** 3g · Competiciones ocultas (ids "raw:…" de [com.mivisor.tv.model.CompetitionNames]): no salen en ninguna pantalla. */
+    var hiddenCompetitions: List<String>
+        get() = (sp.getString("hidden_competitions", "") ?: "").split('\n').filter { it.isNotBlank() }
+        set(v) = sp.edit().putString("hidden_competitions", v.distinct().joinToString("\n")).apply()
+
     /** Texto un 15 % más grande. */
     var bigText: Boolean
         get() = sp.getBoolean("big_text", false)
@@ -119,7 +124,8 @@ class Prefs(context: Context) {
         "remember_audio" to rememberAudio.toString(), "engine" to engine, "ace_fallback" to aceFallback,
         "agenda_url" to agendaUrl, "show_source_info" to showSourceInfo.toString(),
         // 3f (el tipo de pantalla NO: depende de cada aparato).
-        "nav_position" to navPosition, "followed_competitions" to followedCompetitions.joinToString(","),
+        "nav_position" to navPosition, "followed_competitions" to followedCompetitions.joinToString("|"),
+        "hidden_competitions" to hiddenCompetitions.joinToString("|"),
         "auto_switch" to autoSwitch, "auto_live" to autoLive.toString()
     )
 
@@ -137,7 +143,10 @@ class Prefs(context: Context) {
         settings["agenda_url"]?.takeIf { it.isBlank() || it.startsWith("https://") }?.let { agendaUrl = it }
         settings["show_source_info"]?.let { showSourceInfo = it == "true" }
         settings["nav_position"]?.takeIf { it in setOf("top", "side") }?.let { navPosition = it }
-        settings["followed_competitions"]?.let { v -> followedCompetitions = v.split(',').map { it.trim() }.filter { it.matches(Regex("[A-Z0-9_]{1,40}")) } }
+        // 3g · Fijas (LALIGA…) o reales ("raw:copa libertadores"); separadas por «|» (las copias de la 3f, por comas).
+        val compId = Regex("[A-Z0-9_]{1,40}|raw:[a-z0-9 :]{1,80}")
+        settings["followed_competitions"]?.let { v -> followedCompetitions = v.split('|', ',').map { it.trim() }.filter { it.matches(compId) } }
+        settings["hidden_competitions"]?.let { v -> hiddenCompetitions = v.split('|').map { it.trim() }.filter { it.matches(compId) && it.startsWith("raw:") } }
         settings["auto_switch"]?.takeIf { it in setOf("60", "120", "never") }?.let { autoSwitch = it }
         settings["auto_live"]?.let { autoLive = it == "true" }
     }

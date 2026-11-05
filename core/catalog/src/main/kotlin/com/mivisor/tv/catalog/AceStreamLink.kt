@@ -12,7 +12,14 @@ package com.mivisor.tv.catalog
  */
 object AceStreamLink {
     const val PREFIX = "acestream://"
-    private val CONTENT_ID = Regex("^[0-9a-fA-F]{40}$")
+    /** 3g · Comprobación a mano (sin expresión regular): se hace miles de veces al leer los proveedores. */
+    private object CONTENT_ID {
+        fun matches(s: String): Boolean {
+            if (s.length != 40) return false
+            for (c in s) if (!(c in '0'..'9' || c in 'a'..'f' || c in 'A'..'F')) return false
+            return true
+        }
+    }
 
     /** Quita basura externa de los extremos y nada más. */
     fun clean(raw: String?): String {

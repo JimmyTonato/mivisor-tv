@@ -58,21 +58,38 @@ object ChannelFamilies {
 
 /** Orden natural: «DAZN 2» antes que «DAZN 10»; sin distinguir mayúsculas ni tildes. */
 object NaturalOrder : Comparator<String> {
-    private val CHUNK = Regex("\\d+|\\D+")
+    private val CHUNK = Regex("[0-9]+|[^0-9]+")
 
+    // 3f.1 · Orden TOTAL y coherente (si no, Android aborta la ordenación con «Comparison method violates its general
+    // contract» con nombres raros: dígitos árabes, superíndices…). Solo cuentan como número los dígitos 0-9 que
+    // separa la expresión; el resto se compara como texto y, en caso de empate, decide el texto completo.
     override fun compare(a: String, b: String): Int {
-        val x = CHUNK.findAll(fold(a)).map { it.value }.toList()
-        val y = CHUNK.findAll(fold(b)).map { it.value }.toList()
+        val fa = fold(a)
+        val fb = fold(b)
+        val x = CHUNK.findAll(fa).map { it.value }.toList()
+        val y = CHUNK.findAll(fb).map { it.value }.toList()
         for (i in 0 until minOf(x.size, y.size)) {
             val p = x[i]
             val q = y[i]
-            val c = if (p[0].isDigit() && q[0].isDigit()) {
-                val byLen = p.trimStart('0').length.compareTo(q.trimStart('0').length)
-                if (byLen != 0) byLen else p.trimStart('0').compareTo(q.trimStart('0'))
-            } else p.compareTo(q)
+            val pn = p[0] in '0'..'9'
+            val qn = q[0] in '0'..'9'
+            val c = when {
+                pn && qn -> {
+                    val pt = p.trimStart('0')
+                    val qt = q.trimStart('0')
+                    val byLen = pt.length.compareTo(qt.length)
+                    if (byLen != 0) byLen else pt.compareTo(qt)
+                }
+                pn -> -1          // un número va antes que un texto en la misma posición
+                qn -> 1
+                else -> p.compareTo(q)
+            }
             if (c != 0) return c
         }
-        return x.size.compareTo(y.size)
+        val bySize = x.size.compareTo(y.size)
+        if (bySize != 0) return bySize
+        val byFold = fa.compareTo(fb)
+        return if (byFold != 0) byFold else a.compareTo(b)
     }
 
     private fun fold(s: String): String =

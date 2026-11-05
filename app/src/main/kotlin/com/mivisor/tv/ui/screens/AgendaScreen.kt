@@ -36,6 +36,7 @@ import com.mivisor.tv.AppGraph
 import com.mivisor.tv.model.Agenda
 import com.mivisor.tv.model.AgendaEvent
 import com.mivisor.tv.model.Competition
+import com.mivisor.tv.model.CompetitionNames
 import com.mivisor.tv.model.CompetitionSummaries
 import com.mivisor.tv.model.CompetitionSummary
 import com.mivisor.tv.model.CompetitionTemplate
@@ -338,20 +339,26 @@ fun CompetitionScreen(graph: AppGraph, nav: Nav, route: Route.Competition) {
     val lib by graph.providers.state.collectAsState()
     val reminders by graph.reminders.list.collectAsState()
     val first = remember { FocusRequester() }
-    val competition = Competition.byName(route.name)
+    // 3g · Fija (LALIGA…) o real de la agenda ("raw:copa libertadores").
+    val id = route.name
+    val competition = Competition.byName(id)
+    val raw = CompetitionNames.isRaw(id)
     val all = state.agenda?.events.orEmpty()
-    if (competition == null) {
+    val seen by graph.agenda.competitions.collectAsState()
+    if (competition == null && !raw) {
         EmptyState("Competición no disponible", "No se encuentra esta competición en la agenda.") { MvButton("Volver", { nav.back() }, focusRequester = first) }
         InitialFocus(first)
         return
     }
     val now = System.currentTimeMillis()
     val clock = remember { DayClock() }
-    val events = remember(all, competition) {
-        all.filter { Competition.of(it) == competition && it.status(now) != EventStatus.FINISHED }.sortedBy { it.startMillis }
-    }
-    val summary = remember(all, competition) { CompetitionSummaries.summary(competition, all.filter { Competition.of(it) == competition }, now, clock) }
-    val logo = competitionLogo(competition, all)
+    val matching = remember(all, id) { all.filter { CompetitionNames.matches(id, it) } }
+    val events = remember(matching) { matching.filter { it.status(now) != EventStatus.FINISHED }.sortedBy { it.startMillis } }
+    val kind = competition ?: matching.firstOrNull()?.let { Competition.of(it) } ?: Competition.OTHER
+    val label = competition?.label ?: matching.firstNotNullOfOrNull { it.competition?.trim()?.takeIf(String::isNotEmpty) }
+        ?: seen.firstOrNull { it.id == id }?.name ?: "Competición"
+    val summary = remember(matching) { CompetitionSummaries.summary(kind, matching, now, clock) }
+    val logo = if (competition != null) competitionLogo(competition, all) else matching.firstNotNullOfOrNull { it.competitionLogo }
     val reminded = reminders.map { it.eventId }.toSet()
     val byDay = remember(events) { events.groupBy { clock.dayIndex(now, it.startMillis).coerceAtLeast(0) }.toSortedMap() }
 
@@ -363,22 +370,22 @@ fun CompetitionScreen(graph: AppGraph, nav: Nav, route: Route.Competition) {
                     Spacer(Modifier.width(16.dp))
                 }
                 Column {
-                    MvText(competition.label, MvType.Title)
+                    MvText(label, MvType.Title)
                     MvText(
                         listOfNotNull(summary.liveText, summary.text.ifEmpty { null }, "${events.size} eventos").joinToString(" · ") +
-                            if (competition.template == CompetitionTemplate.RACING) " · sesiones del fin de semana" else "",
+                            if (kind.template == CompetitionTemplate.RACING) " · sesiones del fin de semana" else "",
                         MvType.Body.copy(color = MvColors.Text2)
                     )
                 }
             }
             Spacer(Modifier.height(16.dp))
             // 3f · Seguir la competición: sale en Inicio › «Competiciones seguidas».
-            var followed by remember { mutableStateOf(competition.name in graph.prefs.followedCompetitions) }
+            var followed by remember { mutableStateOf(id in graph.prefs.followedCompetitions) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MvButton("Toda la agenda", { nav.back() }, icon = MvIcons.Calendar, focusRequester = first)
                 MvButton(if (followed) "Siguiendo" else "Seguir competición", {
                     val list = graph.prefs.followedCompetitions
-                    graph.prefs.followedCompetitions = if (followed) list - competition.name else list + competition.name
+                    graph.prefs.followedCompetitions = if (followed) list - id else list + id
                     followed = !followed
                 }, icon = if (followed) MvIcons.Check else MvIcons.Star, primary = !followed)
             }

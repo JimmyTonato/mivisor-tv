@@ -122,10 +122,14 @@ object ChannelGrouping {
             names.getOrPut(key) { ArrayList() } += if (split) canon.baseName else canon.variantName
         }
         return order.map { (k, sources) ->
-            val variantOrder = sources.map { it.variantKey }.distinct().sortedBy { vk -> sources.first { it.variantKey == vk }.number ?: 0 }
+            // 3g · Orden por índice precalculado (antes: indexOf y first dentro de la comparación, cuadrático).
+            val firstNumber = HashMap<String, Int>()
+            for (s in sources) if (s.variantKey !in firstNumber) firstNumber[s.variantKey] = s.number ?: 0
+            val rank = HashMap<String, Int>()
+            firstNumber.keys.sortedBy { firstNumber[it] }.forEachIndexed { i, vk -> rank[vk] = i }
             ChannelGroup(
                 k, bestDisplay(names[k].orEmpty()),
-                sources.sortedWith(compareBy<ChannelSource> { variantOrder.indexOf(it.variantKey) }.thenByDescending { it.quality?.rank ?: 0 })
+                sources.sortedWith(compareBy<ChannelSource> { rank[it.variantKey] ?: 0 }.thenByDescending { it.quality?.rank ?: 0 })
             )
         }
     }

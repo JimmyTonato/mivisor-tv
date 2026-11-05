@@ -17,11 +17,25 @@ import java.text.Normalizer
  */
 class ChannelMatcher(channels: List<Channel>) {
 
-    private class Entry(val tokens: List<String>, val channel: Channel)
+    private class Entry(val tokens: List<String>, val channel: Channel) {
+        val set: Set<String> = tokens.toHashSet()
+    }
 
     private val entries: List<Entry> = channels.mapNotNull { ch ->
         tokens(ch.name).takeIf { it.isNotEmpty() }?.let { Entry(it, ch) }
     }
+
+    /**
+     * 3g · Índice palabra → canales que la contienen. Un canal solo puede casar si tiene TODAS las palabras buscadas,
+     * así que basta con mirar los canales de la palabra más rara (antes se recorrían todos por cada nombre de la agenda,
+     * millones de comparaciones con una agenda grande en una tele modesta).
+     */
+    private val index: Map<String, List<Entry>> = HashMap<String, MutableList<Entry>>().also { m ->
+        for (e in entries) for (t in e.set) m.getOrPut(t) { ArrayList() } += e
+    }
+
+    /** 3g · Resultados ya calculados (la misma agenda se pinta muchas veces). */
+    private val memo = Memo<String, List<Channel>>(4_000)
 
     val isEmpty: Boolean get() = entries.isEmpty()
 
@@ -29,11 +43,13 @@ class ChannelMatcher(channels: List<Channel>) {
      * Todas tus versiones de [agendaName] (de cualquier código/categoría), mejores primero.
      * Mismo enlace repetido en varios códigos = una sola opción.
      */
-    fun match(agendaName: String, limit: Int = 12): List<Channel> {
+    fun match(agendaName: String, limit: Int = 12): List<Channel> = memo.get("$limit\u0000$agendaName") {
         val wanted = tokens(agendaName)
-        if (wanted.isEmpty()) return emptyList()
-        return entries.asSequence()
-            .mapNotNull { e -> score(wanted, e.tokens)?.let { it to e.channel } }
+        if (wanted.isEmpty()) return@get emptyList()
+        val wantedSet = wanted.toHashSet()
+        val candidates = wantedSet.map { index[it] ?: return@get emptyList() }.minByOrNull { it.size } ?: return@get emptyList()
+        candidates.asSequence()
+            .mapNotNull { e -> score(wanted, wantedSet, e)?.let { it to e.channel } }
             .sortedByDescending { it.first }
             .distinctBy { it.second.url }
             .take(limit)
@@ -41,11 +57,11 @@ class ChannelMatcher(channels: List<Channel>) {
             .toList()
     }
 
-    private fun score(wanted: List<String>, have: List<String>): Int? {
+    private fun score(wanted: List<String>, wantedSet: Set<String>, e: Entry): Int? {
+        val have = e.tokens
         if (have == wanted) return 100
-        val wantedSet = wanted.toSet()
         // Todas las palabras buscadas, en cualquier orden ("LaLiga DAZN" = "DAZN LaLiga")…
-        if (!have.toSet().containsAll(wantedSet)) return null
+        if (!e.set.containsAll(wantedSet)) return null
         // …y lo que sobra sin números: "DAZN LaLiga 2" no es "DAZN LaLiga".
         val extra = have.filter { it !in wantedSet }
         if (extra.any { t -> t.any(Char::isDigit) }) return null

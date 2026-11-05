@@ -82,6 +82,7 @@ private enum class Page(val title: String, val icon: Int, val intro: String?) {
     VERIFIER("Verificador", MvIcons.Check, "Prueba fuentes mientras MiVisor TV está abierta, para que «lista» signifique algo. Nunca trabaja con la tele apagada ni en segundo plano. Viene desactivado: MiVisor TV ya aprende de lo que ves."),
     DISPLAY("Pantalla y rendimiento", MvIcons.Tune, "El modo ligero quita animaciones, sombras y escalados. Se recomienda en aparatos con 1,5 GB de memoria o menos."),
     AGENDA("Agenda", MvIcons.Calendar, null),
+    COMPETITIONS("Competiciones", MvIcons.Trophy, "Las que han llegado en la agenda. OK cambia entre Visible, Seguida (sale en Inicio) y Oculta (no sale en ninguna pantalla). Se guarda en la tele y en la copia cifrada."),
     DIAGNOSTICS("Diagnóstico", MvIcons.Pulse, null),
     MOBILE("Móvil y copias", MvIcons.Phone, "El móvil se conecta a la tele por la red de casa, sin servidores externos. Cada código QR caduca en 5 minutos."),
     ABOUT("Acerca de", MvIcons.Info, null)
@@ -108,6 +109,7 @@ fun SettingsScreen(graph: AppGraph, nav: Nav, toaster: Toaster, onLook: () -> Un
             else -> "Desconectada"
         }
         Page.VERIFIER -> if (graph.prefs.verifier) "Sí" else "No"
+        Page.COMPETITIONS -> graph.prefs.hiddenCompetitions.size.takeIf { it > 0 }?.let { "$it ocultas" }
         else -> null
     }
     Box(Modifier.fillMaxSize()) {
@@ -147,6 +149,7 @@ fun SettingsScreen(graph: AppGraph, nav: Nav, toaster: Toaster, onLook: () -> Un
                     Page.VERIFIER -> VerifierPage(graph, onChange = { values++ })
                     Page.DISPLAY -> DisplayPage(graph, onLook)
                     Page.AGENDA -> AgendaPage(graph, toaster)
+                    Page.COMPETITIONS -> CompetitionsPage(graph, onChange = { values++ })
                     Page.DIAGNOSTICS -> DiagnosticsPage(graph, nav)
                     Page.MOBILE -> MobilePage(nav)
                     Page.ABOUT -> AboutPage(graph, nav)
@@ -452,6 +455,54 @@ private fun AgendaPage(graph: AppGraph, toaster: Toaster) {
     }
 }
 
+// ------------------------------------------------------------------ Competiciones (3g)
+
+/**
+ * Competiciones guardadas de las agendas que han llegado, por deporte. OK en una fila: Visible → Seguida → Oculta.
+ * Ocultar quita sus eventos de Inicio, Agenda y Buscar al momento (sin descargar nada).
+ */
+@Composable
+private fun CompetitionsPage(graph: AppGraph, onChange: () -> Unit) {
+    val list by graph.agenda.competitions.collectAsState()
+    LaunchedEffect(Unit) { graph.agenda.loadCompetitions() }
+    var hidden by remember { mutableStateOf(graph.prefs.hiddenCompetitions.toSet()) }
+    var followed by remember { mutableStateOf(graph.prefs.followedCompetitions.toSet()) }
+    if (list.isEmpty()) {
+        MvText("Todavía no ha llegado ninguna agenda. En cuanto llegue, aquí saldrán sus competiciones.", MvType.Body.copy(color = MvColors.Text2))
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            MvButton("Mostrar todas", {
+                graph.prefs.hiddenCompetitions = emptyList()
+                hidden = emptySet()
+                graph.agenda.refilter()
+                onChange()
+            }, icon = MvIcons.Check)
+        }
+        list.groupBy { it.sport }.forEach { (sport, items) ->
+            MvText(sportName(sport), MvType.Heading, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
+            items.forEach { c ->
+                val state = when (c.id) { in hidden -> 2; in followed -> 1; else -> 0 }
+                MvRow(c.name, {
+                    // Visible → Seguida → Oculta → Visible
+                    when (state) {
+                        0 -> { followed = followed + c.id; graph.prefs.followedCompetitions = graph.prefs.followedCompetitions + c.id }
+                        1 -> {
+                            followed = followed - c.id; graph.prefs.followedCompetitions = graph.prefs.followedCompetitions - c.id
+                            hidden = hidden + c.id; graph.prefs.hiddenCompetitions = graph.prefs.hiddenCompetitions + c.id
+                        }
+                        else -> { hidden = hidden - c.id; graph.prefs.hiddenCompetitions = graph.prefs.hiddenCompetitions - c.id }
+                    }
+                    graph.agenda.refilter()
+                    onChange()
+                }, subtitle = if (c.events > 0) "${c.events} ${if (c.events == 1) "evento" else "eventos"} en la agenda" else "sin eventos ahora · visto ${ago(c.lastSeen)}",
+                    trailing = when (state) { 1 -> "★ Seguida"; 2 -> "Oculta"; else -> "Visible" })
+            }
+        }
+    }
+}
+
 // ------------------------------------------------------------------ Fuentes y recuperación
 
 @Composable
@@ -519,7 +570,16 @@ private fun VerifierPage(graph: AppGraph, onChange: () -> Unit) {
 @Composable
 private fun DiagnosticsPage(graph: AppGraph, nav: Nav) {
     var showLog by remember { mutableStateOf(false) }
+    val marks by com.mivisor.tv.data.PerfLog.marks.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // 3g · Tiempos reales de este aparato en este arranque (también van en el informe al móvil).
+        MvPanel {
+            MvText("Rendimiento de este arranque", MvType.Heading, modifier = Modifier.padding(bottom = 6.dp))
+            MvText(remember { com.mivisor.tv.data.PerfLog.device(context) }, MvType.Caption.copy(color = MvColors.Text3), modifier = Modifier.padding(bottom = 6.dp))
+            if (marks.isEmpty()) MvText("Aún no hay tiempos.", MvType.Small.copy(color = MvColors.Text2))
+            marks.forEach { m -> KeyValue(m.name, com.mivisor.tv.data.PerfLog.format(m.ms) + (m.detail?.let { " · $it" } ?: "")) }
+        }
         MvRow("¿Algo no va bien?", { nav.go(Route.Diagnostics) }, subtitle = "Lo último que ha pasado y enviar el informe al móvil", icon = MvIcons.Pulse)
         MvRow("Probar todo", { nav.go(Route.Checks) }, subtitle = "Motor, red, WARP, Ace Stream, proveedores, agenda y servidor del móvil", icon = MvIcons.Bolt)
         MvRow("Ver informe en la tele", { nav.go(Route.Report) }, subtitle = "Sin claves, códigos ni enlaces privados", icon = MvIcons.List)

@@ -155,6 +155,40 @@ class TvLibrary(
             return TvLibrary(channels, sections, providers.size, links)
         }
 
+        /**
+         * 3g · Solo cambian los logos (llegó el catálogo, la lista de picons o logos de la agenda): se vuelven a resolver
+         * los logos de los canales YA agrupados, sin leer ni agrupar otra vez (que es lo caro en una tele modesta).
+         */
+        fun relogo(lib: TvLibrary, resolver: ChannelLogoResolver): TvLibrary {
+            if (lib.isEmpty) return lib
+            val channels = lib.channels.map { c ->
+                val logo = resolver.resolve(c.name)
+                TvChannel(c.id, c.name, logo.groupKey, logo.groupName, c.sources, c.initials, logo.best, logo.category)
+            }
+            val sections = LogoSections.build(channels, resolver, name = { it.name }, listGroup = { null }).map { sec ->
+                TvSection(sec.key ?: "otros", sec.name, sec.items.map { it.first }, sec.logo.groupLogo)
+            }
+            return TvLibrary(channels, sections, lib.providerCount, lib.links)
+        }
+
+        /**
+         * 3g · Huella de lo leído de los proveedores (nombres y enlaces): si no cambió desde la última vez, no hace
+         * falta volver a montar la biblioteca (al abrir la app la copia guardada y la «nueva» suelen ser iguales).
+         */
+        fun fingerprint(providers: List<ProviderCatalog>): Long {
+            var h = 1125899906842597L
+            for (p in providers) {
+                h = 31 * h + p.id.hashCode()
+                h = 31 * h + p.name.hashCode()
+                for (s in p.catalog.sections) for (c in s.channels) {
+                    h = 31 * h + c.name.hashCode()
+                    h = 31 * h + c.url.hashCode()
+                }
+                h = 31 * h + p.links.size
+            }
+            return h
+        }
+
         private fun toSource(s: ChannelSource): TvSource? {
             val id = AceStreamLink.contentId(s.channel.url)?.lowercase() ?: return null
             return TvSource(id, s.providerId, s.providerName, s.quality?.rank ?: 0, s.quality?.label, s.variantName)

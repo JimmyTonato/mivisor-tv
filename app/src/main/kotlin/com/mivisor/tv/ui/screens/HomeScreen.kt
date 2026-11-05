@@ -111,6 +111,8 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
     }
 
     val library = lib.library
+    // 3g · Tiempo real hasta ver Inicio con canales (Ajustes › Diagnóstico › Rendimiento).
+    if (!library.isEmpty) LaunchedEffect(Unit) { com.mivisor.tv.data.PerfLog.once("Inicio con canales", "${library.channels.size} canales") }
     val now = System.currentTimeMillis()
     val all = agenda.agenda?.events.orEmpty()
     // En emisión y a continuación: directos y próximas 3 h; primero los que tienen canal en tus proveedores.
@@ -122,12 +124,21 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
             .take(12)
     }
     val hero = events.firstOrNull { it.second.isNotEmpty() }
-    val heroKey = hero?.first?.id
+    // 3g · Portada doble: los dos partidos principales (directos primero; si no, lo más importante de las próximas 24 h).
+    val featured = remember(agenda.agenda, library) {
+        val live = events.filter { it.first.status(now) == EventStatus.LIVE }
+        val soon = all.filter { it.status(now) == EventStatus.UPCOMING && it.startMillis - now < 24 * 3600_000L }
+            .sortedByDescending { com.mivisor.tv.model.EventPriority.of(it) }.take(6).map { it to channelsFor(it, library) }
+            .sortedByDescending { it.second.isNotEmpty() }
+        (live.sortedByDescending { it.second.isNotEmpty() } + events + soon).distinctBy { it.first.id }.take(2)
+    }
+    val heroKey = featured.firstOrNull()?.first?.id ?: hero?.first?.id
     LaunchedEffect(heroKey) {
-        backdrop.colors = hero?.let { (ev, _) -> MvPalette.pair(ev.home ?: ev.title).first to MvPalette.pair(ev.away ?: ev.sport).first }
+        val top = featured.firstOrNull() ?: hero
+        backdrop.colors = top?.let { (ev, _) -> MvPalette.pair(ev.home ?: ev.title).first to MvPalette.pair(ev.away ?: ev.sport).first }
     }
     val reminded = reminders.map { it.eventId }.toSet()
-    val shownIds = events.map { it.first.id }.toSet()
+    val shownIds = (events + featured).map { it.first.id }.toSet()
     // Próximas citas (24 h): primero las que tienen recordatorio, luego las más importantes. Se pueden recordar aquí.
     val citas = remember(agenda.agenda, library, reminded) {
         val next = all.filter { it.status(now) == EventStatus.UPCOMING && it.startMillis - now < 24 * 3600_000L && it.id !in shownIds }
@@ -144,8 +155,10 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
     val favorites = mine.favorites.map { it.first }.toSet()
     val history = mine.history.filter { library.channel(it.channelId) != null }.distinctBy { it.channelId }.take(3)
     val favChannels = mine.favorites.mapNotNull { library.channel(it.first) }
-    val followed = graph.prefs.followedCompetitions.mapNotNull { Competition.byName(it) }
-    val comps = followed.ifEmpty { Competition.PINNED }
+    // 3g · Seguidas: fijas (LALIGA…) o reales de la agenda ("raw:copa libertadores"). Sin ninguna: sugeridas.
+    val seen by graph.agenda.competitions.collectAsState()
+    val followed = graph.prefs.followedCompetitions.filter { Competition.byName(it) != null || com.mivisor.tv.model.CompetitionNames.isRaw(it) }
+    val comps = followed.ifEmpty { Competition.PINNED.map { it.name } }
     val toggleFav: (TvChannel) -> Unit = { ch ->
         graph.mylist.toggleFavorite(ch.id, ch.name)
         toaster.show(if (ch.id in favorites) "Quitado de Mi lista" else "Añadido a Mi lista")
@@ -168,7 +181,10 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
         }
         // 1 · Portada.
         item {
-            if (hero != null) Hero(hero.first, hero.second, now, first, graph, form,
+            if (featured.size == 2) DuoHero(featured, now, first, form,
+                onPlay = { ev, chs -> if (chs.isNotEmpty()) nav.go(Route.Player(chs.first().id)) else nav.go(Route.Event(ev.id)) },
+                onOpen = { ev -> nav.go(Route.Event(ev.id)) })
+            else if (hero != null) Hero(hero.first, hero.second, now, first, graph, form,
                 onWatch = { nav.go(Route.Player(hero.second.first().id)) },
                 onOptions = { nav.go(Route.Event(hero.first.id)) })
             else {
@@ -179,13 +195,15 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
             }
         }
         // 2 · En emisión y a continuación.
-        if (events.isNotEmpty()) item {
+        // Sin repetir los dos de la portada.
+        val rowEvents = if (featured.size == 2) events.filter { e -> featured.none { it.first.id == e.first.id } } else events
+        if (rowEvents.isNotEmpty()) item {
             Column(Modifier.fillMaxWidth().padding(bottom = 26.dp)) {
-                val live = events.count { it.first.status(now) == EventStatus.LIVE }
+                val live = rowEvents.count { it.first.status(now) == EventStatus.LIVE }
                 SectionHeader("En emisión y a continuación", Modifier.padding(pad),
-                    if (live > 0) "$live en directo · ${events.size - live} en las próximas 3 h" else "en las próximas 3 h")
+                    if (live > 0) "$live en directo · ${rowEvents.size - live} en las próximas 3 h" else "en las próximas 3 h")
                 LazyRow(contentPadding = pad, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                    itemsIndexed(events, key = { _, e -> e.first.id }) { _, (ev, chs) ->
+                    itemsIndexed(rowEvents, key = { _, e -> e.first.id }) { _, (ev, chs) ->
                         EventTile(ev, chs, now, onClick = { nav.go(Route.Event(ev.id)) }, focusRequester = null, reminded = ev.id in reminded)
                     }
                 }
@@ -242,8 +260,12 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
                 SectionHeader(if (followed.isEmpty()) "Competiciones" else "Competiciones seguidas", Modifier.padding(pad),
                     if (followed.isEmpty()) "sugeridas · ábrelas y pulsa «Seguir competición»" else "${followed.size} seguidas")
                 LazyRow(contentPadding = pad, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    items(comps, key = { "c-" + it.name }) { c ->
-                        CompetitionCard(c, all, now, onClick = { nav.go(Route.Competition(c.name)) })
+                    items(comps, key = { "c-$it" }) { id ->
+                        val fixed = Competition.byName(id)
+                        val mine = remember(all, id) { all.filter { com.mivisor.tv.model.CompetitionNames.matches(id, it) } }
+                        val title = fixed?.label ?: mine.firstNotNullOfOrNull { it.competition?.trim() } ?: seen.firstOrNull { it.id == id }?.name ?: "Competición"
+                        val logo = remember(all, id) { if (fixed != null) competitionLogo(fixed, all) else mine.firstNotNullOfOrNull { it.competitionLogo } }
+                        CompetitionCard(title, logo, mine, now, onClick = { nav.go(Route.Competition(id)) })
                     }
                 }
             }
@@ -323,6 +345,94 @@ private fun Hero(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MvButton("Ver ahora", onWatch, icon = MvIcons.Play, primary = true, focusRequester = first)
                 MvButton(if (chs.size > 1) "Otras opciones" else "Dónde verlo", onOptions, icon = MvIcons.Layers)
+            }
+        }
+    }
+}
+
+/**
+ * 3g · Portada doble: los dos partidos principales lado a lado. OK sobre uno lo reproduce en su canal más fiable
+ * (si no está en tus proveedores, abre su ficha); mantener OK abre la ficha con todas las opciones.
+ */
+@Composable
+private fun DuoHero(
+    items: List<Pair<AgendaEvent, List<TvChannel>>>,
+    now: Long,
+    first: FocusRequester,
+    form: com.mivisor.tv.ui.design.UiForm,
+    onPlay: (AgendaEvent, List<TvChannel>) -> Unit,
+    onOpen: (AgendaEvent) -> Unit
+) {
+    val phone = form == com.mivisor.tv.ui.design.UiForm.PHONE
+    Column(Modifier.fillMaxWidth().padding(horizontal = MvDims.SafeX).padding(top = 6.dp, bottom = 22.dp)) {
+        MvText(if (items.any { it.first.status(now) == EventStatus.LIVE }) "PARTIDOS PRINCIPALES · AHORA" else "PARTIDOS PRINCIPALES · HOY",
+            MvType.Eyebrow.copy(color = MvColors.Accent), modifier = Modifier.padding(bottom = 10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            items.forEachIndexed { i, (ev, chs) ->
+                FeaturedMatch(ev, chs, now, phone, if (i == 0) first else null, Modifier.weight(1f), onClick = { onPlay(ev, chs) }, onLong = { onOpen(ev) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeaturedMatch(
+    ev: AgendaEvent,
+    chs: List<TvChannel>,
+    now: Long,
+    phone: Boolean,
+    fr: FocusRequester?,
+    modifier: Modifier,
+    onClick: () -> Unit,
+    onLong: () -> Unit
+) {
+    val home = ev.home ?: ev.title
+    val away = ev.away
+    val (h1, _) = MvPalette.pair(home)
+    val (a1, _) = MvPalette.pair(away ?: ev.sport)
+    val live = ev.status(now) == EventStatus.LIVE
+    val shape = RoundedCornerShape(18.dp)
+    TvClickable(
+        onClick = onClick, onLongClick = onLong, focusRequester = fr, shape = shape, focusedScale = 1.02f,
+        color = MvColors.Surface1, focusedColor = MvColors.Surface2, ringColor = MvColors.Accent2,
+        modifier = modifier.height(if (phone) 200.dp else 236.dp)
+    ) { focused ->
+        Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(h1.copy(alpha = 0.32f), Color.Transparent, a1.copy(alpha = 0.32f))), shape))
+        Column(Modifier.fillMaxSize().padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (live) MvTag("● EN DIRECTO", MvColors.Live, filled = true)
+                else MvTag(if (ev.timeTbd) "POR CONFIRMAR" else "${dayWord(ev.startMillis, now).uppercase()} · ${hhmm(ev.startMillis)}", MvColors.Soon, filled = true)
+                Spacer(Modifier.width(10.dp))
+                MvText((ev.competition ?: sportName(ev.sport)).uppercase(), MvType.Eyebrow.copy(color = MvColors.Text2), maxLines = 1)
+            }
+            Spacer(Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (away != null) {
+                    Visual(home, ev.homeVisual, h1, if (phone) 44.dp else 56.dp, ev.isPersonVsPerson)
+                    Spacer(Modifier.width(10.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    val big = if (phone) 22.sp else 26.sp
+                    val st = MvType.Display.copy(fontSize = big, lineHeight = big * 1.12f, fontWeight = FontWeight.Black)
+                    if (away != null) {
+                        MvText(home, st, maxLines = 1)
+                        MvText(away, st.copy(color = MvColors.Text2), maxLines = 1)
+                    } else MvText(ev.title, st, maxLines = 2)
+                }
+                if (away != null) {
+                    Spacer(Modifier.width(10.dp))
+                    Visual(away, ev.awayVisual, a1, if (phone) 44.dp else 56.dp, ev.isPersonVsPerson)
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                MvIcon(if (chs.isNotEmpty()) MvIcons.Play else MvIcons.Layers, size = 16.dp, tint = if (focused) MvColors.Accent else MvColors.Text2)
+                Spacer(Modifier.width(8.dp))
+                MvText(
+                    if (chs.isNotEmpty()) "Ver en ${chs.first().name}" + (if (chs.size > 1) " · ${chs.size} canales" else "")
+                    else "Ver dónde se emite",
+                    MvType.BodyStrong.copy(color = if (focused) MvColors.Accent else MvColors.Text), maxLines = 1, modifier = Modifier.weight(1f)
+                )
             }
         }
     }
@@ -490,11 +600,10 @@ private fun SeeAllTile(title: String, detail: String, onClick: () -> Unit) {
 
 /** Tarjeta de competición: logo, nombre y lo próximo (o cuántos directos hay). OK abre su página. */
 @Composable
-private fun CompetitionCard(c: Competition, all: List<AgendaEvent>, now: Long, onClick: () -> Unit) {
-    val mine = remember(all, c) { all.filter { Competition.of(it) == c && it.status(now) != EventStatus.FINISHED }.sortedBy { it.startMillis } }
+private fun CompetitionCard(title: String, logo: String?, events: List<AgendaEvent>, now: Long, onClick: () -> Unit) {
+    val mine = remember(events) { events.filter { it.status(now) != EventStatus.FINISHED }.sortedBy { it.startMillis } }
     val live = mine.count { it.status(now) == EventStatus.LIVE }
     val next = mine.firstOrNull { it.status(now) == EventStatus.UPCOMING }
-    val logo = remember(all, c) { competitionLogo(c, all) }
     TvClickable(
         onClick = onClick, shape = RoundedCornerShape(14.dp), focusedScale = 1f,
         color = MvColors.Surface1, focusedColor = MvColors.Surface3, ringColor = MvColors.Accent2,
@@ -506,7 +615,7 @@ private fun CompetitionCard(c: Competition, all: List<AgendaEvent>, now: Long, o
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                MvText(c.label, MvType.BodyStrong, maxLines = 1)
+                MvText(title, MvType.BodyStrong, maxLines = 1)
                 Spacer(Modifier.height(2.dp))
                 when {
                     live > 0 -> Row(verticalAlignment = Alignment.CenterVertically) {

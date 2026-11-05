@@ -22,6 +22,9 @@ import java.text.Normalizer
  * Solo afecta a cómo se agrupan y se nombran en pantalla: el enlace de cada fuente no se toca nunca.
  */
 object ChannelCanon {
+    /** 3g · Lectura de nombres memorizada (es lo que más cuesta al montar la biblioteca en una tele modesta). */
+    private val PARSE_MEMO = Memo<String, Parsed>(20_000)
+
 
     class Parsed(
         /** Nombre a mostrar de la variante ("DAZN LaLiga 2"), con las palabras originales. */
@@ -82,7 +85,11 @@ object ChannelCanon {
      * [providerNames] = nombres de los proveedores del usuario: si aparecen DETRÁS del nombre del canal
      * ("DAZN 1 Elcano"), son una etiqueta y se quitan.
      */
-    fun parse(raw: String, providerNames: Collection<String> = emptyList()): Parsed {
+    fun parse(raw: String, providerNames: Collection<String> = emptyList()): Parsed =
+        PARSE_MEMO.get(if (providerNames.isEmpty()) raw else raw + "\u0000" + providerNames.joinToString("\u0001")) { computeParse(raw, providerNames) }
+
+
+    private fun computeParse(raw: String, providerNames: Collection<String>): Parsed {
         var text = ChannelNameNormalizer.display(raw)
         for (cut in listOf("-->", "->", "=>", "»")) text = text.substringBefore(cut)
         text = text.replace(BRACKETS, " ").replace(ELLIPSIS_TAIL, " ").replace(COUNTRY_PREFIX, "")

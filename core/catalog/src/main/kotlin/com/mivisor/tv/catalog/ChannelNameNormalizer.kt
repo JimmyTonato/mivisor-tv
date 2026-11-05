@@ -20,6 +20,9 @@ import java.text.Normalizer
  * Nunca toca URLs: solo recibe nombres.
  */
 object ChannelNameNormalizer {
+    /** 3g · El mismo nombre llega de muchos proveedores: se limpia una sola vez. */
+    private val DISPLAY_MEMO = Memo<String, String>(20_000)
+
     private const val KEEP = "+&.'-:/()!?#@_,"
     private const val DANGLING = "-|:.,/·_"
 
@@ -33,6 +36,11 @@ object ChannelNameNormalizer {
     /** Nombre limpio para mostrar y guardar. Vacío si el nombre era solo decoración (🟧🟧🟧). */
     fun display(raw: String?): String {
         if (raw.isNullOrEmpty()) return ""
+        return DISPLAY_MEMO.get(raw, ::computeDisplay)
+    }
+
+
+    private fun computeDisplay(raw: String): String {
         val mapped = mapDecorativeLetters(raw)
         val nfkc = Normalizer.normalize(mapped, Normalizer.Form.NFKC)
         val sb = StringBuilder(nfkc.length)
