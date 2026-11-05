@@ -517,8 +517,9 @@ private fun SourcesPage(graph: AppGraph, nav: Nav, forgotten: Int, onForget: () 
             graph.prefs.autoSwitch = autoSwitch
         }, subtitle = "Al empezar un canal y si se corta: antes se reintenta la misma fuente. «Probar otra fuente» está siempre a mano",
             trailing = when (autoSwitch) { "120" -> "Otra fuente a los 2 min"; "never" -> "Solo con el botón"; else -> "Otra fuente al 1 min" })
-        MvRow("Volver solo al directo tras un corte", { autoLive = !autoLive; graph.prefs.autoLive = autoLive },
-            subtitle = if (autoLive) "Si te quedas atrás, se recupera solo el directo" else "Te quedas donde estabas; usa «Ir al directo» en los controles") { MvSwitch(autoLive) }
+        MvRow("Acercarse solo al directo", { autoLive = !autoLive; graph.prefs.autoLive = autoLive },
+            subtitle = if (autoLive) "Un corte no te mueve. Cuando la imagen está estable, se acerca poco a poco dejando margen"
+            else "Te quedas donde estabas; usa «Ir al directo» o «Adelantar 15 s» en los controles") { MvSwitch(autoLive) }
         MvRow("No penalizar fuentes por fallos de la red, de la VPN o del aparato", {},
             subtitle = "Si el corte es de casa, la fuente no va a cuarentena") { MvSwitch(true) }
         MvRow("Fuentes que descansan", { nav.go(Route.Quarantine) },

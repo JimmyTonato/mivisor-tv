@@ -75,7 +75,7 @@ import com.mivisor.tv.ui.hhmm
  * Inicio (diseño 06, 3f). En este orden:
  *  1. Portada grande: el evento destacado (en directo o el próximo con canal) o, si no hay, el último canal visto.
  *  2. «En emisión y a continuación»: directos y lo que empieza en las próximas 3 h.
- *  3. «Continuar viendo» y «Próximas citas» lado a lado (en pantallas estrechas, una debajo de otra).
+ *  (3h: sin «Continuar viendo» ni «Próximas citas»; la portada son los dos partidos principales CON canal.)
  *  4. Favoritos (hasta cuatro y «Ver todos»).
  *  5. «Competiciones seguidas» (o sugeridas si aún no sigues ninguna).
  *  6. «Agenda próxima»: las siguientes citas en orden de hora.
@@ -130,7 +130,8 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
         val soon = all.filter { it.status(now) == EventStatus.UPCOMING && it.startMillis - now < 24 * 3600_000L }
             .sortedByDescending { com.mivisor.tv.model.EventPriority.of(it) }.take(6).map { it to channelsFor(it, library) }
             .sortedByDescending { it.second.isNotEmpty() }
-        (live.sortedByDescending { it.second.isNotEmpty() } + events + soon).distinctBy { it.first.id }.take(2)
+        // 3h · Solo partidos que se pueden ver en tus canales: sin canal no tiene sentido destacarlos.
+        (live + events + soon).filter { it.second.isNotEmpty() }.distinctBy { it.first.id }.take(2)
     }
     val heroKey = featured.firstOrNull()?.first?.id ?: hero?.first?.id
     LaunchedEffect(heroKey) {
@@ -139,16 +140,9 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
     }
     val reminded = reminders.map { it.eventId }.toSet()
     val shownIds = (events + featured).map { it.first.id }.toSet()
-    // Próximas citas (24 h): primero las que tienen recordatorio, luego las más importantes. Se pueden recordar aquí.
-    val citas = remember(agenda.agenda, library, reminded) {
-        val next = all.filter { it.status(now) == EventStatus.UPCOMING && it.startMillis - now < 24 * 3600_000L && it.id !in shownIds }
-        (next.filter { it.id in reminded }.sortedBy { it.startMillis } +
-            next.filter { it.id !in reminded }.sortedByDescending { com.mivisor.tv.model.EventPriority.of(it) })
-            .distinctBy { it.id }.take(4).sortedBy { it.startMillis }
-    }
     // Agenda próxima: lo siguiente en orden de hora (48 h), sin repetir lo de arriba.
-    val agendaNext = remember(agenda.agenda, citas) {
-        val used = shownIds + citas.map { it.id }
+    val agendaNext = remember(agenda.agenda, featured) {
+        val used = shownIds
         all.filter { it.status(now) == EventStatus.UPCOMING && it.startMillis - now < 48 * 3600_000L && it.id !in used }
             .sortedBy { it.startMillis }.take(8)
     }
@@ -168,6 +162,8 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
     }
     val pad = PaddingValues(horizontal = MvDims.SafeX)
 
+    // 3h · Bajar con el mando con pivote (sin saltos raros al ir rápido); las filas de dentro, normales.
+    com.mivisor.tv.ui.design.PivotScroll {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 48.dp)) {
         if (lib.offline) item {
             MvNotice("Sin conexión a Internet.", "Ves la agenda y los canales guardados. Los canales no se pueden abrir hasta que vuelva la red.",
@@ -181,6 +177,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
         }
         // 1 · Portada.
         item {
+            // 3h · OK abre la ficha del partido (quién juega y dónde verlo, como en la Agenda); mantener OK lo reproduce.
             if (featured.size == 2) DuoHero(featured, now, first, form,
                 onPlay = { ev, chs -> if (chs.isNotEmpty()) nav.go(Route.Player(chs.first().id)) else nav.go(Route.Event(ev.id)) },
                 onOpen = { ev -> nav.go(Route.Event(ev.id)) })
@@ -202,56 +199,23 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
                 val live = rowEvents.count { it.first.status(now) == EventStatus.LIVE }
                 SectionHeader("En emisión y a continuación", Modifier.padding(pad),
                     if (live > 0) "$live en directo · ${rowEvents.size - live} en las próximas 3 h" else "en las próximas 3 h")
-                LazyRow(contentPadding = pad, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                com.mivisor.tv.ui.design.DefaultScroll { LazyRow(contentPadding = pad, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                     itemsIndexed(rowEvents, key = { _, e -> e.first.id }) { _, (ev, chs) ->
                         EventTile(ev, chs, now, onClick = { nav.go(Route.Event(ev.id)) }, focusRequester = null, reminded = ev.id in reminded)
                     }
-                }
-            }
-        }
-        // 3 · Continuar viendo + Próximas citas.
-        item {
-            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(pad).padding(bottom = 26.dp)) {
-                val continuePanel = @Composable { m: Modifier ->
-                    HomePanel("Continuar viendo", "por donde lo dejaste", m) {
-                        if (history.isEmpty()) MvText("Los canales que veas aparecerán aquí para volver con un OK.", MvType.Small.copy(color = MvColors.Text3),
-                            modifier = Modifier.padding(vertical = 10.dp))
-                        history.forEach { h ->
-                            val ch = library.channel(h.channelId) ?: return@forEach
-                            ContinueRow(ch, "Viste ${ago(h.playedAt)}" + if (h.seconds >= 60) " · ${h.seconds / 60} min" else "",
-                                onClick = { nav.go(Route.Player(ch.id)) }, onLong = { toggleFav(ch) })
-                        }
-                    }
-                }
-                val citasPanel = @Composable { m: Modifier ->
-                    HomePanel("Próximas citas", "con recordatorio, la fuente se prepara 5 min antes", m) {
-                        if (citas.isEmpty()) MvText("Nada destacado en las próximas 24 h.", MvType.Small.copy(color = MvColors.Text3),
-                            modifier = Modifier.padding(vertical = 10.dp))
-                        citas.forEach { ev ->
-                            CitaRow(ev, now, channelsFor(ev, library, 1).firstOrNull()?.name, ev.id in reminded,
-                                onOpen = { nav.go(Route.Event(ev.id)) }, onRemind = { toggleReminder(ev) })
-                        }
-                    }
-                }
-                if (maxWidth >= 640.dp) Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                    continuePanel(Modifier.weight(1f))
-                    citasPanel(Modifier.weight(1.25f))
-                } else Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    continuePanel(Modifier.fillMaxWidth())
-                    citasPanel(Modifier.fillMaxWidth())
-                }
+                } }
             }
         }
         // 4 · Favoritos.
         if (favChannels.isNotEmpty()) item {
             Column(Modifier.fillMaxWidth().padding(bottom = 26.dp)) {
                 SectionHeader("Favoritos", Modifier.padding(pad), "${favChannels.size} canales")
-                LazyRow(contentPadding = pad, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                com.mivisor.tv.ui.design.DefaultScroll { LazyRow(contentPadding = pad, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(favChannels.take(4), key = { "f-" + it.id }) { ch ->
                         TvChannelTile(ch, graph.sources, favorite = true, onClick = { nav.go(Route.Player(ch.id)) }, onLongClick = { toggleFav(ch) })
                     }
                     item(key = "f-all") { SeeAllTile("Ver todos", "Mi lista") { nav.tab(Route.MyList) } }
-                }
+                } }
             }
         }
         // 5 · Competiciones seguidas.
@@ -259,7 +223,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
             Column(Modifier.fillMaxWidth().padding(bottom = 26.dp)) {
                 SectionHeader(if (followed.isEmpty()) "Competiciones" else "Competiciones seguidas", Modifier.padding(pad),
                     if (followed.isEmpty()) "sugeridas · ábrelas y pulsa «Seguir competición»" else "${followed.size} seguidas")
-                LazyRow(contentPadding = pad, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                com.mivisor.tv.ui.design.DefaultScroll { LazyRow(contentPadding = pad, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     items(comps, key = { "c-$it" }) { id ->
                         val fixed = Competition.byName(id)
                         val mine = remember(all, id) { all.filter { com.mivisor.tv.model.CompetitionNames.matches(id, it) } }
@@ -267,7 +231,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
                         val logo = remember(all, id) { if (fixed != null) competitionLogo(fixed, all) else mine.firstNotNullOfOrNull { it.competitionLogo } }
                         CompetitionCard(title, logo, mine, now, onClick = { nav.go(Route.Competition(id)) })
                     }
-                }
+                } }
             }
         }
         // 6 · Agenda próxima.
@@ -287,6 +251,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
                 MvButton("Todos los canales", { nav.tab(Route.Channels) }, icon = MvIcons.Grid)
             }
         }
+    }
     }
     InitialFocus(first)
 }
@@ -343,16 +308,17 @@ private fun Hero(
                 MvType.Heading.copy(color = MvColors.Text2, fontWeight = FontWeight.Normal), maxLines = 1)
             Spacer(Modifier.height(18.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MvButton("Ver ahora", onWatch, icon = MvIcons.Play, primary = true, focusRequester = first)
-                MvButton(if (chs.size > 1) "Otras opciones" else "Dónde verlo", onOptions, icon = MvIcons.Layers)
+                // 3h · Primero la ficha (dónde verlo y todos los canales, como en la Agenda); «Ver ahora» al lado.
+                MvButton("Dónde verlo", onOptions, icon = MvIcons.Layers, primary = true, focusRequester = first)
+                MvButton("Ver ahora en ${main.name}", onWatch, icon = MvIcons.Play)
             }
         }
     }
 }
 
 /**
- * 3g · Portada doble: los dos partidos principales lado a lado. OK sobre uno lo reproduce en su canal más fiable
- * (si no está en tus proveedores, abre su ficha); mantener OK abre la ficha con todas las opciones.
+ * 3g · Portada doble: los dos partidos principales lado a lado (solo con canal en tus proveedores). 3h: OK abre su
+ * ficha (quién juega, dónde verlo, todos los canales); mantener OK lo reproduce directamente.
  */
 @Composable
 private fun DuoHero(
@@ -369,7 +335,7 @@ private fun DuoHero(
             MvType.Eyebrow.copy(color = MvColors.Accent), modifier = Modifier.padding(bottom = 10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             items.forEachIndexed { i, (ev, chs) ->
-                FeaturedMatch(ev, chs, now, phone, if (i == 0) first else null, Modifier.weight(1f), onClick = { onPlay(ev, chs) }, onLong = { onOpen(ev) })
+                FeaturedMatch(ev, chs, now, phone, if (i == 0) first else null, Modifier.weight(1f), onClick = { onOpen(ev) }, onLong = { onPlay(ev, chs) })
             }
         }
     }
@@ -426,11 +392,11 @@ private fun FeaturedMatch(
             }
             Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                MvIcon(if (chs.isNotEmpty()) MvIcons.Play else MvIcons.Layers, size = 16.dp, tint = if (focused) MvColors.Accent else MvColors.Text2)
+                MvIcon(MvIcons.Layers, size = 16.dp, tint = if (focused) MvColors.Accent else MvColors.Text2)
                 Spacer(Modifier.width(8.dp))
                 MvText(
-                    if (chs.isNotEmpty()) "Ver en ${chs.first().name}" + (if (chs.size > 1) " · ${chs.size} canales" else "")
-                    else "Ver dónde se emite",
+                    "Dónde verlo · " + (if (chs.size > 1) "${chs.size} canales" else chs.firstOrNull()?.name ?: "") +
+                        (if (focused) "   ·   mantén OK para verlo ya" else ""),
                     MvType.BodyStrong.copy(color = if (focused) MvColors.Accent else MvColors.Text), maxLines = 1, modifier = Modifier.weight(1f)
                 )
             }
@@ -482,80 +448,6 @@ private fun QuietHero(
                     MvButton("Ver canales", onChannels, icon = MvIcons.Grid, primary = true, focusRequester = first)
                     MvButton("Agenda", onAgenda, icon = MvIcons.Calendar)
                 }
-            }
-        }
-    }
-}
-
-/** Panel de Inicio (Continuar viendo, Próximas citas): título, detalle y filas. */
-@Composable
-private fun HomePanel(title: String, detail: String, modifier: Modifier, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
-    Column(
-        modifier.background(MvColors.Surface1, RoundedCornerShape(16.dp)).border(1.dp, MvColors.Stroke, RoundedCornerShape(16.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            MvText(title, MvType.Heading, maxLines = 1)
-            Spacer(Modifier.width(10.dp))
-            MvText(detail, MvType.Caption.copy(color = MvColors.Text3), maxLines = 1, modifier = Modifier.padding(bottom = 2.dp))
-        }
-        Spacer(Modifier.height(2.dp))
-        content()
-    }
-}
-
-/** Fila de «Continuar viendo»: logo, canal y cuándo lo viste. OK lo reproduce; mantener OK: Mi lista. */
-@Composable
-private fun ContinueRow(ch: TvChannel, detail: String, onClick: () -> Unit, onLong: () -> Unit) {
-    TvClickable(
-        onClick = onClick, onLongClick = onLong, shape = RoundedCornerShape(10.dp), focusedScale = 1f,
-        color = Color.Transparent, focusedColor = MvColors.Surface3, ringColor = MvColors.Accent2,
-        modifier = Modifier.fillMaxWidth().height(52.dp)
-    ) { _ ->
-        Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            ChannelLogo(ch, Modifier.size(width = 64.dp, height = 36.dp), 64.dp)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                MvText(ch.name, MvType.BodyStrong, maxLines = 1)
-                MvText(detail, MvType.Caption.copy(color = MvColors.Text3), maxLines = 1)
-            }
-            MvIcon(MvIcons.Play, size = 16.dp, tint = MvColors.Text2)
-        }
-    }
-}
-
-/** Fila de «Próximas citas»: hora, evento y canal; a la derecha, el recordatorio (se pone y se quita aquí). */
-@Composable
-private fun CitaRow(ev: AgendaEvent, now: Long, channel: String?, reminded: Boolean, onOpen: () -> Unit, onRemind: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        TvClickable(
-            onClick = onOpen, shape = RoundedCornerShape(10.dp), focusedScale = 1f,
-            color = Color.Transparent, focusedColor = MvColors.Surface3, ringColor = MvColors.Accent2,
-            modifier = Modifier.weight(1f).height(52.dp)
-        ) { _ ->
-            Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.width(58.dp)) {
-                    MvText(if (ev.timeTbd) "--:--" else hhmm(ev.startMillis), MvType.BodyStrong.copy(color = MvColors.Soon))
-                    MvText(dayWord(ev.startMillis, now), MvType.Caption.copy(color = MvColors.Text3), maxLines = 1)
-                }
-                Column(Modifier.weight(1f)) {
-                    MvText(ev.title, MvType.BodyStrong, maxLines = 1)
-                    MvText(listOfNotNull(ev.competition ?: sportName(ev.sport), channel ?: "no está en tus proveedores").joinToString(" · "),
-                        MvType.Caption.copy(color = MvColors.Text3), maxLines = 1)
-                }
-            }
-        }
-        Spacer(Modifier.width(6.dp))
-        TvClickable(
-            onClick = onRemind, shape = RoundedCornerShape(10.dp), focusedScale = 1f,
-            color = if (reminded) MvColors.Soon.copy(alpha = 0.16f) else MvColors.Surface2, focusedColor = MvColors.Surface3, ringColor = MvColors.Accent2,
-            modifier = Modifier.height(40.dp)
-        ) { _ ->
-            Row(Modifier.fillMaxHeight().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                MvIcon(MvIcons.Clock, size = 15.dp, tint = if (reminded) MvColors.Soon else MvColors.Text2)
-                Spacer(Modifier.width(6.dp))
-                MvText(if (reminded) "Avisaré" else "Recordar", MvType.SmallStrong, color = if (reminded) MvColors.Soon else MvColors.Text, maxLines = 1)
             }
         }
     }

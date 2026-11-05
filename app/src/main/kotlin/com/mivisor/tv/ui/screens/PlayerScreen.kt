@@ -50,6 +50,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -249,13 +251,8 @@ fun PlayerScreen(
 
     val agenda by graph.agenda.state.collectAsState()
     val liveEvent = channel?.let { remember(it.id, agenda.agenda, now) { liveEventFor(it, agenda.agenda, lib.library) } }
-    var delayMs by remember { mutableStateOf<Long?>(null) }
-    LaunchedEffect(controls, panel) {
-        while (controls || panel != null) {
-            delayMs = com.mivisor.tv.engine.EngineDiagnostics.metrics.liveDelayMs
-            delay(2_000)
-        }
-    }
+    // 3h · El retraso llega del reproductor (vuelta al directo adaptativa); solo lo leen quienes lo pintan.
+    val delayMs = if (panel == Panel.INFO) graph.player.live.collectAsState().value.delayMs else null
     fun open(p: Panel) {
         lastOpener = p
         panel = p
@@ -320,7 +317,7 @@ fun PlayerScreen(
 
         if (channel == null && (lib.loading || lib.library.channels.isEmpty()) && lib.providers.isNotEmpty()) {
             // Al abrir la app directamente en el último canal: espera a que se lean los proveedores.
-            Loading(null, "Cargando tus canales…", null)
+            Loading(null, null, 0, 0, "Cargando tus canales…", null)
             return@Box
         }
         if (channel == null) {
@@ -335,23 +332,26 @@ fun PlayerScreen(
         when (phase) {
             Phase.IDLE, Phase.STARTING_ENGINE, Phase.TRYING -> if (panel == null) Loading(
                 channel,
-                when {
+                subtitle = liveEvent?.let { ev -> ev.title + " · en directo" },
+                step = when {
+                    phase != Phase.TRYING -> 0
+                    ui.peers > 0 -> 2
+                    else -> 1
+                },
+                peers = ui.peers,
+                status = when {
                     phase == Phase.STARTING_ENGINE -> "Preparando el motor…"
                     phase == Phase.TRYING && loadingLong && ui.message != null -> ui.message!!
                     ui.sourceIndex > 1 -> "Probando otra fuente…"
                     else -> "Conectando con la fuente…"
                 },
-                listOfNotNull(
+                detail = listOfNotNull(
                     sourceTag?.let { "Fuente ${ui.sourceIndex} de ${ui.sourceCount}" },
                     ui.provider,
-                    if (phase == Phase.TRYING && ui.peers > 0) "${ui.peers} emisores" else null,
                     graph.sources.typicalStart(channel.sources.map { it.contentId })?.let { "suele tardar ~$it s" }
                 ).joinToString(" · ").ifEmpty { null }
             ) {
-                if (offerWait && ui.sourceCount > 1) WaitChoice(
-                    "Esta fuente está tardando. Puedes seguir esperando o probar otra ya.",
-                    waitFocus, onWait = { waitDismissed = true }, onSkip = { waitDismissed = true; graph.player.nextSource() }
-                )
+                if (offerWait && ui.sourceCount > 1) WaitButtons(waitFocus, onWait = { waitDismissed = true }, onSkip = { waitDismissed = true; graph.player.nextSource() })
             }
             Phase.FAILED -> if (panel == null) {
                 val canAce = aceInstalled && graph.prefs.aceFallback != "never" && ui.cause != "offline" && ui.cause != "internet"
@@ -393,14 +393,14 @@ fun PlayerScreen(
                 subtitle = liveEvent?.let { ev -> ev.title + (ev.competition?.let { " · $it" } ?: "") }
                     ?: listOfNotNull(channel.brandName, "Televisión en directo").joinToString(" · "),
                 sourceTag = sourceTag,
-                delayMs = delayMs,
+                live = graph.player.live,
                 clock = hhmm(now),
                 paused = ui.paused,
                 favorite = mine.isFavorite(channel.id),
                 hint = if (panel != null) null else if (form.touch) "Toca el vídeo para ocultar los controles" else "Las flechas no cambian de canal · Atrás oculta los controles",
                 onClose = if (form.touch) onBack else null,
-                behind = delayMs?.let { it - com.mivisor.tv.engine.EngineDiagnostics.metrics.liveTargetMs.coerceAtLeast(6_000L) > 8_000L } == true,
                 onGoLive = { graph.player.goLive(); touch++ },
+                onJump = { graph.player.jumpAhead(); touch++ },
                 pauseFocus = pauseFocus,
                 openers = openers,
                 dimmed = panel != null,
@@ -417,22 +417,15 @@ fun PlayerScreen(
             )
         }
 
-        // Recuperación de un corte: spinner y estado en el centro, sin abrir paneles por su cuenta.
-        if (phase == Phase.PLAYING) ui.recovering?.let { text ->
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(
-                    Modifier.background(Color(0xB3080F19), RoundedCornerShape(16.dp)).padding(horizontal = 22.dp, vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    OrbitaMark(34.dp, spinning = true)
-                    Spacer(Modifier.height(10.dp))
-                    MvText(text, MvType.SmallStrong)
-                    if (offerWait) WaitChoice(
-                        if (graph.prefs.autoSwitch == "never") "Se sigue intentando con esta fuente hasta que vuelva o elijas otra."
-                        else "Se sigue intentando con esta fuente; si no vuelve, se pasará sola a otra.",
-                        waitFocus, onWait = { waitDismissed = true }, onSkip = { waitDismissed = true; graph.player.nextSource() }
-                    )
-                }
+        // 3h · Corte: aviso discreto abajo a la derecha. La imagen sigue donde estaba (no se salta al directo).
+        if (phase == Phase.PLAYING && panel == null) ui.recovering?.let { text ->
+            RecoveryCard(
+                text = text, live = graph.player.live,
+                caption = if (graph.prefs.autoSwitch == "never") "Se sigue intentando con esta fuente hasta que vuelva o elijas otra."
+                else "Cuando la imagen vuelva a ser estable, la app se irá acercando sola al directo.",
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = MvDims.SafeX, bottom = MvDims.SafeY + 6.dp)
+            ) {
+                if (offerWait) WaitButtons(waitFocus, onWait = { waitDismissed = true }, onSkip = { waitDismissed = true; graph.player.nextSource() })
             }
         }
 
@@ -510,41 +503,181 @@ fun PlayerScreen(
     }
 }
 
-/** Carga (diseño 06.1): canal discreto arriba a la izquierda, Órbita girando en el centro y un estado breve debajo. */
+/**
+ * 3h · Carga: el logo del canal grande en el centro con su nombre, una barra fina animada y las tres fases en texto
+ * (Motor → Emisores → Imagen) para que se vea que avanza. Abajo, si tarda, «Seguir esperando» / «Probar otra fuente».
+ */
 @Composable
-private fun Loading(channel: TvChannel?, status: String, detail: String?, extra: @Composable () -> Unit = {}) {
-    Box(Modifier.fillMaxSize().background(Color(0xFF05080D))) {
-        if (channel != null) Row(
-            Modifier.padding(start = MvDims.SafeX, top = MvDims.SafeY + 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            LogoBox(channel, 34.dp)
-            Spacer(Modifier.width(10.dp))
-            MvText(channel.name, MvType.BodyStrong.copy(color = MvColors.Text2))
-        }
-        Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-            OrbitaMark(52.dp, spinning = true)
-            Spacer(Modifier.height(18.dp))
-            MvText(status, MvType.Body.copy(color = MvColors.Text))
-            if (detail != null) {
-                Spacer(Modifier.height(4.dp))
-                MvText(detail, MvType.Caption.copy(color = MvColors.Text3))
+private fun Loading(
+    channel: TvChannel?,
+    subtitle: String?,
+    /** 0 motor, 1 buscando emisores, 2 preparando la imagen. */
+    step: Int,
+    peers: Int,
+    status: String,
+    detail: String?,
+    extra: @Composable () -> Unit = {}
+) {
+    Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF142235), Color(0xFF0A1420), Color(0xFF060B12)), radius = 900f))) {
+        Column(Modifier.align(Alignment.Center).padding(bottom = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (channel != null) {
+                com.mivisor.tv.ui.LogoImage(
+                    channel.logo, 240.dp, Modifier.size(width = 210.dp, height = 118.dp), RoundedCornerShape(18.dp),
+                    plain = Color(0xFF0E1A27), frame = Color(0x14FFFFFF), padding = 0.14f
+                ) { MvText(channel.name, MvType.Heading.copy(color = MvColors.Text2), maxLines = 2, modifier = Modifier.padding(12.dp)) }
+                Spacer(Modifier.height(20.dp))
+                MvText(channel.name, MvType.Title.copy(fontSize = 24.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+                if (subtitle != null) {
+                    Spacer(Modifier.height(4.dp))
+                    MvText(subtitle, MvType.Body.copy(color = MvColors.Text2), maxLines = 1)
+                }
+            } else MvText(status, MvType.Heading)
+            Spacer(Modifier.height(26.dp))
+            LoadingBar(Modifier.width(240.dp))
+            if (channel != null) {
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LoadStep("Motor listo", if (step > 0) 2 else 1, "Preparando el motor")
+                    StepLine()
+                    LoadStep(if (peers > 0) "Emisores · $peers" else "Buscando emisores", when { step > 1 -> 2; step == 1 -> 1; else -> 0 })
+                    StepLine()
+                    LoadStep("Preparando la imagen", if (step >= 2) 1 else 0)
+                }
+                Spacer(Modifier.height(8.dp))
+                MvText(status, MvType.Caption.copy(color = MvColors.Text3), maxLines = 1)
             }
-            extra()
         }
+        Column(Modifier.align(Alignment.BottomCenter).padding(bottom = MvDims.SafeY), horizontalAlignment = Alignment.CenterHorizontally) {
+            extra()
+            if (detail != null) {
+                Spacer(Modifier.height(10.dp))
+                MvText(detail, MvType.Caption.copy(color = MvColors.Text3), maxLines = 1)
+            }
+        }
+    }
+}
+
+/** Fase de la carga: 0 pendiente (gris), 1 en curso (punto champán), 2 hecha (marca verde). */
+@Composable
+private fun LoadStep(text: String, state: Int, runningText: String = text) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        when (state) {
+            2 -> MvIcon(MvIcons.Check, size = 13.dp, tint = MvColors.Ok)
+            1 -> Box(Modifier.size(7.dp).background(MvColors.Accent, CircleShape))
+            else -> Box(Modifier.size(7.dp).border(1.dp, MvColors.Text3, CircleShape))
+        }
+        Spacer(Modifier.width(7.dp))
+        MvText(
+            if (state == 1) runningText else text,
+            MvType.Small.copy(color = when (state) { 2 -> MvColors.Ok; 1 -> MvColors.Text; else -> MvColors.Text3 }, fontWeight = if (state == 1) FontWeight.SemiBold else FontWeight.Normal),
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun StepLine() {
+    Box(Modifier.width(18.dp).height(1.dp).background(Color(0x2EFFFFFF)))
+}
+
+/** Barra fina indeterminada: un brillo champán que recorre la pista (en modo ligero, quieta). */
+@Composable
+private fun LoadingBar(modifier: Modifier) {
+    val lite = com.mivisor.tv.ui.design.LocalLite.current
+    val x = if (lite) 0.3f else {
+        val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "carga")
+        t.animateFloat(
+            -0.4f, 1.0f,
+            androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1600, easing = androidx.compose.animation.core.FastOutSlowInEasing)),
+            label = "brillo"
+        ).value
+    }
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier.height(3.dp).clip(RoundedCornerShape(2.dp)).background(Color(0x1AFFFFFF))) {
+        Box(
+            Modifier.offset(x = maxWidth * x).width(maxWidth * 0.4f).fillMaxHeight()
+                .background(Brush.horizontalGradient(listOf(Color.Transparent, MvColors.Accent, Color.Transparent)))
+        )
     }
 }
 
 /** «Seguir esperando» (foco por defecto: un OK sin querer no cambia de fuente) o «Probar otra fuente». */
 @Composable
-private fun WaitChoice(text: String, focus: FocusRequester, onWait: () -> Unit, onSkip: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 18.dp).widthIn(max = 460.dp)) {
-        MvText(text, MvType.Small.copy(color = MvColors.Text2, textAlign = androidx.compose.ui.text.style.TextAlign.Center))
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            MvButton("Seguir esperando", onWait, icon = MvIcons.Clock, focusRequester = focus)
-            MvButton("Probar otra fuente", onSkip, icon = MvIcons.Signal, primary = true)
+private fun WaitButtons(focus: FocusRequester, onWait: () -> Unit, onSkip: () -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        PillButton("Seguir esperando", null, primary = true, focusRequester = focus, onClick = onWait)
+        PillButton("Probar otra fuente", MvIcons.Signal, onClick = onSkip)
+    }
+}
+
+/**
+ * 3h · Botón del reproductor en pastilla: [primary] = claro (marfil) con texto oscuro; si no, translúcido con borde
+ * fino. Con foco: anillo champán (en la tele) y fondo más claro.
+ */
+@Composable
+private fun PillButton(
+    text: String,
+    icon: Int?,
+    primary: Boolean = false,
+    accent: Boolean = false,
+    focusRequester: FocusRequester? = null,
+    enabled: Boolean = true,
+    onFocus: (() -> Unit)? = null,
+    height: androidx.compose.ui.unit.Dp = 38.dp,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(50)
+    TvClickable(
+        onClick = onClick, focusRequester = focusRequester, enabled = enabled, onFocus = onFocus, shape = shape, focusedScale = 1.04f,
+        color = when { primary -> MvColors.Text; accent -> MvColors.Accent; else -> Color(0x9E101A26) },
+        focusedColor = when { primary -> Color.White; accent -> MvColors.Accent2; else -> Color(0xE62A4153) },
+        ringColor = MvColors.Accent2,
+        modifier = Modifier.height(height).then(if (!primary && !accent) Modifier.border(1.dp, Color(0x29FFFFFF), shape) else Modifier)
+    ) { _ ->
+        Row(Modifier.fillMaxHeight().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            val fg = if (primary || accent) MvColors.Bg else MvColors.Text
+            if (icon != null) {
+                MvIcon(icon, size = 15.dp, tint = fg)
+                Spacer(Modifier.width(8.dp))
+            }
+            MvText(text, MvType.BodyStrong.copy(color = fg), maxLines = 1)
         }
+    }
+}
+
+/** 3h · Aviso de corte: tarjeta discreta con el retraso acumulado («sigues donde estabas, no te pierdes nada»). */
+@Composable
+private fun RecoveryCard(
+    text: String,
+    live: kotlinx.coroutines.flow.StateFlow<com.mivisor.tv.playback.PlaybackController.Live>,
+    caption: String,
+    modifier: Modifier,
+    buttons: @Composable () -> Unit
+) {
+    val l by live.collectAsState()
+    Column(
+        modifier.width(300.dp).background(Color(0xD10A121C), RoundedCornerShape(16.dp)).border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(16.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OrbitaMark(26.dp, spinning = true)
+            Spacer(Modifier.width(11.dp))
+            Column {
+                MvText(text.substringBefore(" · "), MvType.BodyStrong, maxLines = 1)
+                MvText("Sigues donde estabas · no te pierdes nada", MvType.Caption.copy(color = MvColors.Text2), maxLines = 1)
+            }
+        }
+        l.delayMs?.let { d ->
+            Row {
+                MvText("Retraso acumulado", MvType.Caption.copy(color = MvColors.Text2), modifier = Modifier.weight(1f))
+                MvText("${d / 1000} s", MvType.SmallStrong)
+            }
+            Box(Modifier.fillMaxWidth().height(3.dp).background(Color(0x1FFFFFFF), RoundedCornerShape(2.dp))) {
+                Box(Modifier.fillMaxWidth((d / 60_000f).coerceIn(0.04f, 1f)).fillMaxHeight().background(MvColors.Soon, RoundedCornerShape(2.dp)))
+            }
+        }
+        MvText(caption, MvType.Caption.copy(color = MvColors.Text3))
+        buttons()
     }
 }
 
@@ -582,14 +715,13 @@ private fun Controls(
     channel: TvChannel,
     subtitle: String,
     sourceTag: String?,
-    delayMs: Long?,
+    live: kotlinx.coroutines.flow.StateFlow<com.mivisor.tv.playback.PlaybackController.Live>,
     clock: String,
     paused: Boolean,
     favorite: Boolean,
     hint: String?,
-    /** 3e: la imagen va bastante por detrás del directo (tras un corte o una pausa). */
-    behind: Boolean,
     onGoLive: () -> Unit,
+    onJump: () -> Unit,
     pauseFocus: FocusRequester,
     openers: Map<Panel, FocusRequester>,
     dimmed: Boolean,
@@ -601,13 +733,16 @@ private fun Controls(
     /** 3f · Solo en pantallas táctiles: flecha para salir del reproductor (no hay botón Atrás a la vista). */
     onClose: (() -> Unit)? = null
 ) {
+    val l by live.collectAsState()
+    val delay = l.delayMs ?: 0
     // 3f · Un toque fuera de los botones oculta los controles (los botones se quedan su propio toque).
     Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures(onTap = { onHide() }) }) {
-        // Degradados solo arriba y abajo: el vídeo sigue siendo el protagonista.
-        Box(Modifier.align(Alignment.TopStart).fillMaxWidth().height(120.dp).background(Brush.verticalGradient(listOf(Color(0xCC05080D), Color.Transparent))))
-        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(170.dp).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE605080D)))))
+        // 3h · Degradados largos y suaves arriba y abajo (nada de cajas): el vídeo sigue mandando.
+        Box(Modifier.align(Alignment.TopStart).fillMaxWidth().height(160.dp).background(Brush.verticalGradient(listOf(Color(0xDB04080D), Color(0x7304080D), Color.Transparent))))
+        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(220.dp).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x9E04080D), Color(0xF004080D)))))
+        // Arriba: logo GRANDE (más alto que el texto), canal y evento; a la derecha fuente y hora.
         Row(
-            Modifier.align(Alignment.TopStart).fillMaxWidth().padding(start = MvDims.SafeX, end = MvDims.SafeX, top = MvDims.SafeY + 6.dp),
+            Modifier.align(Alignment.TopStart).fillMaxWidth().padding(start = MvDims.SafeX, end = MvDims.SafeX, top = MvDims.SafeY),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (onClose != null) {
@@ -616,65 +751,72 @@ private fun Controls(
                     focusedColor = MvColors.Surface3, ringColor = MvColors.Accent2,
                     modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center
                 ) { _ -> MvIcon(MvIcons.Back, size = 22.dp, tint = MvColors.Text) }
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(14.dp))
             }
-            LogoBox(channel, 40.dp)
-            Spacer(Modifier.width(12.dp))
+            com.mivisor.tv.ui.LogoImage(
+                channel.logo, 120.dp, Modifier.size(width = 92.dp, height = 52.dp), RoundedCornerShape(10.dp),
+                plain = Color(0xCC0E1A27), frame = Color(0x1AFFFFFF), padding = 0.1f
+            ) { MvIcon(MvIcons.Signal, size = 22.dp, tint = MvColors.Text2) }
+            Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                MvText(channel.name, MvType.Heading, maxLines = 1)
+                MvText(channel.name, MvType.Title.copy(fontSize = 21.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+                Spacer(Modifier.height(2.dp))
                 MvText(subtitle, MvType.Small.copy(color = MvColors.Text2), maxLines = 1)
             }
-            Row(
-                Modifier.background(MvColors.LiveBg, RoundedCornerShape(7.dp)).padding(horizontal = 9.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(Modifier.size(6.dp).background(MvColors.Live, CircleShape))
-                Spacer(Modifier.width(6.dp))
-                MvText(if (paused) "EN PAUSA" else "EN DIRECTO", MvType.Caption.copy(color = MvColors.Text, fontWeight = FontWeight.Bold))
-            }
             if (sourceTag != null) {
-                Spacer(Modifier.width(8.dp))
-                InfoPill(sourceTag)
+                Row(
+                    Modifier.background(Color(0x8C0C141E), RoundedCornerShape(50)).border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(50))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.size(6.dp).background(MvColors.Ok, CircleShape))
+                    Spacer(Modifier.width(7.dp))
+                    MvText(sourceTag, MvType.SmallStrong, maxLines = 1)
+                }
             }
-            if (delayMs != null && delayMs >= 1_000) {
-                Spacer(Modifier.width(8.dp))
-                InfoPill("−${delayMs / 1000} s")
-            }
-            Spacer(Modifier.width(14.dp))
-            MvText(clock, MvType.Heading)
+            Spacer(Modifier.width(16.dp))
+            MvText(clock, MvType.Heading.copy(fontWeight = FontWeight.SemiBold))
         }
         Column(
-            Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = MvDims.SafeX - 10.dp, end = MvDims.SafeX - 10.dp, bottom = MvDims.SafeY)
+            Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = MvDims.SafeX, end = MvDims.SafeX, bottom = MvDims.SafeY)
                 .then(if (dimmed) Modifier.alpha(0.35f) else Modifier)
         ) {
-            Row(Modifier.padding(start = 10.dp, end = 10.dp, bottom = 6.dp)) {
-                MvText(if (paused) "SEÑAL EN PAUSA" else "SEÑAL EN REPRODUCCIÓN", MvType.Caption.copy(color = MvColors.Text2, letterSpacing = 1.sp))
-                Spacer(Modifier.weight(1f))
-                if (hint != null) MvText(hint, MvType.Caption.copy(color = MvColors.Text3))
-            }
-            androidx.compose.runtime.CompositionLocalProvider(LocalBarEnabled provides !dimmed) {
-            Row(
-                Modifier.fillMaxWidth().height(72.dp)
-                    .background(Color(0xE6132232), RoundedCornerShape(16.dp))
-                    .border(1.dp, MvColors.Stroke, RoundedCornerShape(16.dp))
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                BarButton("Info", MvIcons.Info, openers.getValue(Panel.INFO), onTouch) { onPanel(Panel.INFO) }
-                Spacer(Modifier.width(8.dp))
-                BarButton("Fuentes", MvIcons.Signal, openers.getValue(Panel.SOURCES), onTouch) { onPanel(Panel.SOURCES) }
-                Spacer(Modifier.width(8.dp))
-                BarButton(if (favorite) "En Mi lista" else "Mi lista", MvIcons.Star, null, onTouch, highlighted = favorite, onClick = onFavorite)
-                if (behind) {
-                    Spacer(Modifier.width(8.dp))
-                    BarButton("Ir al directo", MvIcons.Live, null, onTouch, highlighted = true, onClick = onGoLive)
+            // Línea del directo: «DIRECTO» (al día) o «DIRECTO · −32 s» con lo que va por detrás y lo descargado.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.background(if (l.behind || paused) Color(0x29E58C83) else MvColors.LiveBg, RoundedCornerShape(6.dp)).padding(horizontal = 9.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.size(6.dp).background(MvColors.Live, CircleShape))
+                    Spacer(Modifier.width(6.dp))
+                    MvText(
+                        when { paused -> "EN PAUSA"; delay >= 2_000 -> "DIRECTO · −${delay / 1000} s"; else -> "EN DIRECTO" },
+                        MvType.Caption.copy(color = if (l.behind || paused) Color(0xFFF2B1AA) else MvColors.Text, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp)
+                    )
                 }
-                Spacer(Modifier.weight(1f))
-                // Pausa: botón redondo champán en el centro; al reanudar vuelve al directo.
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(Modifier.width(12.dp))
+                MvText(
+                    when {
+                        paused -> "Al reanudar vuelves al directo."
+                        l.behind && l.state == com.mivisor.tv.engine.CatchUpController.State.CATCHING_UP -> "Acercándose al directo poco a poco…"
+                        l.behind && l.aheadMs >= 15_000 -> "Vas por detrás por los cortes. La imagen hasta el directo ya está descargada."
+                        l.behind -> "Vas por detrás por los cortes. Se irá acercando sola cuando la imagen esté estable."
+                        else -> hint ?: ""
+                    },
+                    MvType.Caption.copy(color = MvColors.Text2), maxLines = 1, modifier = Modifier.weight(1f)
+                )
+            }
+            if (l.behind) {
+                Spacer(Modifier.height(10.dp))
+                LiveLine(delay, l.aheadMs)
+            }
+            Spacer(Modifier.height(14.dp))
+            androidx.compose.runtime.CompositionLocalProvider(LocalBarEnabled provides !dimmed) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // Pausa: botón redondo marfil; al reanudar vuelve al directo.
                     TvClickable(
-                        onClick = onPause, focusRequester = pauseFocus, onFocus = onTouch, shape = CircleShape, focusedScale = 1.04f, enabled = !dimmed,
-                        color = MvColors.Accent, focusedColor = MvColors.Accent2, ringColor = MvColors.Text,
+                        onClick = onPause, focusRequester = pauseFocus, onFocus = onTouch, shape = CircleShape, focusedScale = 1.06f, enabled = !dimmed,
+                        color = MvColors.Text, focusedColor = Color.White, ringColor = MvColors.Accent2,
                         contentAlignment = Alignment.Center, modifier = Modifier.size(46.dp)
                     ) { _ ->
                         if (paused) MvIcon(MvIcons.Play, size = 20.dp, tint = MvColors.Bg)
@@ -683,18 +825,38 @@ private fun Controls(
                             Box(Modifier.size(width = 4.dp, height = 15.dp).background(MvColors.Bg, RoundedCornerShape(1.dp)))
                         }
                     }
-                    MvText(if (paused) "Reanudar" else "Pausar", MvType.Caption.copy(color = MvColors.Text2))
+                    if (l.behind) PillButton("Ir al directo", MvIcons.Live, accent = true, enabled = !dimmed, onFocus = onTouch, onClick = onGoLive)
+                    if (l.canJump15) PillButton("Adelantar 15 s", MvIcons.ChevronRight, enabled = !dimmed, onFocus = onTouch, onClick = onJump)
+                    Spacer(Modifier.weight(1f))
+                    PillButton("Fuentes", null, focusRequester = openers.getValue(Panel.SOURCES), enabled = !dimmed, onFocus = onTouch) { onPanel(Panel.SOURCES) }
+                    PillButton("Audio", null, focusRequester = openers.getValue(Panel.AUDIO), enabled = !dimmed, onFocus = onTouch) { onPanel(Panel.AUDIO) }
+                    PillButton("Subtítulos", null, focusRequester = openers.getValue(Panel.SUBS), enabled = !dimmed, onFocus = onTouch) { onPanel(Panel.SUBS) }
+                    PillButton("Vídeo", null, focusRequester = openers.getValue(Panel.VIDEO), enabled = !dimmed, onFocus = onTouch) { onPanel(Panel.VIDEO) }
+                    PillButton("Info", null, focusRequester = openers.getValue(Panel.INFO), enabled = !dimmed, onFocus = onTouch) { onPanel(Panel.INFO) }
+                    PillButton(if (favorite) "En Mi lista" else "Mi lista", MvIcons.Star, enabled = !dimmed, onFocus = onTouch, onClick = onFavorite)
                 }
-                Spacer(Modifier.weight(1f))
-                BarButton("Audio", MvIcons.Volume, openers.getValue(Panel.AUDIO), onTouch) { onPanel(Panel.AUDIO) }
-                Spacer(Modifier.width(8.dp))
-                BarButton("Subtítulos", MvIcons.List, openers.getValue(Panel.SUBS), onTouch) { onPanel(Panel.SUBS) }
-                Spacer(Modifier.width(8.dp))
-                BarButton("Vídeo", MvIcons.Tune, openers.getValue(Panel.VIDEO), onTouch) { onPanel(Panel.VIDEO) }
-                Spacer(Modifier.width(8.dp))
-                BarButton("Ocultar", MvIcons.Close, null, onTouch, onClick = onHide)
             }
-            }
+        }
+    }
+}
+
+/** Línea «Tú ─── Directo»: lo que se ve (champán), lo ya descargado (champán tenue) y el borde del directo (rojo). */
+@Composable
+private fun LiveLine(delayMs: Long, aheadMs: Long) {
+    // Escala: los últimos 90 s (o el retraso, si es mayor) hasta el directo.
+    val span = maxOf(90_000L, delayMs + 10_000L).toFloat()
+    val you = 1f - delayMs / span
+    val loaded = (you + aheadMs / span).coerceAtMost(1f)
+    Column {
+        Box(Modifier.fillMaxWidth().height(4.dp).background(Color(0x24FFFFFF), RoundedCornerShape(2.dp))) {
+            Box(Modifier.fillMaxWidth(loaded).fillMaxHeight().background(Color(0x59E9C99E), RoundedCornerShape(2.dp)))
+            Box(Modifier.fillMaxWidth(you).fillMaxHeight().background(MvColors.Accent, RoundedCornerShape(2.dp)))
+            Box(Modifier.align(Alignment.CenterEnd).size(width = 3.dp, height = 10.dp).background(MvColors.Live, RoundedCornerShape(1.dp)))
+        }
+        Spacer(Modifier.height(4.dp))
+        Row {
+            MvText("Tú", MvType.Caption.copy(color = MvColors.Text3), modifier = Modifier.weight(1f))
+            MvText("Directo", MvType.Caption.copy(color = MvColors.Text3))
         }
     }
 }

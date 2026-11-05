@@ -19,6 +19,7 @@ import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.mivisor.tv.catalog.AceStreamLink
 import com.mivisor.tv.engine.AdaptiveBuffer
+import com.mivisor.tv.engine.CatchUpController
 import com.mivisor.tv.engine.EngineApi
 import com.mivisor.tv.engine.EngineDiagnostics
 import com.mivisor.tv.engine.EngineStatus
@@ -116,6 +117,27 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui.asStateFlow()
 
+    /**
+     * 3h · Retraso respecto al directo y vuelta adaptativa ([CatchUpController]), aparte de [ui] para no redibujar
+     * todo el reproductor cada segundo. [delayMs] null = no se sabe; [aheadMs] = imagen ya descargada por delante.
+     */
+    data class Live(
+        val delayMs: Long? = null,
+        val aheadMs: Long = 0,
+        val reserveMs: Long = 0,
+        val state: CatchUpController.State = CatchUpController.State.ON_TIME
+    ) {
+        /** Va claramente por detrás de lo sano: se ofrece «Ir al directo». */
+        val behind: Boolean get() = delayMs != null && delayMs - maxOf(reserveMs, 6_000L) > 8_000L
+        /** Hay imagen descargada para adelantar 15 s sin pantalla negra. */
+        val canJump15: Boolean get() = behind && aheadMs >= 17_000L && (delayMs ?: 0) - 15_000L >= 6_000L
+    }
+    private val _live = MutableStateFlow(Live())
+    val live: StateFlow<Live> = _live.asStateFlow()
+    private val catchUp = CatchUpController()
+    /** Tras un salto propio dentro de lo descargado, un buffering breve no cuenta como corte. */
+    private var jumpGraceUntil = 0L
+
     var player: ExoPlayer? = null
         private set
     private var loadControl: AdaptiveLoadControl? = null
@@ -161,6 +183,9 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             when (playbackState) {
                 Player.STATE_BUFFERING -> if (_ui.value.phase == Phase.PLAYING) {
                     liveDelay.onInterruption(SystemClock.elapsedRealtime())
+                    // 3h · Un corte suspende la vuelta al directo (y deja de acelerar). Un salto propio no cuenta.
+                    val nowB = SystemClock.elapsedRealtime()
+                    if (nowB >= jumpGraceUntil) applyCatchUp(catchUp.onStall(nowB))
                     // Un corte se mide desde su principio: los saltos y recargas de la recuperación no lo reinician.
                     if (!resyncing && bufferingSince == 0L) {
                         bufferingSince = SystemClock.elapsedRealtime()
@@ -169,6 +194,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                     }
                 }
                 Player.STATE_READY -> {
+                    catchUp.onResume(SystemClock.elapsedRealtime())
                     val src = currentSource
                     val stalledMs = if (bufferingSince > 0) SystemClock.elapsedRealtime() - bufferingSince else 0
                     if (src != null && _ui.value.phase == Phase.PLAYING && stalledMs >= StartPolicy.FREEZE_MIN_MS) {
@@ -220,6 +246,8 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         generation++
         val gen = generation
         liveDelay.reset(SystemClock.elapsedRealtime())
+        catchUp.reset(SystemClock.elapsedRealtime())
+        _live.value = Live()
         _ui.value = Ui(Phase.STARTING_ENGINE, req.channelId, req.channelName, sourceCount = req.sources.size, message = "Preparando el motor…")
         EngineDiagnostics.update { it.copy(channel = req.channelName, sourceCount = req.sources.size, sourceSwitches = 0, rebuffers = 0, firstFrameMs = null) }
         job = scope.launch {
@@ -276,8 +304,45 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         if (!p.playWhenReady) p.play()
         runCatching { p.seekToDefaultPosition() }
         liveDelay.onInterruption(SystemClock.elapsedRealtime())
+        applyCatchUp(catchUp.onUserJump(SystemClock.elapsedRealtime()))
         _ui.value = _ui.value.copy(paused = false)
         book.log("Directo", "Salto al directo pedido por el usuario")
+    }
+
+    /**
+     * 3h · «Adelantar 15 s»: salto DENTRO de lo ya descargado (instantáneo, sin pantalla negra), sin pasar del retraso
+     * mínimo sano. Si no hay imagen descargada suficiente, adelanta lo que haya.
+     */
+    fun jumpAhead(ms: Long = 15_000L) {
+        val p = player ?: return
+        if (_ui.value.phase != Phase.PLAYING) return
+        val live = _live.value
+        val ahead = (p.bufferedPosition - p.currentPosition).coerceAtLeast(0) - 1_500
+        val room = (live.delayMs ?: 0) - 6_000
+        val step = minOf(ms, ahead, room)
+        if (step < 2_000) return
+        jumpGraceUntil = SystemClock.elapsedRealtime() + 4_000
+        p.setSeekParameters(SeekParameters.PREVIOUS_SYNC)
+        p.seekTo(p.currentPosition + step)
+        applyCatchUp(catchUp.onUserJump(SystemClock.elapsedRealtime()))
+        book.log("Directo", "Adelantar ${step / 1000} s pedido por el usuario")
+    }
+
+    /** Aplica una acción de [CatchUpController] al reproductor. */
+    private fun applyCatchUp(action: CatchUpController.Action) {
+        val p = player ?: return
+        when (action) {
+            is CatchUpController.Action.SetSpeed -> p.setPlaybackSpeed(action.speed)
+            is CatchUpController.Action.SeekForward -> {
+                jumpGraceUntil = SystemClock.elapsedRealtime() + 4_000
+                p.setPlaybackSpeed(1f)
+                // Hacia atrás al fotograma clave anterior: el destino queda DENTRO de lo descargado.
+                p.setSeekParameters(SeekParameters.PREVIOUS_SYNC)
+                p.seekTo(p.currentPosition + action.ms)
+                book.log("Directo", "Acercándose al directo: −${action.ms / 1000} s (estable ${catchUp.stats.stableForMs / 1000} s, colchón ${catchUp.stats.reserveMs / 1000} s)")
+            }
+            CatchUpController.Action.None -> Unit
+        }
     }
 
     fun selectSource(contentId: String) {
@@ -422,6 +487,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         p.stop()
         p.clearMediaItems()
         liveDelay.reset(SystemClock.elapsedRealtime(), keepStats = true)
+        catchUp.reset(SystemClock.elapsedRealtime())
         p.setPlaybackSpeed(1f)
         p.setMediaItem(mediaItemFor(base, cid))
         p.volume = 1f
@@ -539,10 +605,12 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         val p = player ?: return
         recoverStep = step
         if (step == 1) {
-            _ui.value = _ui.value.copy(recovering = "Recuperando la imagen: saltando al directo…")
+            // 3h · Se vuelve a pedir la imagen DESDE DONDE ESTABAS (antes: salto al directo). Así un corte no te
+            // mueve; la vuelta al directo la hace luego [CatchUpController], poco a poco y solo si es estable.
+            _ui.value = _ui.value.copy(recovering = "Recuperando la imagen…")
             resyncing = true
             resyncStartedAt = SystemClock.elapsedRealtime()
-            runCatching { p.seekToDefaultPosition() }
+            runCatching { p.seekTo(p.currentPosition) }
         } else {
             lastReloadAt = SystemClock.elapsedRealtime()
             _ui.value = _ui.value.copy(recovering = "Recuperando la imagen: recargando la fuente…")
@@ -845,22 +913,16 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         val duration = p.duration
         val lag = if (resyncing || !p.isCurrentMediaItemLive || duration == C.TIME_UNSET || duration <= 0) null
         else (duration - p.currentPosition).coerceAtLeast(0)
-        // 3e: con «Volver solo al directo» desactivado, no se acelera ni se salta: el usuario decide con «Ir al directo».
+        // 3h · Vuelta al directo adaptativa: los cortes no te mueven; se acerca solo cuando es estable y hay imagen
+        // descargada, en proporción al retraso y dejando un colchón aprendido. Desactivada: decide el usuario.
         val auto = book.autoLiveEdge()
-        val action = liveDelay.onTick(now, lag, target, playing).let { if (auto) it else LiveDelayController.Action.None }
-        if (!auto && p.playbackParameters.speed != 1f) p.setPlaybackSpeed(1f)
-        when (action) {
-            is LiveDelayController.Action.SetSpeed -> p.setPlaybackSpeed(action.speed)
-            is LiveDelayController.Action.Resync -> {
-                resyncing = true
-                resyncStartedAt = now
-                p.setPlaybackSpeed(1f)
-                p.setSeekParameters(SeekParameters.CLOSEST_SYNC)
-                p.seekTo((duration - action.targetDelayMs).coerceAtLeast(0))
-            }
-            LiveDelayController.Action.None -> Unit
-        }
-        val st = liveDelay.stats
+        val ahead = (p.bufferedPosition - p.currentPosition).coerceAtLeast(0)
+        val action = catchUp.onTick(now, lag, ahead, target, playing && now >= jumpGraceUntil)
+        if (auto) applyCatchUp(action)
+        else if (p.playbackParameters.speed != 1f) p.setPlaybackSpeed(1f)
+        val cs = catchUp.stats
+        _live.value = Live(lag, ahead, cs.reserveMs, cs.state)
+        val st = liveDelay.stats.copy(resyncs = cs.steps, discardedMs = cs.recoveredMs, delayMs = lag)
         EngineDiagnostics.update {
             it.copy(liveTargetMs = target, liveDelayMs = st.delayMs, liveResyncs = st.resyncs, liveDiscardedMs = st.discardedMs,
                 enginePiecesBehind = status?.piecesBehindLive ?: it.enginePiecesBehind)

@@ -86,13 +86,29 @@ class MainActivity : ComponentActivity() {
      * pulsación en lugar de cerrar la app (como la v18) y se apunta en el registro.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = try {
-        super.dispatchKeyEvent(event)
+        if (throttleRepeat(event)) true else super.dispatchKeyEvent(event)
     } catch (e: IllegalStateException) {
         recoverKey(e)
     } catch (e: IllegalArgumentException) {
         recoverKey(e)
     } catch (e: IndexOutOfBoundsException) {
         recoverKey(e)
+    }
+
+    private var lastRepeatAt = 0L
+
+    /**
+     * 3h · Flecha MANTENIDA: el mando repite la tecla muy deprisa (20-30 por segundo) y una tele modesta no puede
+     * dibujar tantos movimientos de foco: se encolan y la lista avanza a tirones. Se deja pasar como mucho una
+     * repetición cada [KEY_REPEAT_MIN_MS] (≈ 12 por segundo). La primera pulsación y el soltar nunca se tocan.
+     */
+    private fun throttleRepeat(event: KeyEvent): Boolean {
+        if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount == 0) return false
+        if (event.keyCode !in DPAD_DIRECTIONS) return false
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastRepeatAt < KEY_REPEAT_MIN_MS) return true
+        lastRepeatAt = now
+        return false
     }
 
     private fun recoverKey(e: RuntimeException): Boolean {
@@ -117,5 +133,10 @@ class MainActivity : ComponentActivity() {
         val data = intent?.data ?: return null
         if (data.scheme != "mivisor") return null
         return Codes.normalizeOrNull(data.toString())
+    }
+
+    private companion object {
+        const val KEY_REPEAT_MIN_MS = 85L
+        val DPAD_DIRECTIONS = setOf(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT)
     }
 }
