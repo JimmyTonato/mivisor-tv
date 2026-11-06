@@ -55,7 +55,12 @@ class AppGraph(context: Context) {
     /** Logos (3c): channel-logos.json junto a agenda.json en mivisor-datos, con caché en filesDir/logos. */
     val logos = LogoRepository(File(app.filesDir, "logos"))
     val providers = ProvidersRepository(db, CodeVault(), prefs, streams, log, scope, logos, { LogoRepository.urlFor(agenda.url) },
-        File(app.filesDir, "library-snapshot.json"))
+        File(app.filesDir, "library-snapshot.json"),
+        // 3j · Catálogo central de proveedores (rama providers de mivisor-datos), con copia local.
+        catalogUrl = { com.mivisor.tv.catalog.datos.GitHubData.providersCatalog(agenda.url) },
+        catalogDir = File(app.filesDir, "providers-catalog"))
+    /** 3j · Banners de competiciones (rama banners de mivisor-datos), guardados en la memoria de la app. */
+    val banners = com.mivisor.tv.data.BannerStore(app, scope, { agenda.url }, log)
     /** «Dónde verlo» de los eventos que no traen canales: TheSportsDB, solo al abrir el evento y con caché. */
     val tvChannels = TvChannelsRepository(File(app.cacheDir, "tvchannels"))
     val reminders = RemindersRepository(app, db, log, scope)
@@ -99,7 +104,9 @@ class AppGraph(context: Context) {
         mylist.load()
         reminders.load()
         providers.start()
+        providers.startupSync()
         agenda.load()
+        banners.start()
         // Logos que trae la agenda (futbolenlatv): se aprovechan para los canales de tus proveedores.
         scope.launch {
             agenda.state.collect { st ->

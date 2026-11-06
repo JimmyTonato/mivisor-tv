@@ -1,42 +1,59 @@
-# MiVisor TV · Entrega 3i: Agenda para el mando, «Ahora» en Canales, ficha nueva y más rendimiento
+# MiVisor TV · Entrega 3j: banners de competiciones y catálogo central de proveedores (GitHub)
 
-La 3h / 3h.1 está en `docs/entregas/3h.md`. Se mantienen el paquete `com.mivisor.tv`, los datos, la firma y la verificación SHA-256 de WARP. M3U queda congelado (no se ha tocado).
+La 3i está en `docs/entregas/3i.md`. Se mantienen el paquete, los datos, la firma y la verificación de WARP.
 
-## Diseño (lo de los prototipos)
+Todo se lee de `JimmyTonato/mivisor-datos` igual que la agenda: las ramas `banners` y `providers` se sacan de la dirección de la agenda. Solo HTTPS, con copia local y ETag. Nunca en segundo plano. La APK no lleva ningún código ni credencial.
 
-- **Agenda:**
-  - arriba, el partido enfocado en grande: estado, equipos, canal recomendado y cuánto suele tardar en arrancar, sobre los colores de los equipos;
-  - días y deportes (con su número) en pastillas;
-  - las competiciones visibles **sin rótulo**, las seguidas con ★ (las ocultas en Ajustes no salen);
-  - una fila por competición, con el directo primero y luego por hora. Al final de cada fila, «Toda la competición».
-  - Los nombres son los reales de la agenda (Champions League, etc.).
-  - **OK** abre la ficha; **mantener OK** lo pone ya.
-- **Canales:** cada tarjeta dice qué echan **ahora** (AHORA + barrita de progreso) o «A las HH:MM · partido». Nuevo filtro **«Solo con partido ahora»**.
-- **Ficha del partido:**
-  - escudos a la izquierda y los dos nombres;
-  - «Dónde verlo» en tarjetas ordenadas por fiabilidad. La primera dice «Recomendado · arranca en ~N s»;
-  - los canales anunciados que no tienes salen aparte;
-  - la lista completa de canales sigue debajo.
-- **Botones en pastilla en toda la app** (MvButton): el principal marfil y los demás translúcidos con borde.
+## Banners (rama `banners`)
 
-## Algoritmos y rendimiento
+- **Al abrir la app:**
+  - lee `manifest.json` (como mucho cada 6 h);
+  - después baja los banners que falten, uno a uno;
+  - los guarda en la memoria de la app y **no los vuelve a bajar** salvo que cambien. Si el manifest trae huella (sha256, size…), manda esa; si no, se pregunta a GitHub con ETag (igual = 304, no baja nada).
+- **El manifest se lee de forma flexible:** vale una lista de rutas u objetos con `path`, `file`, `url`…
+- **Competición → banner:**
+  - `futbol-champions-league` para «UEFA Champions League» o «Liga de Campeones»; `combate-ufc` para «UFC 310»…
+  - Es prudente: «AFC Champions League», «femenina», «Sub-19», «WTA»… **no** se quedan con el banner de otra.
+  - Si no hay uno propio, usa el genérico del deporte (`futbol/futbol.webp`) si existe; si no, el fondo de siempre.
+- **Dónde se ve:** portada de Inicio, «Partidos principales», tarjetas «En directo», cabecera de la Agenda y ficha del partido. Los escudos los sigue poniendo la app encima.
+- **Memoria:** se decodifica al tamaño en que se pinta (1920 px en la portada; 1280 px como mucho en aparatos justos de memoria).
 
-- **Arranque instantáneo:** la biblioteca de canales se guarda en disco (`LibrarySnapshot`) y se enseña nada más abrir, mientras se comprueba si hay cambios. Si no los hay, no se reconstruye.
-- **Canal preparado al pasar por encima:**
-  - si te quedas 1,5 s sobre un canal, el motor ya le va pidiendo la imagen;
-  - guarda 1 canal así (2 si el aparato va sobrado de memoria) durante 60 s como mucho, y nunca toca el que estás viendo;
-  - si una fuente tarda más de 5 s en arrancar, se prepara también la siguiente;
-  - se puede apagar en Ajustes › Fuentes › «Preparar el canal al pasar por encima».
-- **Vuelta al directo según la red:** mide cuánto más rápido descarga de lo que se ve.
-  - Con la red justa solo recorta si sigue quedando colchón descargado.
-  - Con la red sobrada recorta más (la mitad del sobrante).
-- **Compose:** configuración de estabilidad (`compose-stability.conf`) para no recomponer de más, y perfil base (`baseline-prof.txt`) para que arranque y se mueva más fino desde la primera vez.
-- **No hecho a propósito, para no dañar:**
-  - cambiar el modelo de puntuación de fuentes: rompería las pruebas de paridad;
-  - agrupar canales «parecidos»: podría mezclar canales distintos;
-  - pruebas de captura o de rendimiento en CI: podrían tumbar la compilación.
+## Escudos e iconos
+
+- Ahora se guardan en la memoria de la app (antes en la caché que Android puede vaciar). Se descargan una vez y, si ya están, no se piden. Se aprovechan los que ya había.
+- Lo que no existe (404) no se vuelve a pedir en 3 días.
+- Límite: 1500 ficheros / 80 MB (se borran los menos usados).
+
+**Ajustes › Banners y escudos:**
+- «Buscar banners nuevos»;
+- «Borrar banners»;
+- «Borrar escudos e iconos»;
+- el espacio que ocupan.
+
+## Catálogo central de proveedores (rama `providers`, `proveedores.json`)
+
+- **Validación:** se descarga y se valida **antes** de tocar nada.
+  - `schema_version` y `providers`, cada uno con `id` y `name` obligatorios;
+  - el id es texto;
+  - los duplicados se comparan sin mayúsculas;
+  - lo que no cumple se ignora y se cuenta.
+- **Aplicación:** los cambios se aplican en una transacción. Sin red, se sigue con lo guardado.
+- **Primera vez:** se cargan todos (aunque el interruptor esté apagado).
+- **Ajustes › Proveedores:**
+  - **Actualizar automáticamente al iniciar** (Sí por defecto): añade los nuevos, renombra y quita los de GitHub que ya no están. Los que borraste a mano no se vuelven a añadir solos.
+  - **Sincronizar ahora con GitHub:** deja los de GitHub igual que el catálogo y vuelve a traer los que borraste.
+  - **Actualizar sin perder mis proveedores:** solo añade y renombra; no quita nada.
+  - **Añadir proveedor manualmente**, editar y borrar, como siempre.
+  - **Cada proveedor indica su origen:** **GitHub** o **Personal**, y el final del código (`…5dcfd`). El código entero no se enseña nunca.
+  - **Última sincronización**, con su resumen.
+- **Los personales no se borran nunca.** Si uno tuyo coincide con uno de GitHub, no se duplica: pasa a «GitHub» y manda el nombre central.
 
 ## Compilación
 
-- **Pruebas:** pasan las **213 pruebas** JVM, con nuevas de la Agenda por competición, «qué echan ahora», la instantánea, el preparado de canales y la red.
+- **Pruebas:** pasan las **228 pruebas** JVM. Hay 15 nuevas:
+  - emparejado con los 21 banners reales;
+  - manifest flexible;
+  - caché con ETag y 404;
+  - catálogo y sincronización de proveedores con el ejemplo 1001–1003 + 9000.
+- **No he podido leer `manifest.json` real** (desde aquí no hay acceso a GitHub). El lector acepta los formatos habituales; si no lo reconoce, la app sigue con su fondo de siempre.
 - **Código Android:** no se ha compilado aquí ni se ha probado en ningún aparato. Se comprueba en GitHub Actions.

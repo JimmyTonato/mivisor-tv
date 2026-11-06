@@ -1,5 +1,7 @@
 package com.mivisor.tv.ui.screens
 
+import com.mivisor.tv.ui.BannerBackground
+import com.mivisor.tv.ui.rememberBanner
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -120,7 +122,9 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
 
     Box(Modifier.fillMaxSize()) {
         // Fondo del diseño: los colores de los dos equipos, de izquierda a derecha, fundidos con el fondo.
-        Box(
+        // 3j · Banner de la competición (si lo hay); si no, los colores de los dos equipos.
+        val banner = rememberBanner(event.sport, event.competition, 1920)
+        if (!BannerBackground(banner, Modifier.fillMaxWidth().height(330.dp))) Box(
             Modifier.fillMaxWidth().height(330.dp)
                 .background(Brush.horizontalGradient(listOf(Color.Transparent, h1.copy(alpha = 0.22f), a1.copy(alpha = 0.55f))))
         )

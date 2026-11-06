@@ -1,5 +1,8 @@
 package com.mivisor.tv.ui.screens
 
+import androidx.compose.ui.draw.clip
+import com.mivisor.tv.ui.BannerBackground
+import com.mivisor.tv.ui.rememberBanner
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
@@ -285,7 +288,10 @@ private fun Hero(
     val start = graph.sources.typicalStart(main.sources.map { it.contentId })
     val phone = form == com.mivisor.tv.ui.design.UiForm.PHONE
     val big = if (phone) 36.sp else 46.sp
+    val banner = rememberBanner(ev.sport, ev.competition, 1920)
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().height(if (phone) 250.dp else 300.dp)) {
+        // 3j · Banner de la competición de fondo (si lo hay en GitHub).
+        BannerBackground(banner)
         val showCrests = away != null && maxWidth >= 720.dp
         if (showCrests) Row(
             Modifier.align(Alignment.CenterEnd).padding(end = MvDims.SafeX * 1.5f, bottom = 20.dp), verticalAlignment = Alignment.CenterVertically
@@ -369,7 +375,10 @@ private fun FeaturedMatch(
         color = MvColors.Surface1, focusedColor = MvColors.Surface2, ringColor = MvColors.Accent2,
         modifier = modifier.height(if (phone) 200.dp else 236.dp)
     ) { focused ->
-        Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(h1.copy(alpha = 0.32f), Color.Transparent, a1.copy(alpha = 0.32f))), shape))
+        // 3j · Banner de la competición; si no hay, el fondo de los colores de los equipos.
+        val banner = rememberBanner(ev.sport, ev.competition, 960)
+        if (!BannerBackground(banner, Modifier.fillMaxSize().clip(shape)))
+            Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(h1.copy(alpha = 0.32f), Color.Transparent, a1.copy(alpha = 0.32f))), shape))
         Column(Modifier.fillMaxSize().padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (live) MvTag("● EN DIRECTO", MvColors.Live, filled = true)
@@ -568,7 +577,9 @@ fun EventTile(ev: AgendaEvent, chs: List<TvChannel>, now: Long, onClick: () -> U
             modifier = Modifier.fillMaxWidth().height(180.dp), shape = RoundedCornerShape(MvDims.Radius),
             color = h2, focusedColor = h2
         ) { _ ->
-            Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(h1, h2, a2, a1))))
+            // 3j · La tarjetita con el banner de la competición detrás (si no hay, los colores de los equipos).
+            val banner = rememberBanner(ev.sport, ev.competition, 640)
+            if (!BannerBackground(banner, scrim = false)) Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(h1, h2, a2, a1))))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x99000000)))))
             Box(Modifier.align(Alignment.TopStart).padding(12.dp)) {
                 if (live) MvTag("● EN DIRECTO", MvColors.Live, filled = true)

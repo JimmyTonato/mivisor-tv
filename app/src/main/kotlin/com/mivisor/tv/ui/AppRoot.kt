@@ -136,7 +136,8 @@ fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
     CompositionLocalProvider(
         LocalDensity provides Density(drawDensity, density.fontScale * (if (bigText) 1.15f else 1f)),
         com.mivisor.tv.ui.design.LocalUiForm provides form,
-        LocalPrewarm provides graph.prewarm::onFocus
+        LocalPrewarm provides graph.prewarm::onFocus,
+        LocalBanners provides graph.banners
     ) {
     MvTheme(lite = lite) {
         Box(Modifier.fillMaxSize().background(MvColors.Bg)) {

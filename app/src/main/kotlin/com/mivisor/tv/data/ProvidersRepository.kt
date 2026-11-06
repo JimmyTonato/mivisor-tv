@@ -37,8 +37,15 @@ data class ProviderInfo(
     val channels: Int,
     val lastOk: Long,
     val error: String?,
-    val usesWarp: Boolean
+    val usesWarp: Boolean,
+    /** 3j · Viene del catálogo central de GitHub (si no, «Personal»). */
+    val github: Boolean = false,
+    /** 3j · Final del código («…5dcfd») para reconocerlo; el código entero nunca se enseña. */
+    val codeHint: String? = null
 )
+
+/** 3j · Estado de la sincronización con el catálogo central. */
+data class CatalogSyncState(val running: Boolean = false, val lastAt: Long = 0, val note: String = "", val error: String? = null)
 
 data class LibraryState(
     val library: TvLibrary = TvLibrary.EMPTY,
@@ -65,8 +72,15 @@ class ProvidersRepository(
     private val logos: LogoRepository,
     private val logoUrl: () -> String,
     /** 3i · Biblioteca ya montada en disco: se enseña al abrir, antes de leer nada ([LibrarySnapshot]). */
-    private val snapshotFile: java.io.File? = null
+    private val snapshotFile: java.io.File? = null,
+    /** 3j · Catálogo central (rama providers): dirección y carpeta de su copia local. */
+    private val catalogUrl: () -> String = { "" },
+    private val catalogDir: java.io.File? = null
 ) {
+    private val hints = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val _sync = MutableStateFlow(CatalogSyncState(lastAt = prefs.providersSyncedAt, note = prefs.providersSyncNote))
+    val sync: StateFlow<CatalogSyncState> = _sync.asStateFlow()
+    private val syncLock = kotlinx.coroutines.sync.Mutex()
     /** Huella de la biblioteca leída del disco al abrir (0 = no hay). */
     @Volatile private var snapshotPrint = 0L
     private var snapshotJob: Job? = null
@@ -134,6 +148,7 @@ class ProvidersRepository(
                 async {
                     val code = vault.open(row.sealedCode) ?: return@async null
                     log.redactor.addSecret(code)
+                    hints[row.id] = hintOf(code)
                     try {
                         val result = streams.load(code, mode)
                         val catalog = CatalogBuilder.build(result.items)
@@ -266,6 +281,11 @@ class ProvidersRepository(
         scope.launch {
             withContext(Dispatchers.IO) { db.deleteProvider(id) }
             prefs.warpProviders = prefs.warpProviders - id
+            // 3j · Si venía de GitHub, al abrir la app no se vuelve a añadir (sincronizar a mano sí lo trae).
+            if (id in prefs.githubProviders) {
+                prefs.githubProviders = prefs.githubProviders - id
+                prefs.dismissedProviders = prefs.dismissedProviders + id
+            }
             refresh(cacheFirst = true)
         }
     }
@@ -284,12 +304,98 @@ class ProvidersRepository(
 
     fun usesWarp(providerId: String): Boolean = providerId in prefs.warpProviders
 
-    private fun ProviderRow.info(warp: Set<String>) = ProviderInfo(id, name, channels, lastOk, lastError, id in warp)
+    private fun ProviderRow.info(warp: Set<String>) =
+        ProviderInfo(id, name, channels, lastOk, lastError, id in warp, id in prefs.githubProviders, hints[id])
+
+    // ------------------------------------------------------------------ 3j · catálogo central (GitHub, rama providers)
+
+    /**
+     * Al abrir la app: la primera vez siempre (carga inicial); después, solo con «Actualizar automáticamente al
+     * iniciar» activado. Sin red no cambia nada (se sigue con lo guardado).
+     */
+    fun startupSync() {
+        when {
+            !prefs.providersSeeded -> syncCatalog(com.mivisor.tv.catalog.datos.CentralProviders.Mode.FULL, firstRun = true)
+            prefs.providersAutoSync -> syncCatalog(com.mivisor.tv.catalog.datos.CentralProviders.Mode.AUTO)
+        }
+    }
+
+    /**
+     * Descarga y valida proveedores.json y SOLO entonces aplica los cambios, en una transacción. Nunca bloquea la
+     * pantalla. [onDone] recibe el resumen para un aviso.
+     */
+    fun syncCatalog(mode: com.mivisor.tv.catalog.datos.CentralProviders.Mode, firstRun: Boolean = false, onDone: (String) -> Unit = {}) {
+        val dir = catalogDir ?: return
+        scope.launch {
+            if (!syncLock.tryLock()) { onDone("Ya se está sincronizando"); return@launch }
+            _sync.value = _sync.value.copy(running = true, error = null)
+            try {
+                val manual = mode != com.mivisor.tv.catalog.datos.CentralProviders.Mode.AUTO
+                val file = com.mivisor.tv.catalog.datos.CachedJson(dir, "proveedores.json", ttlMs = if (manual) 0 else 10 * 60_000L)
+                val result = withContext(Dispatchers.IO) {
+                    file.load(catalogUrl(), force = manual) { com.mivisor.tv.catalog.datos.CentralProviders.parse(it) }
+                }
+                val parsed = com.mivisor.tv.catalog.datos.CentralProviders.parse(result.text)
+                parsed.providers.forEach { log.redactor.addSecret(it.code) }
+                val rows = withContext(Dispatchers.IO) { db.providers() }
+                val github = prefs.githubProviders
+                val plan = com.mivisor.tv.catalog.datos.CentralProviders.plan(
+                    parsed.providers, rows.map { com.mivisor.tv.catalog.datos.CentralProviders.Local(it.id, it.name, it.id in github) },
+                    mode, prefs.dismissedProviders, ::idOf
+                )
+                val now = System.currentTimeMillis()
+                withContext(Dispatchers.IO) {
+                    val start = (rows.maxOfOrNull { it.position } ?: -1) + 1
+                    val adds = plan.add.mapIndexed { i, a ->
+                        hints[a.id] = hintOf(a.code)
+                        ProviderRow(a.id, a.name, vault.seal(a.code), now, 0, 0, null, start + i)
+                    }
+                    db.applyProviderChanges(adds, plan.rename, plan.remove)
+                }
+                prefs.githubProviders = plan.github
+                prefs.dismissedProviders = plan.dismissed
+                if (plan.remove.isNotEmpty()) prefs.warpProviders = prefs.warpProviders - plan.remove
+                prefs.providersSeeded = true
+                val note = when {
+                    result.offline -> "Sin conexión con GitHub: se mantienen los proveedores guardados"
+                    plan.changes == 0 -> "Al día · ${parsed.providers.size} en GitHub"
+                    else -> listOfNotNull(
+                        plan.add.size.takeIf { it > 0 }?.let { "$it nuevos" },
+                        plan.rename.size.takeIf { it > 0 }?.let { "$it renombrados" },
+                        plan.remove.size.takeIf { it > 0 }?.let { "$it quitados" },
+                        plan.adopt.size.takeIf { it > 0 }?.let { "$it pasan a GitHub" }
+                    ).joinToString(" · ")
+                } + if (parsed.skipped > 0) " · ${parsed.skipped} entradas no válidas ignoradas" else ""
+                if (!result.offline) { prefs.providersSyncedAt = now; prefs.providersSyncNote = note }
+                _sync.value = CatalogSyncState(false, prefs.providersSyncedAt, note, if (result.offline) note else null)
+                log.add("Proveedores", "Catálogo central (${mode.name.lowercase()}): $note")
+                if (plan.changes > 0 || firstRun) refresh(cacheFirst = true)
+                else _state.value = _state.value.copy(providers = withContext(Dispatchers.IO) { db.providers() }.map { it.info(prefs.warpProviders) })
+                onDone(note)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val text = when (e) {
+                    is com.mivisor.tv.catalog.datos.InvalidProviderCatalogException -> e.message ?: "Catálogo no válido"
+                    is java.io.IOException -> "Sin conexión con GitHub: se mantienen los proveedores guardados"
+                    else -> "No se pudo sincronizar (${e.javaClass.simpleName})"
+                }
+                log.add("Proveedores", "Catálogo central: $text")
+                _sync.value = _sync.value.copy(running = false, error = text)
+                onDone(text)
+            } finally {
+                syncLock.unlock()
+            }
+        }
+    }
 
     companion object {
         /** Id interno estable del proveedor: huella del código (el código nunca se guarda en claro ni se muestra). */
         fun idOf(code: String): String =
             MessageDigest.getInstance("SHA-256").digest(code.toByteArray()).take(8).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+        /** 3j · «…5dcfd»: solo el final del código. */
+        fun hintOf(code: String): String = "…" + code.takeLast(5)
 
         fun friendly(e: Throwable): String = when (e) {
             is CodeNotFoundException -> "Ese código no existe o ya no está publicado"

@@ -82,6 +82,7 @@ private enum class Page(val title: String, val icon: Int, val intro: String?) {
     VERIFIER("Verificador", MvIcons.Check, "Prueba fuentes mientras MiVisor TV está abierta, para que «lista» signifique algo. Nunca trabaja con la tele apagada ni en segundo plano. Viene desactivado: MiVisor TV ya aprende de lo que ves."),
     DISPLAY("Pantalla y rendimiento", MvIcons.Tune, "El modo ligero quita animaciones, sombras y escalados. Se recomienda en aparatos con 1,5 GB de memoria o menos."),
     AGENDA("Agenda", MvIcons.Calendar, null),
+    IMAGES("Banners y escudos", MvIcons.Grid, "Los banners de las competiciones y los escudos e iconos se guardan en la tele la primera vez y no se vuelven a descargar salvo que cambien en GitHub. Bórralos si quieres forzar que se descarguen de nuevo."),
     COMPETITIONS("Competiciones", MvIcons.Trophy, "Las que han llegado en la agenda. OK cambia entre Visible, Seguida (sale en Inicio) y Oculta (no sale en ninguna pantalla). Se guarda en la tele y en la copia cifrada."),
     DIAGNOSTICS("Diagnóstico", MvIcons.Pulse, null),
     MOBILE("Móvil y copias", MvIcons.Phone, "El móvil se conecta a la tele por la red de casa, sin servidores externos. Cada código QR caduca en 5 minutos."),
@@ -149,6 +150,7 @@ fun SettingsScreen(graph: AppGraph, nav: Nav, toaster: Toaster, onLook: () -> Un
                     Page.VERIFIER -> VerifierPage(graph, onChange = { values++ })
                     Page.DISPLAY -> DisplayPage(graph, onLook)
                     Page.AGENDA -> AgendaPage(graph, toaster)
+                    Page.IMAGES -> ImagesPage(graph, toaster)
                     Page.COMPETITIONS -> CompetitionsPage(graph, onChange = { values++ })
                     Page.DIAGNOSTICS -> DiagnosticsPage(graph, nav)
                     Page.MOBILE -> MobilePage(nav)
@@ -184,23 +186,57 @@ fun SettingsScreen(graph: AppGraph, nav: Nav, toaster: Toaster, onLook: () -> Un
 @Composable
 private fun ProvidersPage(graph: AppGraph, nav: Nav, toaster: Toaster, onEdit: (ProviderInfo) -> Unit) {
     val lib by graph.providers.state.collectAsState()
+    val sync by graph.providers.sync.collectAsState()
+    var auto by remember { mutableStateOf(graph.prefs.providersAutoSync) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // 3j · Catálogo central de GitHub (rama providers de mivisor-datos).
+        MvPanel {
+            MvText("Catálogo central (GitHub)", MvType.Heading)
+            Spacer(Modifier.height(4.dp))
+            MvText(
+                when {
+                    sync.running -> "Sincronizando…"
+                    sync.lastAt > 0 -> "Última sincronización: ${hhmm(sync.lastAt)} · ${ago(sync.lastAt)}" + (if (sync.note.isNotEmpty()) " · ${sync.note}" else "")
+                    else -> "Todavía no se ha sincronizado"
+                } + (sync.error?.let { "\n$it" } ?: ""),
+                MvType.Small, color = if (sync.error != null) MvColors.Soon else MvColors.Text2
+            )
+            Spacer(Modifier.height(10.dp))
+            MvRow("Actualizar automáticamente al iniciar", { auto = !auto; graph.prefs.providersAutoSync = auto },
+                subtitle = if (auto) "Al abrir la app añade los nuevos, renombra y quita los que ya no están en GitHub. Tus proveedores personales no se tocan."
+                else "No se cambia nada al abrir la app. Puedes añadir, editar y borrar a tu gusto.",
+                icon = MvIcons.Refresh) { MvSwitch(auto) }
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MvButton("Sincronizar ahora con GitHub", {
+                    toaster.show("Sincronizando con GitHub…")
+                    graph.providers.syncCatalog(com.mivisor.tv.catalog.datos.CentralProviders.Mode.FULL) { toaster.show(it) }
+                }, icon = MvIcons.Refresh, enabled = !sync.running)
+                MvButton("Actualizar sin perder mis proveedores", {
+                    toaster.show("Actualizando desde GitHub…")
+                    graph.providers.syncCatalog(com.mivisor.tv.catalog.datos.CentralProviders.Mode.KEEP_MINE) { toaster.show(it) }
+                }, enabled = !sync.running)
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            MvButton("Añadir proveedor", { nav.go(Route.AddProvider()) }, icon = MvIcons.Add, primary = true)
+            MvButton("Añadir proveedor manualmente", { nav.go(Route.AddProvider()) }, icon = MvIcons.Add, primary = true)
             MvButton(if (lib.loading) "Actualizando…" else "Actualizar todos", { graph.providers.refresh(); toaster.show("Actualizando proveedores…") }, icon = MvIcons.Refresh, enabled = lib.providers.isNotEmpty())
         }
         if (lib.providers.isEmpty()) MvText("Todavía no hay proveedores.", MvType.Body, color = MvColors.Text2)
         lib.providers.forEach { p ->
             MvRow(
                 title = p.name,
-                subtitle = (if (p.error != null) "Error: ${p.error}" else "${p.channels} canales · actualizado ${ago(p.lastOk)}") + if (p.usesWarp) " · necesita WARP" else "",
+                subtitle = (if (p.github) "GitHub" else "Personal") + (p.codeHint?.let { " · código $it" } ?: "") + " · " +
+                    (if (p.error != null) "Error: ${p.error}" else if (p.lastOk == 0L) "pendiente de leer" else "${p.channels} canales · actualizado ${ago(p.lastOk)}") +
+                    if (p.usesWarp) " · necesita WARP" else "",
                 icon = MvIcons.Layers,
                 trailing = if (p.error != null) "Revisar" else "OK", trailingColor = if (p.error != null) MvColors.Bad else MvColors.Ok,
                 onClick = { onEdit(p) }
             )
         }
         Spacer(Modifier.height(4.dp))
-        MvText("Los canales con el mismo nombre en varios proveedores se juntan en uno; sus enlaces pasan a ser fuentes de ese canal.", MvType.Caption)
+        MvText("Los canales con el mismo nombre en varios proveedores se juntan en uno; sus enlaces pasan a ser fuentes de ese canal. " +
+            "«Sincronizar ahora» deja los de GitHub igual que en el catálogo (y vuelve a traer los que borraste); «Actualizar sin perder mis proveedores» solo añade y renombra.", MvType.Caption)
     }
 }
 
@@ -452,6 +488,39 @@ private fun AgendaPage(graph: AppGraph, toaster: Toaster) {
             MvButton("Usar la de por defecto", { url = ""; graph.prefs.agendaUrl = ""; graph.agenda.load(force = true) })
         }
         MvText("MiVisor TV solo lee la agenda publicada en GitHub. No depende de la Raspberry ni cambia nada en ella.", MvType.Caption)
+    }
+}
+
+// ------------------------------------------------------------------ Banners y escudos (3j)
+
+@Composable
+private fun ImagesPage(graph: AppGraph, toaster: Toaster) {
+    val catalog by graph.banners.catalog.collectAsState()
+    val version by graph.banners.version.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var crests by remember { mutableIntStateOf(0) }
+    val bannerBytes by androidx.compose.runtime.produceState(0L, version) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { graph.banners.usedBytes() }
+    }
+    val crestBytes by androidx.compose.runtime.produceState(0L, crests) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.mivisor.tv.ui.ImageLoader.usedBytes(context) }
+    }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    fun mb(b: Long) = if (b < 1024 * 1024) "${b / 1024} KB" else "%.1f MB".format(b / 1048576.0)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        MvPanel {
+            KeyValue("Banners", (catalog?.entries?.size?.let { "$it en GitHub" } ?: "Sin catálogo todavía") + " · ${mb(bannerBytes)} guardados")
+            KeyValue("Escudos e iconos", "${mb(crestBytes)} guardados (máx. 80 MB)")
+            KeyValue("Origen", "mivisor-datos (GitHub), rama banners")
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            MvButton("Buscar banners nuevos", { toaster.show("Consultando GitHub…"); graph.banners.refresh(force = true) { toaster.show(it) } }, icon = MvIcons.Refresh, primary = true)
+            MvButton("Borrar banners", { graph.banners.clear { toaster.show("Banners borrados: se vuelven a descargar") } }, icon = MvIcons.Delete)
+            MvButton("Borrar escudos e iconos", {
+                scope.launch { com.mivisor.tv.ui.ImageLoader.clear(context); crests++; toaster.show("Escudos e iconos borrados: se descargarán al verlos") }
+            }, icon = MvIcons.Delete)
+        }
+        MvText("Si una competición no tiene banner propio se usa el de su deporte (si existe) y, si no, el fondo de siempre.", MvType.Caption)
     }
 }
 

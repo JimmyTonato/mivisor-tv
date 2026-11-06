@@ -37,8 +37,11 @@ import java.security.MessageDigest
 /**
  * Cargador de logos de la v18 (sin Coil/Glide: menos peso y la RAM bajo control en teles de 1 GB).
  *  - Decodifica al tamaño en que se pinta (inSampleSize).
- *  - Caché en memoria acotada (1/32 del heap, máx. 6 MB) y en disco (máx. 300 ficheros).
- *  - Si falla (sin red, SVG, 404, imagen borrada…) se pinta el respaldo y no se reintenta en esa sesión.
+ *  - Caché en memoria acotada (1/32 del heap, máx. 6 MB).
+ *  - 3j · En disco, en la memoria de la app (filesDir/escudos, no en la caché que el sistema puede vaciar): cada
+ *    escudo o icono se descarga UNA vez; si ya está, no se pide. Máx. 1500 ficheros / 80 MB (se van los menos usados).
+ *  - 3j · Lo que no existe (404) se apunta y no se vuelve a pedir en 3 días.
+ *  - «Borrar escudos e iconos» (Ajustes) lo vacía: se vuelven a descargar al verlos.
  */
 object ImageLoader {
     private val memory: LruCache<String, Bitmap> by lazy {
@@ -49,6 +52,7 @@ object ImageLoader {
     }
     private val failed = HashSet<String>()
     private val lock = Mutex()
+    @Volatile private var missing: MutableMap<String, Long>? = null
 
     fun peek(url: String?, sizePx: Int): ImageBitmap? = url?.let { memory.get(key(it, sizePx))?.asImageBitmap() }
 
@@ -64,18 +68,44 @@ object ImageLoader {
         }
     }
 
+    fun dir(context: Context): File = File(context.filesDir, "escudos")
+
+    private fun missingFile(dir: File) = File(dir, ".missing")
+
+    private fun missing(dir: File): MutableMap<String, Long> = missing ?: runCatching {
+        missingFile(dir).readLines().mapNotNull { l -> l.split('\t').takeIf { it.size == 2 }?.let { it[0] to (it[1].toLongOrNull() ?: 0L) } }.toMap(HashMap())
+    }.getOrDefault(HashMap()).also { missing = it }
+
+    private fun markMissing(dir: File, name: String) {
+        val m = missing(dir)
+        val now = System.currentTimeMillis()
+        m[name] = now
+        m.entries.removeAll { now - it.value > MISSING_MS }
+        runCatching { missingFile(dir).writeText(m.entries.joinToString("\n") { "${it.key}\t${it.value}" }) }
+    }
+
     private fun download(context: Context, url: String): File? {
         if (!url.startsWith("https://")) return null
-        val dir = File(context.cacheDir, "img").apply { mkdirs() }
-        val file = File(dir, sha1(url))
-        if (file.isFile && file.length() > 0) return file
+        val dir = dir(context).apply { mkdirs() }
+        val name = sha1(url)
+        val file = File(dir, name)
+        if (file.isFile && file.length() > 0) {
+            // Usado ahora: es de los que se quedan si hay que hacer sitio.
+            if (System.currentTimeMillis() - file.lastModified() > 86_400_000L) file.setLastModified(System.currentTimeMillis())
+            return file
+        }
+        // Los de la caché antigua (3i y anteriores) se aprovechan en vez de volver a bajarlos.
+        File(File(context.cacheDir, "img"), name).takeIf { it.isFile && it.length() > 0 }?.let { old -> if (old.renameTo(file)) return file }
+        missing(dir)[name]?.let { at -> if (System.currentTimeMillis() - at < MISSING_MS) return null }
         return try {
             val connection = URL(url).openConnection() as HttpURLConnection
             try {
                 connection.connectTimeout = 6_000
                 connection.readTimeout = 8_000
                 connection.setRequestProperty("User-Agent", "MiVisorTV/1")
-                if (connection.responseCode != 200) return null
+                val code = connection.responseCode
+                if (code == 404 || code == 410) markMissing(dir, name)
+                if (code != 200) return null
                 // Imagen borrada: el servidor redirige a su imagen de aviso. Eso no es un logo.
                 if (LogoCatalog.isPlaceholder(connection.url?.toString())) return null
                 val tmp = File(dir, file.name + ".tmp")
@@ -113,9 +143,32 @@ object ImageLoader {
     }.getOrNull()
 
     private fun prune(dir: File) {
-        val files = dir.listFiles() ?: return
-        if (files.size <= MAX_FILES) return
-        files.sortedBy { it.lastModified() }.take(files.size - MAX_FILES).forEach { it.delete() }
+        val files = dir.listFiles()?.filter { it.isFile && !it.name.startsWith(".") } ?: return
+        var total = files.sumOf { it.length() }
+        if (files.size <= MAX_FILES && total <= MAX_DISK) return
+        var count = files.size
+        for (f in files.sortedBy { it.lastModified() }) {
+            if (count <= MAX_FILES && total <= MAX_DISK) break
+            total -= f.length(); count--
+            f.delete()
+        }
+    }
+
+    /** 3j · Espacio que ocupan los escudos e iconos guardados. */
+    fun usedBytes(context: Context): Long =
+        (dir(context).listFiles()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L) +
+            (File(context.cacheDir, "img").listFiles()?.sumOf { it.length() } ?: 0L)
+
+    /** 3j · «Borrar escudos e iconos»: disco y memoria. Se vuelven a descargar al verlos. */
+    suspend fun clear(context: Context) = withContext(Dispatchers.IO) {
+        lock.withLock {
+            runCatching { dir(context).deleteRecursively() }
+            runCatching { File(context.cacheDir, "img").deleteRecursively() }
+            missing = HashMap()
+            synchronized(failed) { failed.clear() }
+            memory.evictAll()
+            LogoAnalyzer.clear()
+        }
     }
 
     private fun key(url: String, sizePx: Int) = "$sizePx|$url"
@@ -124,7 +177,9 @@ object ImageLoader {
         MessageDigest.getInstance("SHA-1").digest(text.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private const val MAX_BYTES = 1_000_000
-    private const val MAX_FILES = 300
+    private const val MAX_FILES = 1500
+    private const val MAX_DISK = 80L * 1024 * 1024
+    private const val MISSING_MS = 3 * 86_400_000L
 }
 
 /**
@@ -178,6 +233,8 @@ object LogoAnalyzer {
     }
 
     fun peek(url: String, sizePx: Int): LogoLook? = cache.get("$sizePx|$url")
+
+    fun clear() = cache.evictAll()
 
     suspend fun load(context: Context, url: String, sizePx: Int): LogoLook? {
         peek(url, sizePx)?.let { return it }

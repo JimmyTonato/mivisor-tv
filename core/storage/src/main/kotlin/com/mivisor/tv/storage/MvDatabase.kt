@@ -91,6 +91,25 @@ class MvDatabase(context: Context) : SQLiteOpenHelper(context.applicationContext
         writableDatabase.delete("provider", "id = ?", arrayOf(id))
     }
 
+    /** 3j · Cambios del catálogo central en UNA transacción: o se aplican todos o ninguno. */
+    fun applyProviderChanges(add: List<ProviderRow>, rename: Map<String, String>, remove: Set<String>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            add.forEach { p ->
+                db.insertWithOnConflict("provider", null, ContentValues().apply {
+                    put("id", p.id); put("name", p.name); put("code", p.sealedCode); put("position", p.position)
+                    put("added_at", p.addedAt); put("last_ok", p.lastOk); put("channels", p.channels); put("last_error", p.lastError)
+                }, SQLiteDatabase.CONFLICT_IGNORE)
+            }
+            rename.forEach { (id, name) -> db.update("provider", ContentValues().apply { put("name", name) }, "id = ?", arrayOf(id)) }
+            remove.forEach { id -> db.delete("provider", "id = ?", arrayOf(id)) }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     // ------------------------------------------------------------------ Mi lista
 
     fun favorites(): List<Pair<String, String>> =

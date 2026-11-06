@@ -1,5 +1,7 @@
 package com.mivisor.tv.ui.screens
 
+import com.mivisor.tv.ui.BannerBackground
+import com.mivisor.tv.ui.rememberBanner
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -269,6 +271,8 @@ private fun AgendaDetail(
     Box(Modifier.fillMaxWidth().height(138.dp)
         .background(Brush.horizontalGradient(listOf(h1.copy(alpha = 0.30f), Color.Transparent, a1.copy(alpha = 0.24f))))
         .background(Brush.verticalGradient(listOf(Color.Transparent, MvColors.Bg)))) {
+        // 3j · El banner de la competición del partido enfocado.
+        BannerBackground(rememberBanner(ev?.sport, ev?.competition, 1920))
         Column(Modifier.fillMaxSize().padding(horizontal = MvDims.SafeX, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (ev != null) {

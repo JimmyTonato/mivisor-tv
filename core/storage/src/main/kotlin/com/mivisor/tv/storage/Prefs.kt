@@ -156,6 +156,36 @@ class Prefs(context: Context) {
         settings["auto_live"]?.let { autoLive = it == "true" }
     }
 
+    // ------------------------------------------------------------------ 3j: catálogo central de proveedores
+
+    /** Actualizar los proveedores desde GitHub (rama providers) al abrir la app. */
+    var providersAutoSync: Boolean
+        get() = sp.getBoolean("providers_auto_sync", true)
+        set(v) = sp.edit().putBoolean("providers_auto_sync", v).apply()
+
+    /** Ya se hizo la primera carga del catálogo central (se hace una vez aunque el interruptor esté apagado). */
+    var providersSeeded: Boolean
+        get() = sp.getBoolean("providers_seeded", false)
+        set(v) = sp.edit().putBoolean("providers_seeded", v).apply()
+
+    /** Ids de los proveedores que vienen de GitHub (el resto son «Personal»). */
+    var githubProviders: Set<String>
+        get() = sp.getStringSet("github_providers", emptySet())?.toSet() ?: emptySet()
+        set(v) = sp.edit().putStringSet("github_providers", v).apply()
+
+    /** De GitHub pero borrados a mano: al abrir la app no se vuelven a añadir (sincronizar a mano sí). */
+    var dismissedProviders: Set<String>
+        get() = sp.getStringSet("dismissed_providers", emptySet())?.toSet() ?: emptySet()
+        set(v) = sp.edit().putStringSet("dismissed_providers", v).apply()
+
+    var providersSyncedAt: Long
+        get() = sp.getLong("providers_synced_at", 0L)
+        set(v) = sp.edit().putLong("providers_synced_at", v).apply()
+
+    var providersSyncNote: String
+        get() = sp.getString("providers_sync_note", "") ?: ""
+        set(v) = sp.edit().putString("providers_sync_note", v).apply()
+
     /** Motor: "outpace" (por defecto) o "ace" (app de Ace Stream). */
     var engine: String
         get() = sp.getString("engine", "outpace") ?: "outpace"
