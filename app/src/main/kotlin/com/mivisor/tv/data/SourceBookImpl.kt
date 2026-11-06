@@ -153,6 +153,8 @@ class SourceBookImpl(
         else -> 60_000L
     }
 
+    override fun prewarmNext(): Boolean = prefs.prewarm && !com.mivisor.tv.outpace.EngineManager.isLowRam(app)
+
     override fun autoLiveEdge(): Boolean = prefs.autoLive
 
     /** Quitar la pausa o la cuarentena de una fuente (Ajustes › fuentes del canal). */

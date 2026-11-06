@@ -104,3 +104,36 @@ class CatchUpTest {
         assertEquals(6_000L, CatchUpController().also { it.reset(0) }.reserveMs(1_000, 6_000))
     }
 }
+
+class CatchUpMarginTest {
+    /** Simulación con red de [rate] × lo que se ve (1,0 = justa; 1,3 = sobrada). */
+    private fun run(rate: Double, delay0: Long, ahead0: Long, seconds: Int): Pair<Long, List<CatchUpController.Action>> {
+        val c = CatchUpController()
+        c.reset(0)
+        var delay = delay0
+        var ahead = ahead0
+        var speed = 1f
+        val acts = ArrayList<CatchUpController.Action>()
+        var now = 0L
+        repeat(seconds) {
+            now += 1_000
+            val extra = ((speed - 1f) * 1_000).toLong()
+            delay -= extra
+            ahead = (ahead + (rate * 1_000).toLong() - 1_000 - extra).coerceIn(0, delay)
+            when (val a = c.onTick(now, delay, ahead, 6_000, true)) {
+                is CatchUpController.Action.SetSpeed -> { speed = a.speed; acts += a }
+                is CatchUpController.Action.SeekForward -> { delay -= a.ms; ahead -= a.ms; acts += a }
+                CatchUpController.Action.None -> Unit
+            }
+        }
+        return delay to acts
+    }
+
+    @Test fun conRedSobradaRecortaMasYAntes() {
+        val (sobrada, a1) = run(rate = 1.3, delay0 = 60_000, ahead0 = 20_000, seconds = 150)
+        val (justa, a2) = run(rate = 1.0, delay0 = 60_000, ahead0 = 20_000, seconds = 150)
+        assertTrue("con red sobrada se acerca más: $sobrada vs $justa", sobrada < justa)
+        assertTrue("con red justa se conserva el colchón descargado ($a2)", a2.filterIsInstance<CatchUpController.Action.SeekForward>().sumOf { it.ms } <= 14_000)
+        assertTrue(a1.isNotEmpty())
+    }
+}

@@ -96,7 +96,10 @@ class TvLibrary(
      */
     val providers: List<TvSection> by lazy {
         val brands = brandSections
-        val others = channels.filter { c -> brands.none { s -> s.channels.any { it.id == c.id } } }
+        // 3i · Con un conjunto de ids (antes: cada canal contra todos los de todas las marcas, cuadrático; y se
+        // calculaba en el hilo de la pantalla al entrar en Canales).
+        val inBrand = HashSet<String>().also { set -> brands.forEach { s -> s.channels.forEach { set += it.id } } }
+        val others = channels.filter { it.id !in inBrand }
         brands + if (others.isNotEmpty()) listOf(TvSection(OTHERS_KEY, "Otros / sin identificar", others)) else emptyList()
     }
 

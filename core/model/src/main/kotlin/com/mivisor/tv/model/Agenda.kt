@@ -47,15 +47,21 @@ class AgendaEvent(
         val PERSON_SPORTS = setOf("tenis", "ufc")
     }
 
+    /** Duración prevista (la misma que decide si está en directo). */
+    val durationMillis: Long get() = when (sport) {
+        "baloncesto" -> 150L
+        "tenis" -> 180L
+        "formula1", "motor" -> 120L
+        "motogp" -> 60L
+        "ufc" -> 300L      // la velada completa
+        else -> 120L
+    } * 60_000L
+
+    /** 3i · Cuánto lleva (0..1) un evento en directo, para la barrita de «Ahora» en Canales. */
+    fun progress(now: Long): Float = ((now - startMillis).toFloat() / durationMillis).coerceIn(0f, 1f)
+
     fun status(now: Long): EventStatus {
-        val duration = when (sport) {
-            "baloncesto" -> 150L
-            "tenis" -> 180L
-            "formula1", "motor" -> 120L
-            "motogp" -> 60L
-            "ufc" -> 300L      // la velada completa
-            else -> 120L
-        } * 60_000L
+        val duration = durationMillis
         return when {
             now < startMillis - 5 * 60_000L -> EventStatus.UPCOMING
             now <= startMillis + duration -> EventStatus.LIVE

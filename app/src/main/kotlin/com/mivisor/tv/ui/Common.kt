@@ -251,3 +251,10 @@ fun PhoneQrCard(title: String, body: String, onText: (String) -> Unit, modifier:
         }
     }
 }
+
+
+/**
+ * 3i · Precarga: las tarjetas de canal y de partido avisan al recibir el foco (y el motor prepara su mejor fuente si
+ * el foco se queda 1,5 s). Se da desde la raíz de la app ([com.mivisor.tv.data.Prewarm]).
+ */
+val LocalPrewarm = androidx.compose.runtime.staticCompositionLocalOf<(com.mivisor.tv.catalog.tv.TvChannel?) -> Unit> { {} }

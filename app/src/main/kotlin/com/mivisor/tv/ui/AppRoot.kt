@@ -135,7 +135,8 @@ fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
     val form = device.ui()
     CompositionLocalProvider(
         LocalDensity provides Density(drawDensity, density.fontScale * (if (bigText) 1.15f else 1f)),
-        com.mivisor.tv.ui.design.LocalUiForm provides form
+        com.mivisor.tv.ui.design.LocalUiForm provides form,
+        LocalPrewarm provides graph.prewarm::onFocus
     ) {
     MvTheme(lite = lite) {
         Box(Modifier.fillMaxSize().background(MvColors.Bg)) {

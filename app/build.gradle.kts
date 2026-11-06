@@ -19,6 +19,12 @@ val releaseKeystore: String? = System.getenv("SIGNING_KEYSTORE_PATH")?.takeIf { 
 val agendaUrl = (findProperty("agendaUrl") as String?)
     ?: "https://raw.githubusercontent.com/JimmyTonato/mivisor-datos/main/agenda.json"
 
+
+// 3i · Modelos inmutables marcados como estables para Compose (menos redibujados al mover el foco).
+composeCompiler {
+    stabilityConfigurationFile.set(rootProject.layout.projectDirectory.file("compose-stability.conf"))
+}
+
 android {
     namespace = "com.mivisor.tv"
     compileSdk = 35

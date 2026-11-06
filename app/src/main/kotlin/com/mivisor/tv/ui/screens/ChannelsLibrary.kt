@@ -44,6 +44,7 @@ import com.mivisor.tv.catalog.tv.ChannelFamily
 import com.mivisor.tv.catalog.tv.ChannelSeriesGrouping
 import com.mivisor.tv.catalog.tv.TvChannel
 import com.mivisor.tv.catalog.tv.TvLibrary
+import com.mivisor.tv.model.OnChannels
 import com.mivisor.tv.ui.InitialFocus
 import com.mivisor.tv.ui.Nav
 import com.mivisor.tv.ui.RemoteImage
@@ -74,6 +75,8 @@ object ChannelsMemory {
     const val SINGLES = "__sueltos"
     /** Último canal abierto desde aquí: recibe el foco al volver. */
     var lastChannel: String? = null
+    /** 3i · «Solo con partido ahora»: los canales que, según la agenda, emiten algo en directo. */
+    var onlyLive by mutableStateOf(false)
     var gridIndex = 0
 }
 
@@ -118,6 +121,18 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
     }
 
     val mem = ChannelsMemory
+    // 3i · Qué echan ahora y a continuación en cada canal (de la agenda), fuera del hilo de la pantalla y al minuto.
+    val agendaState by graph.agenda.state.collectAsState()
+    val onAir by androidx.compose.runtime.produceState(emptyMap<String, OnChannels.NowNext>(), agendaState.agenda, library) {
+        val events = agendaState.agenda?.events.orEmpty()
+        while (true) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                OnChannels.build(events, System.currentTimeMillis(), { name -> library.forAgenda(name, 3).map { it.id } })
+            }
+            delay(60_000)
+        }
+    }
+    val liveIds = remember(onAir) { onAir.filterValues { it.now != null }.keys }
     val favorites = mine.favorites.map { it.first }.toSet()
     val providers = library.providers
     val providerSec = providers.firstOrNull { it.key == mem.provider }
@@ -133,8 +148,10 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
     val multiSeries = allSeries.filter { it.channels.size > 1 }
     val singles = remember(allSeries) { TvLibrary.sorted(allSeries.filter { it.channels.size == 1 }.flatMap { it.channels }) }
     val series = mem.series?.takeIf { k -> k == ChannelsMemory.SINGLES && singles.isNotEmpty() || multiSeries.any { it.key == k } }
-    val entries: List<Entry> = remember(base, family, series, mem.view, multiSeries.size) {
+    val onlyLive = mem.onlyLive && liveIds.isNotEmpty()
+    val entries: List<Entry> = remember(base, family, series, mem.view, multiSeries.size, onlyLive, liveIds) {
         when {
+            onlyLive -> TvLibrary.sorted(base.filter { it.id in liveIds }).map { Entry.Item(it) }
             mem.view == 2 -> base.map { Entry.Item(it) }
             mem.view == 1 -> TvLibrary.sorted(if (family == null) base else base.filter { it.family == family }).map { Entry.Item(it) }
             series == ChannelsMemory.SINGLES -> singles.map { Entry.Item(it) }
@@ -180,7 +197,8 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
             SmallAction("Proveedores", MvIcons.Settings) { nav.tab(Route.Settings) }
         }
         Spacer(Modifier.height(10.dp))
-        // Modo: pestañas segmentadas.
+        // Modo: pestañas segmentadas y, a la derecha, «Solo con partido ahora».
+        Row(verticalAlignment = Alignment.CenterVertically) {
         Row(
             Modifier.background(MvColors.Surface1, RoundedCornerShape(12.dp)).padding(3.dp),
             horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -188,6 +206,10 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
             Segment("Proveedores", mem.view == 0, if (entryTarget == null) first else null) { if (mem.view != 0) { mem.view = 0; mem.family = null; mem.series = null; mem.gridIndex = 0 } }
             Segment("Categorías", mem.view == 1, null) { if (mem.view != 1) { mem.view = 1; mem.family = null; mem.series = null; mem.gridIndex = 0 } }
             Segment("Favoritos · ${favorites.size}", mem.view == 2, null) { if (mem.view != 2) { mem.view = 2; mem.gridIndex = 0 } }
+        }
+            Spacer(Modifier.weight(1f))
+            val nLive = base.count { it.id in liveIds }
+            if (nLive > 0 || mem.onlyLive) LiveFilter("Solo con partido ahora · $nLive", onlyLive) { mem.onlyLive = !mem.onlyLive; mem.gridIndex = 0 }
         }
         Spacer(Modifier.height(10.dp))
         // Filtros: proveedores (o categorías) y, dentro de un proveedor, sus grupos.
@@ -236,7 +258,7 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
                     is Entry.Item -> item(key = e.key) {
                         val ch = e.channel
                         ChannelCard(
-                            ch, graph, favorite = ch.id in favorites,
+                            ch, graph, favorite = ch.id in favorites, onAir = onAir[ch.id],
                             focusRequester = if (ch.id == entryTarget) restore else null,
                             onClick = {
                                 mem.lastChannel = ch.id
@@ -269,6 +291,24 @@ private fun SmallAction(text: String, icon: Int, onClick: () -> Unit) {
             MvIcon(icon, size = 14.dp, tint = MvColors.Text2)
             Spacer(Modifier.width(6.dp))
             MvText(text, MvType.SmallStrong, maxLines = 1)
+        }
+    }
+}
+
+/** 3i · Filtro «Solo con partido ahora» (pastilla con punto rojo). */
+@Composable
+private fun LiveFilter(text: String, on: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(50)
+    TvClickable(
+        onClick = onClick, shape = shape, focusedScale = 1.04f,
+        color = if (on) Color(0x33E58C83) else Color.Transparent, focusedColor = Color(0x4DE58C83), ringColor = MvColors.Accent2,
+        modifier = Modifier.height(34.dp).border(1.dp, Color(0x80E58C83), shape)
+    ) { _ ->
+        Row(Modifier.fillMaxHeight().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(7.dp).background(MvColors.Live, CircleShape))
+            Spacer(Modifier.width(8.dp))
+            MvText(text, MvType.SmallStrong, color = Color(0xFFF2B1AA), maxLines = 1)
+            if (on) { Spacer(Modifier.width(8.dp)); MvIcon(MvIcons.Check, size = 14.dp, tint = Color(0xFFF2B1AA)) }
         }
     }
 }
@@ -324,13 +364,16 @@ fun ChannelCard(
     favorite: Boolean,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    onAir: OnChannels.NowNext? = null
 ) {
     val (status, color) = channelStatus(ch, graph.sources)
+    val live = onAir?.now
     val n = ch.sources.size
+    val prewarm = com.mivisor.tv.ui.LocalPrewarm.current
     Column(Modifier.fillMaxWidth()) {
         TvClickable(
-            onClick = onClick, onLongClick = onLongClick, focusRequester = focusRequester,
+            onClick = onClick, onLongClick = onLongClick, focusRequester = focusRequester, onFocus = { prewarm(ch) },
             shape = RoundedCornerShape(12.dp), focusedScale = 1.03f,
             color = MvColors.Surface1, focusedColor = MvColors.Surface1, ringColor = MvColors.Accent2,
             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
@@ -346,10 +389,28 @@ fun ChannelCard(
                 Modifier.align(Alignment.TopEnd).padding(6.dp).size(22.dp).background(Color(0x99000000), CircleShape),
                 contentAlignment = Alignment.Center
             ) { MvIcon(MvIcons.Star, size = 13.dp, tint = MvColors.Accent) }
+            if (live != null) {
+                Row(
+                    Modifier.align(Alignment.BottomStart).padding(start = 7.dp, bottom = 9.dp).background(Color(0xD1080F19), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.size(6.dp).background(MvColors.Live, CircleShape))
+                    Spacer(Modifier.width(5.dp))
+                    MvText("AHORA", MvType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = Color(0xFFF2B1AA))
+                }
+                val p = live.progress(System.currentTimeMillis())
+                Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color(0x1FFFFFFF))) {
+                    Box(Modifier.fillMaxWidth(p).fillMaxHeight().background(MvColors.Live))
+                }
+            }
         }
         Spacer(Modifier.height(7.dp))
         MvText(ch.name, MvType.SmallStrong, maxLines = 1)
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        val next = onAir?.next
+        if (live != null) MvText(live.title, MvType.Caption.copy(color = MvColors.Text), maxLines = 1)
+        else if (next != null) MvText("A las ${com.mivisor.tv.ui.hhmm(next.startMillis)} · ${next.title}", MvType.Caption.copy(color = MvColors.Text3), maxLines = 1)
+        else Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(6.dp).background(color, CircleShape))
             Spacer(Modifier.width(5.dp))
             MvText(

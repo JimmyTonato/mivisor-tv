@@ -129,6 +129,7 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
             item {
                 Row(Modifier.fillMaxWidth().height(250.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
+                        // 3i · Diseño de la ficha: escudos a la izquierda y los dos nombres uno encima del otro.
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             when (status) {
                                 EventStatus.LIVE -> MvTag("● EN DIRECTO", MvColors.Live, filled = true)
@@ -146,7 +147,17 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
                             MvText((event.competition ?: sportName(event.sport)).uppercase(), MvType.Eyebrow.copy(color = MvColors.Text2, letterSpacing = 2.sp), maxLines = 1)
                         }
                         Spacer(Modifier.height(10.dp))
-                        MvText(event.title, MvType.Display.copy(fontWeight = FontWeight.Black), maxLines = 2)
+                        if (event.away != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                            Visual(home, event.homeVisual, h1, 84.dp, event.isPersonVsPerson)
+                            MvText("vs", MvType.Heading.copy(color = MvColors.Text2), modifier = Modifier.padding(horizontal = 14.dp))
+                            Visual(event.away ?: "", event.awayVisual, a1, 84.dp, event.isPersonVsPerson)
+                            Spacer(Modifier.width(28.dp))
+                            Column {
+                                MvText(home, MvType.Display.copy(fontSize = 36.sp, lineHeight = 40.sp, fontWeight = FontWeight.Black), maxLines = 1)
+                                MvText(event.away ?: "", MvType.Display.copy(fontSize = 36.sp, lineHeight = 40.sp, fontWeight = FontWeight.Black, color = MvColors.Text2), maxLines = 1)
+                            }
+                        }
+                        else MvText(event.title, MvType.Display.copy(fontWeight = FontWeight.Black), maxLines = 2)
                         Spacer(Modifier.height(18.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             if (best != null) MvButton("Ver en ${best.name}", { nav.go(Route.Player(best.id)) }, icon = MvIcons.Play, primary = true, focusRequester = first)
@@ -165,20 +176,16 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
                             MvText("El aviso sale con MiVisor TV abierta. Si está cerrada a esa hora, te avisará al abrirla.", MvType.Caption)
                         }
                     }
-                    if (event.away != null) {
-                        Spacer(Modifier.width(24.dp))
-                        Visual(home, event.homeVisual, h1, 100.dp, event.isPersonVsPerson)
-                        MvText("vs", MvType.Heading.copy(color = Color(0xB3FFFFFF)), modifier = Modifier.padding(horizontal = 24.dp))
-                        Visual(event.away ?: "", event.awayVisual, a1, 100.dp, event.isPersonVsPerson)
-                        Spacer(Modifier.width(24.dp))
-                    }
                 }
             }
             item {
                 Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(bottom = 12.dp)) {
                     MvText("Dónde verlo", MvType.Title)
                     Spacer(Modifier.width(12.dp))
-                    MvText("de más a menos fiable", MvType.Small)
+                    MvText(
+                        if (mine.isEmpty()) "ordenados por fiabilidad"
+                        else "${mine.size} ${if (mine.size == 1) "canal" else "canales"} en tus proveedores · ordenados por fiabilidad", MvType.Small
+                    )
                 }
             }
             when {
@@ -194,14 +201,16 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
                     )
                 }
             }
-            if (mine.isNotEmpty()) item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
+            // 3i · Tarjetas: los tuyos de más a menos fiable (el primero, «Recomendado · arranca en ~N s») y después los
+            // anunciados que no están en tus proveedores, para saber dónde lo echan.
+            val missing = announced.options.filter { !it.available }
+            if (mine.isNotEmpty() || missing.isNotEmpty()) item {
+                val prewarm = com.mivisor.tv.ui.LocalPrewarm.current
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(top = 2.dp, bottom = 22.dp)) {
                     itemsIndexed(mine, key = { _, c -> c.id }) { i, c ->
-                        TvChannelTile(
-                            c, graph.sources, favorite = mylist.isFavorite(c.id), onClick = { nav.go(Route.Player(c.id)) }, width = 180.dp,
-                            statusOverride = if (i == 0) "Mejor opción" to MvColors.Ok else null
-                        )
+                        WatchCard(c, i == 0, mylist.isFavorite(c.id), graph, onFocus = { prewarm(c) }) { nav.go(Route.Player(c.id)) }
                     }
+                    items(missing, key = { "x|" + it.announced.name + "|" + it.announced.note.orEmpty() }) { opt -> MissingCard(opt) }
                 }
             }
             if (announced.options.isNotEmpty()) item {
@@ -313,6 +322,61 @@ private fun WatchRow(opt: WatchOption, graph: AppGraph, onPlay: (TvChannel) -> U
                     MvTag("Ver", MvColors.Accent2)
                 }
             }
+        }
+    }
+}
+
+/** 3i · Tarjeta de «Dónde verlo»: logo, nombre y por qué este (recomendado / fuentes y proveedor). */
+@Composable
+private fun WatchCard(ch: TvChannel, recommended: Boolean, favorite: Boolean, graph: AppGraph, onFocus: () -> Unit, onClick: () -> Unit) {
+    val (status, color) = channelStatus(ch, graph.sources)
+    val start = if (recommended) graph.sources.typicalStart(ch.sources.map { it.contentId }) else null
+    val n = ch.sources.size
+    val providers = ch.sources.map { it.providerName }.distinct()
+    val line = when {
+        recommended -> if (start != null) "Recomendado · arranca en ~$start s" else "Recomendado"
+        else -> "$n ${if (n == 1) "fuente" else "fuentes"} · " + (if (providers.size == 1) providers.first() else "${providers.size} proveedores")
+    }
+    TvClickable(
+        onClick = onClick, onFocus = onFocus, modifier = Modifier.width(262.dp).height(84.dp), shape = RoundedCornerShape(MvDims.RadiusLarge),
+        focusedScale = 1.04f, color = Color(0xEB132232), focusedColor = MvColors.Surface2, ringColor = MvColors.Accent2
+    ) { _ ->
+        Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            ChannelLogo(ch, Modifier.size(width = 84.dp, height = 48.dp), 84.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    MvText(ch.name, MvType.BodyStrong, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                    if (favorite) { Spacer(Modifier.width(6.dp)); com.mivisor.tv.ui.design.MvIcon(MvIcons.Star, size = 12.dp, tint = MvColors.Accent) }
+                }
+                Spacer(Modifier.height(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(6.dp).background(if (recommended) MvColors.Ok else color, CircleShape))
+                    Spacer(Modifier.width(6.dp))
+                    MvText(if (recommended || color == MvColors.Ok) line else status.substringBefore(" · ") + " · " + line,
+                        MvType.Caption.copy(color = if (recommended) MvColors.Ok else MvColors.Text3), maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+/** 3i · Canal anunciado que no tienes (no se puede abrir: solo informa). */
+@Composable
+private fun MissingCard(opt: WatchOption) {
+    val a = opt.announced
+    Row(
+        Modifier.width(262.dp).height(84.dp).background(Color(0x99132232), RoundedCornerShape(MvDims.RadiusLarge)).padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        LogoPlate(Modifier.size(width = 84.dp, height = 48.dp)) {
+            RemoteImage(a.logo, 84.dp, Modifier.fillMaxSize()) { MvText(ChannelPlates.of(a.name, null).top, MvType.Caption.copy(color = MvColors.Bg)) }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            MvText(a.name, MvType.BodyStrong, maxLines = 1)
+            Spacer(Modifier.height(3.dp))
+            MvText("Anunciado · no está en tus proveedores", MvType.Caption.copy(color = MvColors.Soon), maxLines = 1)
         }
     }
 }

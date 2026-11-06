@@ -177,6 +177,8 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             EngineDiagnostics.update { it.copy(firstFrameMs = elapsed) }
             book.onSuccess(req.channelId, src, elapsed)
             _ui.value = _ui.value.copy(phase = Phase.PLAYING, message = null, cause = null, startMs = elapsed, sources = rows())
+            // 3i · Ya hay imagen: la siguiente calentada se suelta (si no es esta) para no gastar red ni memoria.
+            if (warmedNext != null && warmedNext != currentSource?.contentId) releaseWarmedNext() else warmedNext = null
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -242,6 +244,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     fun play(req: PlayRequest, chosen: String? = null) {
         endSession()
         cancelAttempt()
+        releaseWarmedNext()
         request = req
         generation++
         val gen = generation
@@ -393,6 +396,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     fun stop() {
         endSession()
         cancelAttempt()
+        releaseWarmedNext()
         player?.stop()
         player?.clearMediaItems()
         request = null
@@ -536,6 +540,16 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                         StartPolicy.earlyFailure(elapsed, sawStatus, maxPeers, limit)?.let { kind ->
                             failed(lastStartError ?: kind, "${elapsed / 1000} s sin imagen · emisores máx. $maxPeers")
                             return@launch
+                        }
+                        // 3i · Si la primera fuente tarda, se calienta YA la siguiente en el motor: si hay que cambiar
+                        // (sola al minuto o con «Probar otra fuente»), ya lleva un rato buscando emisores.
+                        if (elapsed >= NEXT_WARM_AFTER_MS && warmedNext == null && book.prewarmNext()) {
+                            cycle?.peekNext()?.let { next ->
+                                warmedNext = next
+                                val b = baseUrl
+                                if (b != null) scope.launch(Dispatchers.IO) { warmTouch(EngineApi.hlsUrl(b, next)) }
+                                book.log("Fuente", "Preparando también la siguiente (${mask(next)}) por si hace falta")
+                            }
                         }
                         if (elapsed >= 8_000) {
                             _ui.value = _ui.value.copy(
@@ -783,6 +797,9 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         generation++
     }
 
+    /** 3i · Content ID que se está viendo o intentando (la precarga no lo toca). */
+    fun currentContentId(): String? = currentSource?.contentId
+
     private fun stopEngineSession(contentId: String?) {
         val base = baseUrl ?: return
         contentId ?: return
@@ -931,8 +948,33 @@ class PlaybackController(context: Context, private val book: SourceBook) {
 
     private fun mask(id: String) = AceStreamLink.masked(id)
 
+    /** 3i · Fuente siguiente calentada mientras la primera tarda (se suelta si al final no se usa). */
+    private var warmedNext: String? = null
+
+    /** Suelta la siguiente calentada si no es la que se acabó viendo. */
+    private fun releaseWarmedNext() {
+        val w = warmedNext ?: return
+        warmedNext = null
+        if (w != currentSource?.contentId) stopEngineSession(w)
+    }
+
+    private fun warmTouch(url: String) {
+        var c: java.net.HttpURLConnection? = null
+        try {
+            c = java.net.URL(url).openConnection(java.net.Proxy.NO_PROXY) as java.net.HttpURLConnection
+            c.connectTimeout = 3_000
+            c.readTimeout = 25_000
+            c.responseCode
+        } catch (_: Exception) {
+        } finally {
+            c?.disconnect()
+        }
+    }
+
     private companion object {
         /** Mientras se espera a que vuelva la imagen, la misma fuente se recarga cada… */
         const val RELOAD_EVERY_MS = 15_000L
+        /** 3i · Tras este tiempo sin imagen con la primera fuente, se calienta la siguiente. */
+        const val NEXT_WARM_AFTER_MS = 5_000L
     }
 }

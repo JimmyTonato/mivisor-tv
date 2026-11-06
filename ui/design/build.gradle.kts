@@ -4,6 +4,12 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+
+// 3i · Modelos inmutables marcados como estables para Compose (menos redibujados al mover el foco).
+composeCompiler {
+    stabilityConfigurationFile.set(rootProject.layout.projectDirectory.file("compose-stability.conf"))
+}
+
 android {
     namespace = "com.mivisor.tv.ui.design"
     compileSdk = 35

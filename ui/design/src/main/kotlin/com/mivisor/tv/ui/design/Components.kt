@@ -70,20 +70,22 @@ fun MvButton(
     enabled: Boolean = true,
     focusRequester: androidx.compose.ui.focus.FocusRequester? = null
 ) {
+    // 3i · Pastilla unificada (igual que el reproductor y la ficha): principal marfil con texto oscuro; las demás,
+    // translúcidas con borde fino. Con foco: más claras y anillo champán. Misma API que antes.
+    val shape = RoundedCornerShape(50)
     TvClickable(
         onClick = onClick,
-        modifier = modifier.height(48.dp),
+        modifier = modifier.height(48.dp).then(if (!primary) Modifier.border(1.dp, Color(0x29FFFFFF), shape) else Modifier),
         enabled = enabled,
-        shape = RoundedCornerShape(24.dp),
-        // Diseño: el principal es blanco con texto oscuro; los demás, superficie. Con foco, blanco con anillo.
-        // Diseño 06: la acción principal es champán; con foco se aclara (action.focus) y lleva el anillo.
-        color = if (primary) MvColors.Accent else MvColors.Surface2,
-        focusedColor = MvColors.Accent2,
+        shape = shape,
+        focusedScale = 1.04f,
+        color = if (primary) MvColors.Text else Color(0x9E101A26),
+        focusedColor = if (primary) Color.White else Color(0xE62A4153),
         focusRequester = focusRequester,
-        ringColor = MvColors.Text,
+        ringColor = MvColors.Accent2,
         contentAlignment = Alignment.Center
-    ) { focused ->
-        val fg = if (focused || primary) MvColors.Bg else MvColors.Text
+    ) { _ ->
+        val fg = if (primary) MvColors.Bg else MvColors.Text
         Row(Modifier.padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) {
                 MvIcon(icon, size = 20.dp, tint = fg)

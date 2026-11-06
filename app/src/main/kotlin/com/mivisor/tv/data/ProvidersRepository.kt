@@ -6,6 +6,7 @@ import com.mivisor.tv.catalog.NotCachedException
 import com.mivisor.tv.catalog.StreamRepository
 import com.mivisor.tv.catalog.tv.ProviderCatalog
 import com.mivisor.tv.catalog.tv.TvLibrary
+import com.mivisor.tv.catalog.tv.LibrarySnapshot
 import com.mivisor.tv.catalog.logos.ChannelLogoResolver
 import com.mivisor.tv.catalog.logos.LogoCatalog
 import com.mivisor.tv.catalog.logos.LogoEntry
@@ -62,8 +63,13 @@ class ProvidersRepository(
     private val scope: CoroutineScope,
     /** Logos de canales (3c): catálogo channel-logos.json de mivisor-datos y los que la app va encontrando. */
     private val logos: LogoRepository,
-    private val logoUrl: () -> String
+    private val logoUrl: () -> String,
+    /** 3i · Biblioteca ya montada en disco: se enseña al abrir, antes de leer nada ([LibrarySnapshot]). */
+    private val snapshotFile: java.io.File? = null
 ) {
+    /** Huella de la biblioteca leída del disco al abrir (0 = no hay). */
+    @Volatile private var snapshotPrint = 0L
+    private var snapshotJob: Job? = null
     private val _state = MutableStateFlow(LibraryState())
     val state: StateFlow<LibraryState> = _state.asStateFlow()
     private var loadJob: Job? = null
@@ -79,8 +85,35 @@ class ProvidersRepository(
     fun refresh(cacheFirst: Boolean = false) {
         loadJob?.cancel()
         loadJob = scope.launch {
+            if (cacheFirst && _state.value.library.isEmpty) showSnapshot()
             if (cacheFirst) load(StreamRepository.Mode.CACHE_ONLY)
             load(StreamRepository.Mode.PREFER_CACHE.takeIf { cacheFirst } ?: StreamRepository.Mode.NETWORK)
+        }
+    }
+
+    /**
+     * 3i · Arranque instantáneo: la biblioteca guardada se enseña YA (Inicio y Canales con todo), mientras se leen los
+     * proveedores. Si lo leído coincide (misma huella), ni siquiera se vuelve a montar.
+     */
+    private suspend fun showSnapshot() {
+        val file = snapshotFile ?: return
+        val t0 = PerfLog.now()
+        val snap = withContext(Dispatchers.IO) { LibrarySnapshot.read(file) } ?: return
+        snapshotPrint = snap.fingerprint
+        val rows = withContext(Dispatchers.IO) { db.providers() }
+        if (rows.isEmpty()) return
+        _state.value = _state.value.copy(library = snap.library, providers = rows.map { it.info(prefs.warpProviders) }, loading = true, loadedOnce = true)
+        PerfLog.record("Biblioteca guardada en pantalla", PerfLog.now() - t0, "${snap.library.channels.size} canales")
+    }
+
+    /** Guarda la biblioteca montada (en segundo plano de la app abierta, sin bloquear nada). */
+    private fun saveSnapshot(lib: TvLibrary, print: Long) {
+        val file = snapshotFile ?: return
+        if (lib.isEmpty) return
+        snapshotJob?.cancel()
+        snapshotJob = scope.launch(Dispatchers.IO) {
+            runCatching { LibrarySnapshot.write(file, lib, print) }
+            snapshotPrint = print
         }
     }
 
@@ -89,6 +122,7 @@ class ProvidersRepository(
         val warp = prefs.warpProviders
         if (rows.isEmpty()) {
             _state.value = LibraryState(loadedOnce = true)
+            snapshotFile?.let { f -> withContext(Dispatchers.IO) { runCatching { f.delete() } } }
             return
         }
         _state.value = _state.value.copy(loading = true, providers = rows.map { it.info(warp) })
@@ -134,13 +168,14 @@ class ProvidersRepository(
         // 3g · Si lo leído es igual que lo que ya está montado (lo normal al abrir la app), no se vuelve a montar.
         val print = TvLibrary.fingerprint(catalogs)
         val current = _state.value.library
-        val reuse = print == builtPrint && builtWith === logoResolver && !current.isEmpty
+        // 3i · …ni tampoco si es la misma que la guardada en disco que ya se está enseñando.
+        val fromSnapshot = builtPrint == 0L && snapshotPrint != 0L && print == snapshotPrint && !current.isEmpty
+        val reuse = fromSnapshot || (print == builtPrint && builtWith === logoResolver && !current.isEmpty)
         val tBuild = PerfLog.now()
         val library = if (reuse) current
-        else withContext(Dispatchers.Default) { TvLibrary.build(catalogs, logoResolver) }.also {
-            builtPrint = print
-            builtWith = logoResolver
-        }
+        else withContext(Dispatchers.Default) { TvLibrary.build(catalogs, logoResolver) }.also { saveSnapshot(it, print) }
+        builtPrint = print
+        builtWith = logoResolver
         PerfLog.record("Montar canales ($stage)", PerfLog.now() - tBuild, if (reuse) "sin cambios: se reutiliza" else "${library.channels.size} canales")
         val fresh = withContext(Dispatchers.IO) { db.providers() }
         _state.value = LibraryState(
@@ -179,6 +214,7 @@ class ProvidersRepository(
         PerfLog.record("Cambiar logos", PerfLog.now() - t0, "${library.channels.size} canales")
         builtWith = r
         _state.value = _state.value.copy(library = library)
+        if (builtPrint != 0L) saveSnapshot(library, builtPrint)
     }
 
     /**

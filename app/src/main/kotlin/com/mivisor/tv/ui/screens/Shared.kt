@@ -103,10 +103,11 @@ fun TvChannelTile(
 ) {
     val plate = ch.plate()
     val (status, color) = statusOverride ?: channelStatus(ch, book)
+    val prewarm = com.mivisor.tv.ui.LocalPrewarm.current
     ChannelTile(
         name = ch.name, plateTop = plate.top, plateBottom = plate.bottom, tone = plate.tone.ui(), onClick = onClick,
         width = width, status = status, statusColor = color, favorite = favorite, multiaudio = ch.multiaudio,
-        onLongClick = onLongClick, focusRequester = focusRequester,
+        onLongClick = onLongClick, focusRequester = focusRequester, onFocus = { prewarm(ch) },
         art = ch.logo?.let { url -> @Composable { m: Modifier -> ChannelArt(url, plate, m, width) } }
     )
 }

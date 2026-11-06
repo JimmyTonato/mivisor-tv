@@ -363,8 +363,9 @@ private fun FeaturedMatch(
     val (a1, _) = MvPalette.pair(away ?: ev.sport)
     val live = ev.status(now) == EventStatus.LIVE
     val shape = RoundedCornerShape(18.dp)
+    val prewarm = com.mivisor.tv.ui.LocalPrewarm.current
     TvClickable(
-        onClick = onClick, onLongClick = onLong, focusRequester = fr, shape = shape, focusedScale = 1.02f,
+        onClick = onClick, onLongClick = onLong, focusRequester = fr, shape = shape, focusedScale = 1.02f, onFocus = { prewarm(chs.firstOrNull()) },
         color = MvColors.Surface1, focusedColor = MvColors.Surface2, ringColor = MvColors.Accent2,
         modifier = modifier.height(if (phone) 200.dp else 236.dp)
     ) { focused ->
@@ -560,9 +561,10 @@ fun EventTile(ev: AgendaEvent, chs: List<TvChannel>, now: Long, onClick: () -> U
     val (h1, h2) = MvPalette.pair(home)
     val (a1, a2) = MvPalette.pair(away ?: ev.sport)
     val live = ev.status(now) == EventStatus.LIVE
+    val prewarm = com.mivisor.tv.ui.LocalPrewarm.current
     Column(Modifier.width(320.dp)) {
         TvClickable(
-            onClick = onClick, focusRequester = focusRequester,
+            onClick = onClick, focusRequester = focusRequester, onFocus = { prewarm(chs.firstOrNull()) },
             modifier = Modifier.fillMaxWidth().height(180.dp), shape = RoundedCornerShape(MvDims.Radius),
             color = h2, focusedColor = h2
         ) { _ ->

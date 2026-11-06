@@ -70,6 +70,11 @@ class Prefs(context: Context) {
         get() = (sp.getString("hidden_competitions", "") ?: "").split('\n').filter { it.isNotBlank() }
         set(v) = sp.edit().putString("hidden_competitions", v.distinct().joinToString("\n")).apply()
 
+    /** 3i · Preparar el canal enfocado (y la siguiente fuente si la primera tarda). */
+    var prewarm: Boolean
+        get() = sp.getBoolean("prewarm", true)
+        set(v) = sp.edit().putBoolean("prewarm", v).apply()
+
     /** Texto un 15 % más grande. */
     var bigText: Boolean
         get() = sp.getBoolean("big_text", false)

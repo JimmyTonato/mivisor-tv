@@ -54,7 +54,8 @@ class AppGraph(context: Context) {
         com.mivisor.tv.catalog.CompetitionBook(File(app.filesDir, "competitions.json")))
     /** Logos (3c): channel-logos.json junto a agenda.json en mivisor-datos, con caché en filesDir/logos. */
     val logos = LogoRepository(File(app.filesDir, "logos"))
-    val providers = ProvidersRepository(db, CodeVault(), prefs, streams, log, scope, logos, { LogoRepository.urlFor(agenda.url) })
+    val providers = ProvidersRepository(db, CodeVault(), prefs, streams, log, scope, logos, { LogoRepository.urlFor(agenda.url) },
+        File(app.filesDir, "library-snapshot.json"))
     /** «Dónde verlo» de los eventos que no traen canales: TheSportsDB, solo al abrir el evento y con caché. */
     val tvChannels = TvChannelsRepository(File(app.cacheDir, "tvchannels"))
     val reminders = RemindersRepository(app, db, log, scope)
@@ -62,6 +63,17 @@ class AppGraph(context: Context) {
     val warp = WarpController(app, scope)
     val sources = SourceBookImpl(app, db, warp, providers, mylist, log, prefs, scope)
     val player = PlaybackController(app, sources)
+
+    /** 3i · Precarga del canal enfocado (1,5 s con el foco encima): el motor empieza antes a buscar emisores. */
+    val prewarm = com.mivisor.tv.data.Prewarm(
+        app, scope,
+        bestSource = { ch ->
+            sources.order(ch.id, ch.sources.map { s -> com.mivisor.tv.playback.PlaySource(s.contentId, s.providerId, s.providerName, s.quality, s.qualityLabel) }, null).firstOrNull()
+        },
+        playing = { player.currentContentId() },
+        enabled = { prefs.prewarm },
+        log = {}
+    )
 
     /** 3d: informe, «Probar todo», copias cifradas y verificador manual. */
     val diagnostics by lazy { com.mivisor.tv.data.Diagnostics(this) }

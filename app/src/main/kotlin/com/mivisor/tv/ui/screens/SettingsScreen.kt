@@ -517,6 +517,11 @@ private fun SourcesPage(graph: AppGraph, nav: Nav, forgotten: Int, onForget: () 
             graph.prefs.autoSwitch = autoSwitch
         }, subtitle = "Al empezar un canal y si se corta: antes se reintenta la misma fuente. «Probar otra fuente» está siempre a mano",
             trailing = when (autoSwitch) { "120" -> "Otra fuente a los 2 min"; "never" -> "Solo con el botón"; else -> "Otra fuente al 1 min" })
+        // 3i · Precarga del canal enfocado y de la siguiente fuente.
+        var prewarm by remember { mutableStateOf(graph.prefs.prewarm) }
+        MvRow("Preparar el canal al pasar por encima", { prewarm = !prewarm; graph.prefs.prewarm = prewarm },
+            subtitle = if (prewarm) "Con el foco 1,5 s sobre un canal, su mejor fuente se prepara: al abrirlo sale antes"
+            else "Cada canal empieza a prepararse al abrirlo") { MvSwitch(prewarm) }
         MvRow("Acercarse solo al directo", { autoLive = !autoLive; graph.prefs.autoLive = autoLive },
             subtitle = if (autoLive) "Un corte no te mueve. Cuando la imagen está estable, se acerca poco a poco dejando margen"
             else "Te quedas donde estabas; usa «Ir al directo» o «Adelantar 15 s» en los controles") { MvSwitch(autoLive) }

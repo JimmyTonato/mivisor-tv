@@ -53,4 +53,7 @@ interface SourceBook {
 
     /** 3e · Volver solo al directo cuando la imagen se ha quedado atrás (tras un corte). false = el usuario decide. */
     fun autoLiveEdge(): Boolean = true
+
+    /** 3i · ¿Calentar la siguiente fuente mientras la primera tarda? (no en aparatos con poca memoria) */
+    fun prewarmNext(): Boolean = false
 }

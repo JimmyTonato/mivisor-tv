@@ -1,0 +1,6 @@
+# 3i · Perfil de arranque: código que Android compila DE ANTEMANO (en vez de interpretarlo las primeras veces).
+# En teles modestas da un arranque más rápido y desplazamientos más suaves. ProfileInstaller (ya incluido) lo instala
+# también en APK instaladas a mano; Android lo aplica en su mantenimiento (la tele suele estar siempre enchufada).
+# R8 reescribe estas reglas al ofuscar. Compose, Media3 y Activity ya traen su propio perfil.
+HSPLcom/mivisor/tv/**;->**(**)**
+Lcom/mivisor/tv/**;

@@ -41,6 +41,15 @@ object CatchUpPolicy {
     const val RESERVE_BURSTY = 1.5
     /** …y como mucho esto. */
     const val MAX_RESERVE_MS = 45_000L
+    /**
+     * 3i · Margen de descarga: cuánto crece lo descargado por delante por cada segundo visto a velocidad normal
+     * (0,10 = la red baja un 10 % más rápido de lo que se ve). Por debajo de esto la red va justa: solo se recorta si
+     * tras el recorte sigue quedando el colchón descargado. Por encima de [MARGIN_GOOD] se recorta más (la mitad).
+     */
+    const val MARGIN_TIGHT = 0.02
+    const val MARGIN_GOOD = 0.25
+    /** Muestras (≈ segundos) antes de fiarse del margen medido. */
+    const val MARGIN_SAMPLES = 10
 }
 
 class CatchUpController {
@@ -60,6 +69,8 @@ class CatchUpController {
         val bufferAheadMs: Long = 0,
         val stableForMs: Long = 0,
         val requiredStableMs: Long = CatchUpPolicy.STABLE_MS,
+        /** 3i · Margen de descarga medido (null = aún no se sabe). */
+        val downloadMargin: Double? = null,
         val recentStalls: Int = 0,
         val steps: Int = 0,
         val recoveredMs: Long = 0,
@@ -77,6 +88,28 @@ class CatchUpController {
     private var lastStepAt = Long.MIN_VALUE / 2
     /** Acelerando: retraso al que se quiere llegar. */
     private var speedGoal = -1L
+    // 3i · Medida del margen de descarga (media móvil de lo que crece lo descargado por delante).
+    private var lastAheadAt = -1L
+    private var lastAhead = 0L
+    private var margin: Double? = null
+    private var marginSamples = 0
+
+    private fun resetMargin() {
+        lastAheadAt = -1L
+    }
+
+    private fun sampleMargin(nowMs: Long, aheadMs: Long) {
+        if (lastAheadAt >= 0) {
+            val dt = nowMs - lastAheadAt
+            if (dt in 500..5_000) {
+                val m = (aheadMs - lastAhead).toDouble() / dt
+                margin = margin?.let { it + 0.15 * (m - it) } ?: m
+                marginSamples++
+            }
+        }
+        lastAheadAt = nowMs
+        lastAhead = aheadMs
+    }
 
     /** Empieza un corte (buffering con la imagen parada). */
     fun onStall(nowMs: Long): Action {
@@ -85,6 +118,7 @@ class CatchUpController {
             stalls += Stall(nowMs, 0)
         }
         stableSince = -1
+        resetMargin()
         return stopSpeeding(State.SUSPENDED)
     }
 
@@ -101,6 +135,7 @@ class CatchUpController {
     fun onUserJump(nowMs: Long): Action {
         stableSince = nowMs
         lastStepAt = nowMs
+        resetMargin()
         return stopSpeeding(State.WAITING)
     }
 
@@ -111,6 +146,9 @@ class CatchUpController {
         stableSince = nowMs
         lastStepAt = Long.MIN_VALUE / 2
         speedGoal = -1
+        margin = null
+        marginSamples = 0
+        resetMargin()
         stats = Stats()
     }
 
@@ -136,7 +174,14 @@ class CatchUpController {
         val stableFor = if (playing && stableSince >= 0) nowMs - stableSince else 0
         stats = stats.copy(delayMs = delayMs, reserveMs = reserve, bufferAheadMs = bufferAheadMs, stableForMs = stableFor,
             requiredStableMs = required, recentStalls = recentStalls)
-        if (!playing || delayMs == null) return stopSpeeding(if (stallStart >= 0) State.SUSPENDED else stats.state)
+        if (!playing || delayMs == null) {
+            resetMargin()
+            return stopSpeeding(if (stallStart >= 0) State.SUSPENDED else stats.state)
+        }
+        // A velocidad normal, lo que crece lo descargado por delante es el margen de la red.
+        if (speedGoal < 0) sampleMargin(nowMs, bufferAheadMs) else resetMargin()
+        val known = margin.takeIf { marginSamples >= CatchUpPolicy.MARGIN_SAMPLES }
+        stats = stats.copy(downloadMargin = known)
 
         // Acelerando: hasta el objetivo, o antes si se acaba lo descargado.
         if (speedGoal >= 0) {
@@ -157,8 +202,14 @@ class CatchUpController {
             return Action.None
         }
         // Recorte proporcional al exceso: un tercio, o la mitad si lleva mucho estable.
-        val fraction = if (stableFor >= CatchUpPolicy.LONG_STABLE_MS) 0.5 else 1.0 / 3.0
+        // 3i · Con la red sobrada (margen alto) también se recorta la mitad.
+        val fraction = if (stableFor >= CatchUpPolicy.LONG_STABLE_MS || (known ?: 0.0) >= CatchUpPolicy.MARGIN_GOOD) 0.5 else 1.0 / 3.0
         val step = (excess * fraction).toLong().coerceIn(minOf(CatchUpPolicy.MIN_STEP_MS, excess), CatchUpPolicy.MAX_STEP_MS)
+        // 3i · Red justa: solo si tras el recorte sigue quedando el colchón ya descargado (no se vuelve a regenerar).
+        if (known != null && known < CatchUpPolicy.MARGIN_TIGHT && bufferAheadMs - step < reserve) {
+            stats = stats.copy(state = State.WAITING)
+            return Action.None
+        }
         return when {
             step <= CatchUpPolicy.SPEED_UP_MAX_MS && bufferAheadMs >= CatchUpPolicy.SPEED_MIN_BUFFER_MS + step / 4 -> {
                 speedGoal = delayMs - step
@@ -167,6 +218,7 @@ class CatchUpController {
             }
             bufferAheadMs >= step + CatchUpPolicy.SEEK_MARGIN_MS -> {
                 lastStepAt = nowMs
+                resetMargin()
                 stats = stats.copy(steps = stats.steps + 1, recoveredMs = stats.recoveredMs + step, state = State.CATCHING_UP)
                 Action.SeekForward(step)
             }
@@ -174,6 +226,7 @@ class CatchUpController {
             bufferAheadMs - CatchUpPolicy.SEEK_MARGIN_MS >= CatchUpPolicy.MIN_STEP_MS * 2 -> {
                 val partial = bufferAheadMs - CatchUpPolicy.SEEK_MARGIN_MS
                 lastStepAt = nowMs
+                resetMargin()
                 stats = stats.copy(steps = stats.steps + 1, recoveredMs = stats.recoveredMs + partial, state = State.CATCHING_UP)
                 Action.SeekForward(partial)
             }
