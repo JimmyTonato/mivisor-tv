@@ -269,12 +269,15 @@ class Diagnostics(private val graph: AppGraph) {
         val lib = graph.providers.state.value.library
         // Sin favoritos, «Solo mis favoritos» no dejaría nada que comprobar: se usan todos los canales.
         val favs = graph.mylist.state.value.favorites.mapNotNull { lib.channel(it.first) }
-        val channels = if (graph.prefs.verifierFavoritesOnly && favs.isNotEmpty()) favs else lib.channels
-        val sources = channels.flatMap { it.sources }.distinctBy { it.contentId }.take(60)
+        // 3h.1 · Primero lo que más ves: favoritos, luego lo último visto y después el resto.
+        val seen = graph.mylist.state.value.history.mapNotNull { lib.channel(it.channelId) }
+        val channels = if (graph.prefs.verifierFavoritesOnly && favs.isNotEmpty()) favs else (favs + seen + lib.channels).distinctBy { it.id }
+        val sources = channels.flatMap { it.sources }.distinctBy { it.contentId }.take(VERIFY_MAX)
         if (sources.isEmpty()) return "No hay fuentes que comprobar"
         val engine = EngineManager.ensureStarted(app)
         val base = engine.baseUrl ?: return "Outpace no arrancó: ${engine.message ?: "sin detalle"}"
         var ok = 0
+        var bad = 0
         sources.forEachIndexed { i, s ->
             if (isCancelled()) return "Comprobación cancelada · $ok de $i con imagen"
             val t0 = SystemClock.elapsedRealtime()
@@ -282,11 +285,15 @@ class Diagnostics(private val graph: AppGraph) {
             if (good) {
                 ok++
                 graph.sources.verifiedOk(s.contentId, SystemClock.elapsedRealtime() - t0)
+            } else if (graph.sources.verifiedBad(com.mivisor.tv.playback.PlaySource(s.contentId, s.providerId, s.providerName, s.quality, s.qualityLabel))) {
+                // 3h.1 · Sin imagen: nota más baja (sin cuarentena), así al reproducir se prueba antes la que sí va.
+                bad++
             }
             withContext(Dispatchers.IO) { runCatching { EngineApi.stop(base, s.contentId) } }
             onProgress(i + 1, sources.size, ok)
         }
-        val text = "${SimpleDateFormat("dd/MM HH:mm", es).format(Date())} · ${sources.size} fuentes · $ok con imagen"
+        val text = "${SimpleDateFormat("dd/MM HH:mm", es).format(Date())} · ${sources.size} fuentes · $ok con imagen" +
+            if (bad > 0) " · $bad sin imagen" else ""
         graph.prefs.verifierLast = text
         graph.log.add("Verificador", text)
         return text
@@ -305,5 +312,10 @@ class Diagnostics(private val graph: AppGraph) {
         } finally {
             c?.disconnect()
         }
+    }
+
+    private companion object {
+        /** Fuentes por comprobación (cada una tarda de 2 a 28 s): favoritos y lo último visto entran primero. */
+        const val VERIFY_MAX = 80
     }
 }

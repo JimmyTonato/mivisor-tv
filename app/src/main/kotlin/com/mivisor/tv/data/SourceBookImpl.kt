@@ -203,6 +203,18 @@ class SourceBookImpl(
         persist(contentId)
     }
 
+    /**
+     * 3h.1 · El verificador no vio imagen: nota más baja (sin pausa ni cuarentena). Si el fallo es de casa (sin red,
+     * WARP caída cuando el proveedor la necesita, motor o memoria), no se apunta: no es culpa de la fuente.
+     */
+    fun verifiedBad(source: PlaySource): Boolean {
+        val general = synchronized(lock) { store.classify(context(source)) }
+        if (general != null) return false
+        synchronized(lock) { store.probeFailed(source.contentId, now()) }
+        persist(source.contentId)
+        return true
+    }
+
     fun knownSources(): Int = synchronized(lock) { store.cids().size }
 
     /** Lo que se sabe del momento del fallo: se rellena SOLO al fallar (sin sondeos continuos). */

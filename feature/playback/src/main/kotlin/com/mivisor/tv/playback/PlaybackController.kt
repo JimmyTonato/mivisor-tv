@@ -539,7 +539,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                         }
                         if (elapsed >= 8_000) {
                             _ui.value = _ui.value.copy(
-                                message = "Buscando imagen · ${elapsed / 1000} s" +
+                                message = "Buscando señal · ${elapsed / 1000} s" +
                                     if (limit != Long.MAX_VALUE && (_ui.value.sourceCount) > 1) " (otra fuente a los ${limit / 1000} s)" else ""
                             )
                         }

@@ -1,4 +1,28 @@
-# MiVisor TV · Entrega 3h: reproductor nuevo, vuelta al directo adaptativa e Inicio más fluido
+# MiVisor TV · Entrega 3h.1: animaciones en la tele, carga sencilla, Inicio sin tirones y verificador
+
+Corrige la 3h, que va justo debajo.
+
+- **Animaciones que no se movían en la tele (carga e intro).**
+  - **Por qué:** muchas teles traen las animaciones del sistema desactivadas y Compose las congela. Además, el modo ligero apagaba el giro.
+  - **Ahora:** los indicadores giran con el **reloj de pantalla** (`rememberLoop`), también en modo ligero. Solo se redibujan, sin recalcular la pantalla, así que apenas cuestan.
+- **Carga más sencilla:** fuera «Motor listo · Buscando emisores · Preparando la imagen». Queda un solo mensaje: «Buscando señal…», «Conectando…» y, si tarda, «Buscando señal · 34 s (otra fuente a los 60 s)».
+- **Tirón en Inicio entre «Partidos principales» y «En emisión y a continuación».**
+  - **Por qué:** la lista era perezosa. Al bajar construía de golpe toda la fila de tarjetas, con sus degradados y escudos; al subir reconstruía la portada.
+  - **Ahora:** Inicio es una columna normal. Todo se construye una vez y moverse solo desplaza, con pivote.
+- **Puntuación de fuentes.** Ya existía desde la fase 3:
+  - **Nota de cada fuente:** cuántas veces arranca, lo que tarda, los cortes y cuándo funcionó por última vez.
+  - **La última que funcionó en cada canal se prueba primero.** Si en un canal siempre va la 4.ª, se empieza por la 4.ª; si deja de ir, se pasa a la siguiente mejor.
+- **Verificador (Ajustes › Verificador › Comprobar ahora):**
+  - **Fuentes sin imagen:** ahora **también apunta las que no dan imagen**. Les baja la nota, sin pausa ni cuarentena por una sola prueba.
+  - **Fallos de casa:** si el fallo es de la red, de WARP o del motor, no se apunta.
+  - **Orden:** comprueba primero favoritos, luego lo último visto y después el resto, hasta 80 fuentes.
+  - **Pruebas nuevas:** `ProbeTest`.
+
+**Pruebas:** pasan las **205 pruebas** JVM. **Android:** no se ha compilado aquí; se comprueba en GitHub Actions.
+
+---
+
+# Entrega 3h: reproductor nuevo, vuelta al directo adaptativa e Inicio más fluido
 
 La 3g está en `docs/entregas/3g.md`. Se conservan los datos y el paquete `com.mivisor.tv`.
 

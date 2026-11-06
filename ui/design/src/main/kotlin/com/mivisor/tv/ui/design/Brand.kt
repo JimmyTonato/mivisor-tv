@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -34,11 +35,11 @@ import androidx.compose.ui.unit.sp
  */
 @Composable
 fun OrbitaMark(size: Dp, modifier: Modifier = Modifier, spinning: Boolean = false, mono: Color? = null) {
-    val angle = if (spinning && !LocalLite.current) {
-        val t = rememberInfiniteTransition(label = "orbita")
-        t.animateFloat(0f, 360f, infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart), label = "giro").value
-    } else 0f
-    Canvas(modifier.size(size)) {
+    // 3h.1 · Gira con el reloj de pantalla (también con las animaciones del sistema desactivadas y en modo ligero:
+    // es un giro de capa, sin recomponer ni redibujar).
+    val loop = if (spinning) rememberLoop(1600) else null
+    Canvas(modifier.size(size).then(if (loop != null) Modifier.graphicsLayer { rotationZ = loop.value * 360f } else Modifier)) {
+        val angle = 0f
         val k = this.size.minDimension / 120f
         val arcBrush = if (mono != null) Brush.linearGradient(listOf(mono, mono))
         else Brush.linearGradient(listOf(Color(0xFFF4DEBC), Color(0xFF93E6D1)), Offset.Zero, Offset(this.size.width, this.size.height))

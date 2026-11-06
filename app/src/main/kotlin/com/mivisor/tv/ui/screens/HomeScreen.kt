@@ -2,6 +2,8 @@ package com.mivisor.tv.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.mivisor.tv.ui.dayLabel
 import com.mivisor.tv.model.Competition
 import androidx.compose.foundation.layout.aspectRatio
@@ -164,19 +166,22 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
 
     // 3h · Bajar con el mando con pivote (sin saltos raros al ir rápido); las filas de dentro, normales.
     com.mivisor.tv.ui.design.PivotScroll {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 48.dp)) {
-        if (lib.offline) item {
+    // 3h.1 · Columna NORMAL (no perezosa): Inicio tiene pocas secciones. Con la perezosa, al bajar de la portada a
+    // «En emisión…» se construía de golpe toda esa fila (tarjetas, degradados, escudos) y al subir se reconstruía la
+    // portada: ese era el tirón. Ahora todo se construye una vez y moverse solo desplaza.
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 48.dp)) {
+        if (lib.offline) Column(Modifier.fillMaxWidth()) {
             MvNotice("Sin conexión a Internet.", "Ves la agenda y los canales guardados. Los canales no se pueden abrir hasta que vuelva la red.",
                 Modifier.padding(pad).padding(bottom = 12.dp), MvColors.Soon)
         }
         lib.providers.filter { it.error != null }.takeIf { it.isNotEmpty() }?.let { bad ->
-            item {
+            Column(Modifier.fillMaxWidth()) {
                 MvNotice("No se pudo actualizar:", "${bad.joinToString { it.name }}. Se usa la copia guardada.",
                     Modifier.padding(pad).padding(bottom = 12.dp), MvColors.Soon)
             }
         }
         // 1 · Portada.
-        item {
+        Column(Modifier.fillMaxWidth()) {
             // 3h · OK abre la ficha del partido (quién juega y dónde verlo, como en la Agenda); mantener OK lo reproduce.
             if (featured.size == 2) DuoHero(featured, now, first, form,
                 onPlay = { ev, chs -> if (chs.isNotEmpty()) nav.go(Route.Player(chs.first().id)) else nav.go(Route.Event(ev.id)) },
@@ -194,7 +199,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
         // 2 · En emisión y a continuación.
         // Sin repetir los dos de la portada.
         val rowEvents = if (featured.size == 2) events.filter { e -> featured.none { it.first.id == e.first.id } } else events
-        if (rowEvents.isNotEmpty()) item {
+        if (rowEvents.isNotEmpty()) Column(Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(bottom = 26.dp)) {
                 val live = rowEvents.count { it.first.status(now) == EventStatus.LIVE }
                 SectionHeader("En emisión y a continuación", Modifier.padding(pad),
@@ -207,7 +212,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
             }
         }
         // 4 · Favoritos.
-        if (favChannels.isNotEmpty()) item {
+        if (favChannels.isNotEmpty()) Column(Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(bottom = 26.dp)) {
                 SectionHeader("Favoritos", Modifier.padding(pad), "${favChannels.size} canales")
                 com.mivisor.tv.ui.design.DefaultScroll { LazyRow(contentPadding = pad, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -219,7 +224,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
             }
         }
         // 5 · Competiciones seguidas.
-        item {
+        Column(Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(bottom = 26.dp)) {
                 SectionHeader(if (followed.isEmpty()) "Competiciones" else "Competiciones seguidas", Modifier.padding(pad),
                     if (followed.isEmpty()) "sugeridas · ábrelas y pulsa «Seguir competición»" else "${followed.size} seguidas")
@@ -235,7 +240,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
             }
         }
         // 6 · Agenda próxima.
-        if (agendaNext.isNotEmpty()) item {
+        if (agendaNext.isNotEmpty()) Column(Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(pad).padding(bottom = 18.dp)) {
                 SectionHeader("Agenda próxima", Modifier, "en orden de hora")
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -245,7 +250,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
                 }
             }
         }
-        item {
+        Column(Modifier.fillMaxWidth()) {
             Row(Modifier.padding(pad).padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MvButton("Toda la agenda", { nav.tab(Route.Agenda) }, icon = MvIcons.Calendar)
                 MvButton("Todos los canales", { nav.tab(Route.Channels) }, icon = MvIcons.Grid)

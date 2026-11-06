@@ -169,6 +169,20 @@ class ReliabilityStore(initial: Map<String, Health> = emptyMap()) {
         recentFail.clear()
     }
 
+    /**
+     * 3h.1 · El verificador («Comprobar ahora») no consiguió imagen: baja la nota de la fuente como un intento
+     * fallido para la nota, sin pausarla ni mandarla a cuarentena (una sola prueba no basta para castigarla). Al reproducir, la
+     * fuente que el verificador vio funcionar se probará antes que esta.
+     */
+    fun probeFailed(cid: String, now: Double) {
+        val x = get(cid); decay(x, now)
+        // Un intento fallido completo para la nota (con medio la nota SUBÍA: el límite de Wilson premia tener datos),
+        // pero sin racha, pausa ni cuarentena.
+        x.n += 1.0
+        x.recent = Math2.ewf(x.recent, 0.1)
+        event(x, "probe-fail", now)
+    }
+
     /** Clasifica un fallo: la causa general si no es culpa de la fuente, o null. */
     fun classify(ctx: FailureContext): String? = when {
         !ctx.foreground -> "background"

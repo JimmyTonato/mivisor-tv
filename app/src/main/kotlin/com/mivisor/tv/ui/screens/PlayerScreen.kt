@@ -50,7 +50,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -341,10 +341,11 @@ fun PlayerScreen(
                 },
                 peers = ui.peers,
                 status = when {
-                    phase == Phase.STARTING_ENGINE -> "Preparando el motor…"
+                    phase == Phase.STARTING_ENGINE -> "Preparando…"
                     phase == Phase.TRYING && loadingLong && ui.message != null -> ui.message!!
-                    ui.sourceIndex > 1 -> "Probando otra fuente…"
-                    else -> "Conectando con la fuente…"
+                    ui.sourceIndex > 1 -> "Probando otra señal…"
+                    ui.peers > 0 -> "Conectando…"
+                    else -> "Buscando señal…"
                 },
                 detail = listOfNotNull(
                     sourceTag?.let { "Fuente ${ui.sourceIndex} de ${ui.sourceCount}" },
@@ -535,17 +536,10 @@ private fun Loading(
             } else MvText(status, MvType.Heading)
             Spacer(Modifier.height(26.dp))
             LoadingBar(Modifier.width(240.dp))
+            // 3h.1 · Un solo mensaje sencillo («Buscando señal…», «Conectando…»), sin fases técnicas.
             if (channel != null) {
-                Spacer(Modifier.height(16.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    LoadStep("Motor listo", if (step > 0) 2 else 1, "Preparando el motor")
-                    StepLine()
-                    LoadStep(if (peers > 0) "Emisores · $peers" else "Buscando emisores", when { step > 1 -> 2; step == 1 -> 1; else -> 0 })
-                    StepLine()
-                    LoadStep("Preparando la imagen", if (step >= 2) 1 else 0)
-                }
-                Spacer(Modifier.height(8.dp))
-                MvText(status, MvType.Caption.copy(color = MvColors.Text3), maxLines = 1)
+                Spacer(Modifier.height(14.dp))
+                MvText(status, MvType.Body.copy(color = MvColors.Text2), maxLines = 1)
             }
         }
         Column(Modifier.align(Alignment.BottomCenter).padding(bottom = MvDims.SafeY), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -581,24 +575,25 @@ private fun StepLine() {
     Box(Modifier.width(18.dp).height(1.dp).background(Color(0x2EFFFFFF)))
 }
 
-/** Barra fina indeterminada: un brillo champán que recorre la pista (en modo ligero, quieta). */
+/**
+ * Barra fina indeterminada: un brillo champán que recorre la pista. 3h.1: movida por el reloj de pantalla y pintada
+ * en la fase de dibujo (funciona con las animaciones del sistema desactivadas y no recompone nada).
+ */
 @Composable
 private fun LoadingBar(modifier: Modifier) {
-    val lite = com.mivisor.tv.ui.design.LocalLite.current
-    val x = if (lite) 0.3f else {
-        val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "carga")
-        t.animateFloat(
-            -0.4f, 1.0f,
-            androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1600, easing = androidx.compose.animation.core.FastOutSlowInEasing)),
-            label = "brillo"
-        ).value
-    }
-    androidx.compose.foundation.layout.BoxWithConstraints(modifier.height(3.dp).clip(RoundedCornerShape(2.dp)).background(Color(0x1AFFFFFF))) {
-        Box(
-            Modifier.offset(x = maxWidth * x).width(maxWidth * 0.4f).fillMaxHeight()
-                .background(Brush.horizontalGradient(listOf(Color.Transparent, MvColors.Accent, Color.Transparent)))
-        )
-    }
+    val loop = com.mivisor.tv.ui.design.rememberLoop(1600)
+    val accent = MvColors.Accent
+    Box(
+        modifier.height(3.dp).clip(RoundedCornerShape(2.dp)).background(Color(0x1AFFFFFF)).drawBehind {
+            val e = androidx.compose.animation.core.FastOutSlowInEasing.transform(loop.value)
+            val w = size.width * 0.4f
+            val x = (-0.4f + 1.4f * e) * size.width
+            drawRect(
+                Brush.horizontalGradient(listOf(Color.Transparent, accent, Color.Transparent), startX = x, endX = x + w),
+                topLeft = androidx.compose.ui.geometry.Offset(x, 0f), size = androidx.compose.ui.geometry.Size(w, size.height)
+            )
+        }
+    )
 }
 
 /** «Seguir esperando» (foco por defecto: un OK sin querer no cambia de fuente) o «Probar otra fuente». */

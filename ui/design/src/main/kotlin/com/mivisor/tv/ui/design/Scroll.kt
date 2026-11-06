@@ -47,3 +47,21 @@ fun DefaultScroll(content: @Composable () -> Unit) {
     val outer = LocalOuterBringIntoView.current
     if (outer == null) content() else CompositionLocalProvider(LocalBringIntoViewSpec provides outer) { content() }
 }
+
+/**
+ * 3h.1 · Fracción 0..1 que avanza en bucle cada [periodMs], movida por el RELOJ DE PANTALLA (withFrameNanos), no por
+ * el sistema de animaciones. Muchas teles traen las animaciones del sistema desactivadas (escala 0) y entonces las
+ * animaciones de Compose se quedan quietas: los indicadores de carga parecían congelados. Leerla solo en la fase de
+ * dibujo (graphicsLayer / drawBehind) para no recomponer la pantalla en cada fotograma.
+ */
+@Composable
+fun rememberLoop(periodMs: Int): androidx.compose.runtime.State<Float> {
+    val v = androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    androidx.compose.runtime.LaunchedEffect(periodMs) {
+        val start = androidx.compose.runtime.withFrameNanos { it }
+        while (true) {
+            androidx.compose.runtime.withFrameNanos { t -> v.floatValue = (((t - start) / 1_000_000L) % periodMs) / periodMs.toFloat() }
+        }
+    }
+    return v
+}

@@ -293,16 +293,12 @@ fun ChannelCard(
     }
 }
 
-/** Indicador de carga: arco que gira (sin animación en modo ligero). */
+/** Indicador de carga: arco que gira (3h.1: con el reloj de pantalla, también en modo ligero; ver [rememberLoop]). */
 @Composable
 fun Spinner(size: Dp = 32.dp, color: Color = MvColors.Accent2) {
-    val lite = LocalLite.current
-    val angle = if (lite) 0f else {
-        val t = rememberInfiniteTransition(label = "spin")
-        val a by t.animateFloat(0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart), label = "a")
-        a
-    }
+    val loop = rememberLoop(900)
     Canvas(Modifier.size(size)) {
+        val angle = loop.value * 360f
         val w = 3.dp.toPx()
         drawArc(
             color = color, startAngle = angle, sweepAngle = 270f, useCenter = false,
