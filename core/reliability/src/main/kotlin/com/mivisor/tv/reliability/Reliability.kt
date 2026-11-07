@@ -19,6 +19,10 @@ import kotlin.math.sqrt
  *
  * Los tiempos van en segundos (epoch). La clase no es segura entre hilos: el repositorio la usa desde un solo hilo.
  */
+/** 3k · Ventana y nota mínima de «En línea». */
+const val ONLINE_WINDOW_S = 12.0 * 3600
+const val ONLINE_MIN_SCORE = 0.45
+
 object Policy {
     const val HALF_LIFE_S = 72.0 * 3600
     const val NEAR = 0.08
@@ -325,6 +329,20 @@ class ReliabilityStore(initial: Map<String, Health> = emptyMap()) {
             { if (near(it)) -it.q else 0 }, { if (near(it)) it.start else 0.0 }, { -it.sc }, { it.i }
         )
         return info.sortedWith(cmp).map { it.c }
+    }
+
+    /**
+     * 3k · «En línea»: dio imagen en las últimas [windowS] (al verla o con el verificador), no ha fallado después, no
+     * está en pausa ni en cuarentena y su nota es buena. Si la abres, lo normal es que salga imagen enseguida.
+     */
+    fun online(cid: String, now: Double, windowS: Double = ONLINE_WINDOW_S): Boolean {
+        val x = h[cid] ?: return false
+        if (x.incompatible || paused(x, now) || inLq(x) || x.streak > 0) return false
+        val ok = x.events.lastOrNull { it.k == "ok" }?.t ?: return false
+        if (now - ok > windowS) return false
+        val fail = x.events.lastOrNull { it.k == "probe-fail" || it.k == "pause" || it.k == "quarantine" }?.t
+        if (fail != null && fail > ok) return false
+        return score(cid, now) >= ONLINE_MIN_SCORE
     }
 
     fun state(cid: String, now: Double): SourceState {

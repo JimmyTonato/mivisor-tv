@@ -80,6 +80,8 @@ object ChannelsMemory {
     var lastChannel: String? = null
     /** 3i · «Solo con partido ahora»: los canales que, según la agenda, emiten algo en directo. */
     var onlyLive by mutableStateOf(false)
+    /** 3k · «En línea»: solo los canales con alguna fuente que dio imagen hace poco (se comprobó y va bien). */
+    var onlineOnly by mutableStateOf(false)
     var gridIndex = 0
 }
 
@@ -138,13 +140,25 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
         }
     }
     val liveIds = remember(onAir) { onAir.filterValues { it.now != null }.keys }
+    // 3k · Canales en línea, recalculados al entrar y cada minuto (fuera del hilo de la pantalla).
+    val onlineIds by androidx.compose.runtime.produceState(emptySet<String>(), library) {
+        while (true) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                library.channels.filter { ch -> graph.sources.online(ch.sources.map { it.contentId }) }.map { it.id }.toSet()
+            }
+            delay(60_000)
+        }
+    }
+    val online = mem.onlineOnly
     val favorites = mine.favorites.map { it.first }.toSet()
     val providers = library.providers
     val providerSec = providers.firstOrNull { it.key == mem.provider }
-    val base: List<TvChannel> = when (mem.view) {
-        0 -> providerSec?.channels ?: library.channels
-        1 -> library.channels
-        else -> mine.favorites.mapNotNull { library.channel(it.first) }
+    val base: List<TvChannel> = remember(library, mem.view, providerSec, mine.favorites, online, onlineIds) {
+        when (mem.view) {
+            0 -> providerSec?.channels ?: library.channels
+            1 -> library.channels
+            else -> mine.favorites.mapNotNull { library.channel(it.first) }
+        }.let { all -> if (online) all.filter { it.id in onlineIds } else all }
     }
     val families = remember(base) { TvLibrary.familiesOf(base) }
     val family = mem.family?.takeIf { f -> families.any { it.first == f } }
@@ -212,6 +226,8 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
             Segment("Categorías", mem.view == 1, null) { if (mem.view != 1) { mem.view = 1; mem.family = null; mem.series = null; mem.gridIndex = 0 } }
             Segment("Favoritos · ${favorites.size}", mem.view == 2, null) { if (mem.view != 2) { mem.view = 2; mem.gridIndex = 0 } }
         }
+            Spacer(Modifier.width(10.dp))
+            OnlineFilter("En línea · ${onlineIds.size}", online) { mem.onlineOnly = !mem.onlineOnly; mem.series = null; mem.gridIndex = 0 }
             Spacer(Modifier.weight(1f))
             val nLive = base.count { it.id in liveIds }
             if (nLive > 0 || mem.onlyLive) LiveFilter("Solo con partido ahora · $nLive", onlyLive) { mem.onlyLive = !mem.onlyLive; mem.gridIndex = 0 }
@@ -220,8 +236,9 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
         // Filtros: proveedores (o categorías) y, dentro de un proveedor, sus grupos.
         when (mem.view) {
             0 -> {
-                ChipRow(listOf<Triple<String?, String, Int>>(Triple(null, "Todos", library.channels.size)) +
-                    providers.map { Triple(it.key, it.name, it.channels.size) }, mem.provider) { k ->
+                ChipRow(listOf<Triple<String?, String, Int>>(Triple(null, "Todos", if (online) onlineIds.size else library.channels.size)) +
+                    providers.map { p -> Triple(p.key, p.name, if (online) p.channels.count { it.id in onlineIds } else p.channels.size) }
+                        .filter { !online || it.third > 0 || it.first == mem.provider }, mem.provider) { k ->
                     if (mem.provider != k) { mem.provider = k; mem.family = null; mem.series = null; mem.gridIndex = 0 }
                 }
                 if (multiSeries.isNotEmpty()) {
@@ -242,6 +259,7 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
         if (shownCount == 0) {
             MvText(
                 if (mem.view == 2) (if (form.touch) "Aún no tienes favoritos. Mantén pulsado un canal para añadirlo." else "Aún no tienes favoritos. Mantén pulsado OK sobre un canal para añadirlo.")
+                else if (online) "Ningún canal en línea aquí todavía. Un canal sale en línea cuando una de sus fuentes ha dado imagen en las últimas 12 horas: al verlo o con Ajustes › Verificador."
                 else "No hay canales aquí.",
                 MvType.Body.copy(color = MvColors.Text2), modifier = Modifier.padding(top = 12.dp)
             )
@@ -296,6 +314,24 @@ private fun SmallAction(text: String, icon: Int, onClick: () -> Unit) {
             MvIcon(icon, size = 14.dp, tint = MvColors.Text2)
             Spacer(Modifier.width(6.dp))
             MvText(text, MvType.SmallStrong, maxLines = 1)
+        }
+    }
+}
+
+/** 3k · Filtro «En línea» (pastilla con punto verde). */
+@Composable
+private fun OnlineFilter(text: String, on: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(50)
+    TvClickable(
+        onClick = onClick, shape = shape, focusedScale = 1.04f,
+        color = if (on) Color(0x339FD6C8) else Color.Transparent, focusedColor = Color(0x4D9FD6C8), ringColor = MvColors.Accent2,
+        modifier = Modifier.height(34.dp).border(1.dp, Color(0x809FD6C8), shape)
+    ) { _ ->
+        Row(Modifier.fillMaxHeight().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(7.dp).background(MvColors.Ok, CircleShape))
+            Spacer(Modifier.width(8.dp))
+            MvText(text, MvType.SmallStrong, color = MvColors.Ok, maxLines = 1)
+            if (on) { Spacer(Modifier.width(8.dp)); MvIcon(MvIcons.Check, size = 14.dp, tint = MvColors.Ok) }
         }
     }
 }

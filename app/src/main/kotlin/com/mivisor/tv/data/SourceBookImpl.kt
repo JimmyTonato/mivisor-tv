@@ -194,6 +194,12 @@ class SourceBookImpl(
         persist(*ids.toTypedArray())
     }
 
+    /** 3k · ¿Alguna fuente del canal está «en línea» (dio imagen hace poco y va bien)? */
+    fun online(contentIds: List<String>): Boolean = synchronized(lock) {
+        val t = now()
+        contentIds.any { store.online(it, t) }
+    }
+
     /** Lo que suele tardar en dar imagen la mejor fuente conocida (para «arranca en ~3 s»), en segundos. */
     fun typicalStart(contentIds: List<String>): Int? = synchronized(lock) {
         contentIds.mapNotNull { store.health(it)?.startMs?.takeIf { ms -> ms > 0 } }.minOrNull()?.let { (it / 1000).toInt().coerceAtLeast(1) }

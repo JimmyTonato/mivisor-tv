@@ -122,14 +122,14 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
     val (a1, _) = MvPalette.pair(event.away ?: event.sport)
     val mine = announced.options.flatMap { it.yours }.distinctBy { it.id }
 
-    Box(Modifier.fillMaxSize()) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
         // Fondo del diseño: los colores de los dos equipos, de izquierda a derecha, fundidos con el fondo.
         // 3j · Banner de la competición (si lo hay); si no, los colores de los dos equipos.
-        // 3k · Con la proporción de la franja del banner (3,2:1) en cualquier ancho: en la tablet se ve entero como en la
-        // tele (antes, al ser más ancha, se recortaba arriba y abajo).
+        // 3k · El banner ENTERO a la derecha (16:9, a la altura de la cabecera) y fundido hacia la izquierda: sin zoom,
+        // con el logo completo y la calidad del original, igual en tele y en tablet.
         val banner = rememberBanner(event.sport, event.competition, 1920)
-        val heroBox = Modifier.fillMaxWidth().aspectRatio(3.2f)
-        if (!BannerBackground(banner, heroBox)) Box(
+        val heroBox = Modifier.fillMaxWidth().height(maxHeight * 0.58f)
+        if (!BannerBackground(banner, heroBox, whole = true)) Box(
             heroBox.background(Brush.horizontalGradient(listOf(Color.Transparent, h1.copy(alpha = 0.22f), a1.copy(alpha = 0.55f))))
         )
         Box(heroBox.background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to MvColors.Bg)))

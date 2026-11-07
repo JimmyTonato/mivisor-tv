@@ -291,12 +291,13 @@ private fun Hero(
     val banner = rememberBanner(ev.sport, ev.competition, 1920)
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().height(if (phone) 250.dp else 300.dp)) {
         // 3j · Banner de la competición de fondo (si lo hay en GitHub).
-        val withBanner = BannerBackground(banner)
+        val withBanner = BannerBackground(banner, whole = true)
         val showCrests = away != null && maxWidth >= 720.dp
         // 3k · Con banner, los escudos van hacia el centro (zona libre del diseño) y no tapan el logo de la derecha.
         val crestSize = if (withBanner) 104.dp else 130.dp
         if (showCrests) Row(
-            if (withBanner) Modifier.align(Alignment.Center).padding(start = maxWidth * 0.12f, bottom = 20.dp)
+            // Centrados en la zona libre del banner (que ocupa la derecha a la altura de la portada).
+            if (withBanner) Modifier.align(Alignment.CenterEnd).padding(end = (minOf(maxWidth, maxHeight * (16f / 9f)) / 2 - 150.dp).coerceAtLeast(0.dp), bottom = 20.dp)
             else Modifier.align(Alignment.CenterEnd).padding(end = MvDims.SafeX * 1.5f, bottom = 20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
