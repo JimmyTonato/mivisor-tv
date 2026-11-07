@@ -13,7 +13,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.mivisor.tv.catalog.tv.TvChannel
 import com.mivisor.tv.engine.EngineApi
-import com.mivisor.tv.engine.EngineManager
+import com.mivisor.tv.outpace.EngineManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay

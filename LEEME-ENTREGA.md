@@ -1,4 +1,4 @@
-# MiVisor TV · Entrega 3k.1: vista previa en Canales, verificador por proveedor y retoques de la tele
+# MiVisor TV · Entrega 3k.2: vista previa en Canales, verificador por proveedor y retoques de la tele
 
 La 3j está en `docs/entregas/3j.md`. Se mantienen el paquete, los datos, la firma y la verificación de WARP.
 
@@ -28,6 +28,8 @@ La 3j está en `docs/entregas/3j.md`. Se mantienen el paquete, los datos, la fir
 - **Ficha del partido:** el banner mantiene la proporción de su franja (3,2:1) en cualquier ancho. En la tablet se ve entero, como en la tele.
 
 ## Compilación
+
+- **3k.2:** la 3k.1 no compilaba porque `ChannelPreview.kt` importaba `EngineManager` del paquete equivocado (`engine` en vez de `outpace`). Corregido, y comprobado que todas las importaciones del proyecto existen.
 
 - **Pruebas:** pasan las **228 pruebas** JVM (las de la densidad de la tele, actualizadas a 1024 dp).
 - **Código Android:** no se ha compilado aquí ni se ha probado en ningún aparato. Se comprueba en GitHub Actions.
