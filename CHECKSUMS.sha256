@@ -1,6 +1,6 @@
 dea4aa89d3c238f6905bea122ba82a347706068343d6a2791b31ea2e8a465ed6  ./.github/workflows/android.yml
 28d6607679788262d4002817ef2fc775c6c2a94465c679109f455926a0bf8f36  ./.gitignore
-978821aba35c74c6fce64d6fdff415a323cbef049f2bd6278d8beaa42869db2b  ./LEEME-ENTREGA.md
+89229e7578fead6f9ef1d8d431f5b6477d91538bea6b445d4e2f76712ba0ec5e  ./LEEME-ENTREGA.md
 a26aad067c7b5574310a95f3c68d69b7985b96440c9affeb5c3221a45a41decf  ./README.md
 5b8a79080ed839d30ee13a5f01fd3e9404ef8f83d0837d34b1e721b23264b7de  ./app/build.gradle.kts
 b08412c601cc0e51e5fa5e8724efb06df59937dfe084b0989ff91f016383addf  ./app/debug.keystore
@@ -33,14 +33,14 @@ fbed1ea0422b5e3e665fc3abffc0e1b22c3b87743a278592ea18a955f059b4cf  ./app/src/main
 8b17c3aa197a3db43a4e4275438c47651b422f0852c69c9674eede9c214e9614  ./app/src/main/kotlin/com/mivisor/tv/ui/Common.kt
 f57b89b81d22f3ec5629f35fcd213b16ad37ba34168a902175514b40fde491d0  ./app/src/main/kotlin/com/mivisor/tv/ui/Device.kt
 9348fb39fe77c6234c21a27adfd9222bf7b1518936050c79ee7d3cac3706d2f9  ./app/src/main/kotlin/com/mivisor/tv/ui/Nav.kt
-4d046261baf87736204567b4288d44c5e0e2fcea14d19953deaf260646ba888a  ./app/src/main/kotlin/com/mivisor/tv/ui/RemoteImage.kt
+7c6e1fc49de9cbdcc82dd3c72320ab138783fc51d9dc8b6ccc6d7062fcc10093  ./app/src/main/kotlin/com/mivisor/tv/ui/RemoteImage.kt
 cac3357232dd2289deb57b14b212aa5d4c1594147ac9676cedd9cccdaeb3487f  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/AddProviderScreen.kt
 cddb1c2555a51afa3ee16f460b547ed481a276a9d5b2a80950c1baef679f0653  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/AgendaScreen.kt
 c163c9b59872c714389a441fa0dbe30a20d3b4c0c901c37f7eab5bb7f3c6ec87  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/ChannelScreen.kt
 e1b8a9cbad9d41830a7fc3d3d7140f289f0e5d6c2f7b22ace8766a756bb53306  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/ChannelsLibrary.kt
 a7af684fed37657564f45e47a04617c4f7c5403c9919af88aaf3c4f0d7652457  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/ChannelsScreen.kt
 d29349556c44ad49e0526102debafc93d34d7c33fdf67449111db8f70780929e  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/DiagnosticsScreens.kt
-aaf6f2bfd0c4b984d38e934e7560547c39fad186eb64b2546a3c3359b5de57ea  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/EventScreen.kt
+7bfef6ce8b7d2354630be877ac7347db0196f6d1eeb77b264b9a4bd4cbac5051  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/EventScreen.kt
 df565fe8f8b23fef971fc54036ce39bf77a2cbb9f98cd23eae1a9b52bc8635cf  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/HomeScreen.kt
 a72fdcbba8f301bdd678ba8af56112a94209a1da9eb895f87f4f721eda74da9f  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/MyListScreen.kt
 15faf0118c8b4cf5850de6ed4444fcfef7e010035a8302707cd99eef08f362f9  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/PlayerScreen.kt

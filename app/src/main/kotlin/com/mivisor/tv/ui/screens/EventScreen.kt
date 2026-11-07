@@ -1,5 +1,6 @@
 package com.mivisor.tv.ui.screens
 
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.aspectRatio
 import com.mivisor.tv.ui.BannerBackground
 import com.mivisor.tv.ui.rememberBanner
@@ -289,7 +290,7 @@ fun Visual(name: String, image: String?, color: Color, size: Dp, person: Boolean
     // despegue de un banner claro. Las fotos de deportistas siguen recortadas en círculo.
     Box(
         Modifier.size(size).then(
-            if (person) Modifier.background(color, CircleShape)
+            if (person) Modifier.background(color, CircleShape).clip(CircleShape)
             else Modifier.background(Brush.radialGradient(listOf(Color(0x59000000), Color.Transparent)), CircleShape)
         ).padding(if (person) 0.dp else size / 14),
         contentAlignment = Alignment.Center

@@ -1,5 +1,6 @@
 package com.mivisor.tv.ui
 
+import androidx.compose.ui.graphics.graphicsLayer
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -206,7 +207,18 @@ fun RemoteImage(
     Box(modifier, contentAlignment = Alignment.Center) {
         val image = bitmap
         if (image != null) {
-            Image(image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = if (crop) ContentScale.Crop else ContentScale.Fit)
+            // 3k · Fotos de cuerpo entero (luchadores de UFC, por ejemplo): recorte desde arriba y acercado a la cara.
+            // Las fotos de busto (tenistas) siguen centradas.
+            val tall = crop && image.height > image.width * 1.15f
+            Image(
+                image, contentDescription = null,
+                modifier = if (tall) Modifier.fillMaxSize().graphicsLayer {
+                    scaleX = 1.7f; scaleY = 1.7f
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                } else Modifier.fillMaxSize(),
+                contentScale = if (crop) ContentScale.Crop else ContentScale.Fit,
+                alignment = if (tall) Alignment.TopCenter else Alignment.Center
+            )
         } else {
             fallback()
         }

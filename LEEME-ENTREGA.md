@@ -1,4 +1,4 @@
-# MiVisor TV · Entrega 3k: vista previa en Canales, verificador por proveedor y retoques de la tele
+# MiVisor TV · Entrega 3k.1: vista previa en Canales, verificador por proveedor y retoques de la tele
 
 La 3j está en `docs/entregas/3j.md`. Se mantienen el paquete, los datos, la firma y la verificación de WARP.
 
@@ -22,6 +22,7 @@ La 3j está en `docs/entregas/3j.md`. Se mantienen el paquete, los datos, la fir
 - **Proveedores:** las dos sincronizaciones son ahora filas con su explicación, para que no se corte nada. «Añadir manualmente» y «Releer todos» van como botones cortos.
 - **Banners y escudos:** las acciones son ahora filas.
 - **Escudos sin el círculo blanco detrás:** el escudo tal cual, con una sombra muy suave. Las fotos de los tenistas siguen en círculo.
+- **3k.1 · Luchadores de UFC:** sus fotos son de cuerpo entero y salía el pantalón. Ahora, si la foto es alargada, se recorta desde arriba y se acerca a la cara. Las fotos de busto (tenistas) siguen igual.
 - **Partidos principales:** los dos escudos juntos a la izquierda y los nombres al lado. El lado derecho queda libre para el logo de la competición (antes el del Real Madrid se ponía encima).
 - **Portada grande con banner:** los escudos van hacia el centro, sin tapar el logo de la derecha.
 - **Ficha del partido:** el banner mantiene la proporción de su franja (3,2:1) en cualquier ancho. En la tablet se ve entero, como en la tele.
