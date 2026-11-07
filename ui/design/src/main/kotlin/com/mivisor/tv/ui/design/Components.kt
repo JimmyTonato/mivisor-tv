@@ -75,7 +75,8 @@ fun MvButton(
     val shape = RoundedCornerShape(50)
     TvClickable(
         onClick = onClick,
-        modifier = modifier.height(48.dp).then(if (!primary) Modifier.border(1.dp, Color(0x29FFFFFF), shape) else Modifier),
+        // 3k · Algo más bajos (44 dp) y con texto un punto menor: en la tele se veían enormes y se cortaban.
+        modifier = modifier.height(44.dp).then(if (!primary) Modifier.border(1.dp, Color(0x29FFFFFF), shape) else Modifier),
         enabled = enabled,
         shape = shape,
         focusedScale = 1.04f,
@@ -86,12 +87,12 @@ fun MvButton(
         contentAlignment = Alignment.Center
     ) { _ ->
         val fg = if (primary) MvColors.Bg else MvColors.Text
-        Row(Modifier.padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) {
-                MvIcon(icon, size = 20.dp, tint = fg)
-                Spacer(Modifier.width(10.dp))
+                MvIcon(icon, size = 18.dp, tint = fg)
+                Spacer(Modifier.width(8.dp))
             }
-            MvText(text, MvType.BodyStrong, color = fg, maxLines = 1)
+            MvText(text, MvType.SmallStrong, color = fg, maxLines = 1)
         }
     }
 }

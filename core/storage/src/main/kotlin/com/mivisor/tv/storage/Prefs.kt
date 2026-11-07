@@ -122,6 +122,22 @@ class Prefs(context: Context) {
         get() = sp.getString("verifier_last", "") ?: ""
         set(v) = sp.edit().putString("verifier_last", v).apply()
 
+    /** 3k · Última comprobación de cada proveedor (id → resumen). */
+    var verifierByProvider: Map<String, String>
+        get() = (sp.getStringSet("verifier_by_provider", emptySet()) ?: emptySet())
+            .mapNotNull { it.split('\u0001').takeIf { p -> p.size == 2 }?.let { p -> p[0] to p[1] } }.toMap()
+        set(v) = sp.edit().putStringSet("verifier_by_provider", v.map { (k, t) -> k + '\u0001' + t }.toSet()).apply()
+
+    /** 3k · Vista previa en vídeo en Canales (null = automático: sí, salvo aparatos justos de memoria). */
+    var channelPreview: Boolean?
+        get() = if (sp.contains("channel_preview")) sp.getBoolean("channel_preview", true) else null
+        set(v) = sp.edit().apply { if (v == null) remove("channel_preview") else putBoolean("channel_preview", v) }.apply()
+
+    /** 3k · No culpar a la fuente si el fallo es de la red, de WARP, del motor o del aparato (por defecto sí). */
+    var protectSources: Boolean
+        get() = sp.getBoolean("protect_sources", true)
+        set(v) = sp.edit().putBoolean("protect_sources", v).apply()
+
     /** Ajustes copiables a otra tele (copia cifrada): solo preferencias, nunca datos del aparato. */
     fun exportable(): Map<String, String> = mapOf(
         "lite" to lite.toString(), "nav_style" to navStyle, "big_text" to bigText.toString(), "start_screen" to startScreen,

@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
         // Sin trabajo en segundo plano: se para la reproducción ya y el motor al cabo de un rato.
         graph.sources.foreground = false
         graph.player.stop()
+        graph.preview.release()
         graph.prewarm.releaseAll()
         if (nav?.current is Route.Player) nav?.back()
         graph.warp.stopListening()

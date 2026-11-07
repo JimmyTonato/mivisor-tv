@@ -1,5 +1,8 @@
 package com.mivisor.tv.ui.screens
 
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -121,6 +124,8 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
     }
 
     val mem = ChannelsMemory
+    // 3k · La vista previa solo vive en esta pantalla.
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { graph.preview.release() } }
     // 3i · Qué echan ahora y a continuación en cada canal (de la agenda), fuera del hilo de la pantalla y al minuto.
     val agendaState by graph.agenda.state.collectAsState()
     val onAir by androidx.compose.runtime.produceState(emptyMap<String, OnChannels.NowNext>(), agendaState.agenda, library) {
@@ -371,9 +376,13 @@ fun ChannelCard(
     val live = onAir?.now
     val n = ch.sources.size
     val prewarm = com.mivisor.tv.ui.LocalPrewarm.current
-    Column(Modifier.fillMaxWidth()) {
+    val preview = graph.preview
+    val pv by preview.state.collectAsState()
+    val showing = pv.channelId == ch.id
+    Column(Modifier.fillMaxWidth().onFocusChanged { if (!it.hasFocus) preview.onBlur(ch.id) }) {
         TvClickable(
-            onClick = onClick, onLongClick = onLongClick, focusRequester = focusRequester, onFocus = { prewarm(ch) },
+            onClick = { preview.release(); onClick() }, onLongClick = onLongClick, focusRequester = focusRequester,
+            onFocus = { prewarm(ch); preview.onFocus(ch) },
             shape = RoundedCornerShape(12.dp), focusedScale = 1.03f,
             color = MvColors.Surface1, focusedColor = MvColors.Surface1, ringColor = MvColors.Accent2,
             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
@@ -383,6 +392,22 @@ fun ChannelCard(
                     MvIcon(MvIcons.Signal, size = 26.dp, tint = MvColors.Text3)
                     Spacer(Modifier.height(6.dp))
                     MvText(ch.name, MvType.SmallStrong.copy(color = MvColors.Text2), maxLines = 2, modifier = Modifier.padding(horizontal = 10.dp))
+                }
+            }
+            // 3k · Vista previa en vídeo (sin sonido) dentro de la tarjeta: aparece cuando llega la primera imagen.
+            if (showing) {
+                androidx.compose.ui.viewinterop.AndroidView(
+                    factory = { ctx -> android.view.TextureView(ctx).also { preview.attach(it) } },
+                    onRelease = { preview.detach(it) },
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).graphicsLayer { alpha = if (pv.ready) 1f else 0f }
+                )
+                if (pv.ready) Row(
+                    Modifier.align(Alignment.TopStart).padding(7.dp).background(Color(0xB3080F19), RoundedCornerShape(6.dp)).padding(horizontal = 7.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    MvIcon(MvIcons.Volume, size = 11.dp, tint = MvColors.Text2)
+                    Spacer(Modifier.width(4.dp))
+                    MvText("Sin sonido", MvType.Caption.copy(color = MvColors.Text2))
                 }
             }
             if (favorite) Box(

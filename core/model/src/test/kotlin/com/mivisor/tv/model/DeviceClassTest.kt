@@ -14,10 +14,10 @@ class DeviceClassTest {
     }
 
     @Test fun densidad() {
-        // Tele 1080p, 4K o con densidad «tvdpi»: siempre 960 dp de ancho.
-        assertEquals(2f, DeviceClass.density(DeviceClass.TV, 1920, 1080, 1.33f), 0.001f)
-        assertEquals(4f, DeviceClass.density(DeviceClass.TV, 3840, 2160, 2f), 0.001f)
-        assertEquals(1.3333f, DeviceClass.density(DeviceClass.TV, 1280, 720, 2f), 0.001f)
+        // Tele 1080p, 4K o con densidad «tvdpi»: siempre 1024 dp de ancho (3k).
+        assertEquals(1.875f, DeviceClass.density(DeviceClass.TV, 1920, 1080, 1.33f), 0.001f)
+        assertEquals(3.75f, DeviceClass.density(DeviceClass.TV, 3840, 2160, 2f), 0.001f)
+        assertEquals(1.25f, DeviceClass.density(DeviceClass.TV, 1280, 720, 2f), 0.001f)
         // Móvil 2400 × 1080 a 2,75: baja a 1080 / 440 ≈ 2,45 para que quepan 440 dp de alto.
         assertEquals(1080f / 440f, DeviceClass.density(DeviceClass.PHONE, 2400, 1080, 2.75f), 0.001f)
         assertEquals(2f, DeviceClass.density(DeviceClass.PHONE, 2400, 1080, 2f), 0.001f)

@@ -265,15 +265,25 @@ class Diagnostics(private val graph: AppGraph) {
      * «Comprobar ahora» (3d): con la app abierta, pide a Outpace cada fuente de tus favoritos (o de todos los canales)
      * y apunta las que responden. No penaliza nunca: una fuente que ahora no responde sigue igual.
      */
-    suspend fun verify(onProgress: (done: Int, total: Int, ok: Int) -> Unit, isCancelled: () -> Boolean): String {
+    suspend fun verify(
+        onProgress: (done: Int, total: Int, ok: Int) -> Unit,
+        isCancelled: () -> Boolean,
+        /** 3k · Solo las fuentes de este proveedor (null = todos). */
+        providerId: String? = null
+    ): String {
         val lib = graph.providers.state.value.library
         // Sin favoritos, «Solo mis favoritos» no dejaría nada que comprobar: se usan todos los canales.
         val favs = graph.mylist.state.value.favorites.mapNotNull { lib.channel(it.first) }
         // 3h.1 · Primero lo que más ves: favoritos, luego lo último visto y después el resto.
         val seen = graph.mylist.state.value.history.mapNotNull { lib.channel(it.channelId) }
-        val channels = if (graph.prefs.verifierFavoritesOnly && favs.isNotEmpty()) favs else (favs + seen + lib.channels).distinctBy { it.id }
-        val sources = channels.flatMap { it.sources }.distinctBy { it.contentId }.take(VERIFY_MAX)
+        val channels = if (providerId == null && graph.prefs.verifierFavoritesOnly && favs.isNotEmpty()) favs
+        else (favs + seen + lib.channels).distinctBy { it.id }
+        // Cada fuente con el canal al que pertenece (para decir cuáles arrancan antes).
+        val pairs = channels.flatMap { ch -> ch.sources.filter { providerId == null || it.providerId == providerId }.map { ch to it } }
+            .distinctBy { it.second.contentId }.take(VERIFY_MAX)
+        val sources = pairs.map { it.second }
         if (sources.isEmpty()) return "No hay fuentes que comprobar"
+        val times = ArrayList<Pair<String, Long>>()
         val engine = EngineManager.ensureStarted(app)
         val base = engine.baseUrl ?: return "Outpace no arrancó: ${engine.message ?: "sin detalle"}"
         var ok = 0
@@ -284,7 +294,9 @@ class Diagnostics(private val graph: AppGraph) {
             val good = withContext(Dispatchers.IO) { probe(EngineApi.hlsUrl(base, s.contentId)) }
             if (good) {
                 ok++
-                graph.sources.verifiedOk(s.contentId, SystemClock.elapsedRealtime() - t0)
+                val ms = SystemClock.elapsedRealtime() - t0
+                graph.sources.verifiedOk(s.contentId, ms)
+                times += pairs[i].first.name to ms
             } else if (graph.sources.verifiedBad(com.mivisor.tv.playback.PlaySource(s.contentId, s.providerId, s.providerName, s.quality, s.qualityLabel))) {
                 // 3h.1 · Sin imagen: nota más baja (sin cuarentena), así al reproducir se prueba antes la que sí va.
                 bad++
@@ -292,10 +304,17 @@ class Diagnostics(private val graph: AppGraph) {
             withContext(Dispatchers.IO) { runCatching { EngineApi.stop(base, s.contentId) } }
             onProgress(i + 1, sources.size, ok)
         }
+        // 3k · Los canales que antes arrancan (la mejor fuente de cada uno) y el tiempo medio.
+        val fastest = times.groupBy { it.first }.map { (name, l) -> name to l.minOf { it.second } }.sortedBy { it.second }.take(3)
+        val avg = if (times.isNotEmpty()) times.sumOf { it.second } / times.size / 1000.0 else null
         val text = "${SimpleDateFormat("dd/MM HH:mm", es).format(Date())} · ${sources.size} fuentes · $ok con imagen" +
-            if (bad > 0) " · $bad sin imagen" else ""
-        graph.prefs.verifierLast = text
-        graph.log.add("Verificador", text)
+            (if (bad > 0) " · $bad sin imagen" else "") +
+            (avg?.let { " · arranque medio %.1f s".format(es, it) } ?: "") +
+            (if (fastest.isNotEmpty()) " · más rápidos: " + fastest.joinToString(", ") { "${it.first} (%.1f s)".format(es, it.second / 1000.0) } else "")
+        if (providerId == null) graph.prefs.verifierLast = text
+        else graph.prefs.verifierByProvider = graph.prefs.verifierByProvider + (providerId to text)
+        val who = providerId?.let { id -> graph.providers.state.value.providers.firstOrNull { it.id == id }?.name }
+        graph.log.add("Verificador", (who?.let { "$it: " } ?: "") + text)
         return text
     }
 

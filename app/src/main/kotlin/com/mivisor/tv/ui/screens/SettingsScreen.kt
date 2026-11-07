@@ -203,24 +203,23 @@ private fun ProvidersPage(graph: AppGraph, nav: Nav, toaster: Toaster, onEdit: (
             )
             Spacer(Modifier.height(10.dp))
             MvRow("Actualizar automáticamente al iniciar", { auto = !auto; graph.prefs.providersAutoSync = auto },
-                subtitle = if (auto) "Al abrir la app añade los nuevos, renombra y quita los que ya no están en GitHub. Tus proveedores personales no se tocan."
-                else "No se cambia nada al abrir la app. Puedes añadir, editar y borrar a tu gusto.",
+                subtitle = if (auto) "Al abrir: añade, renombra y quita los que ya no están. Los personales no se tocan"
+                else "Al abrir no se cambia nada",
                 icon = MvIcons.Refresh) { MvSwitch(auto) }
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MvButton("Sincronizar ahora con GitHub", {
-                    toaster.show("Sincronizando con GitHub…")
-                    graph.providers.syncCatalog(com.mivisor.tv.catalog.datos.CentralProviders.Mode.FULL) { toaster.show(it) }
-                }, icon = MvIcons.Refresh, enabled = !sync.running)
-                MvButton("Actualizar sin perder mis proveedores", {
-                    toaster.show("Actualizando desde GitHub…")
-                    graph.providers.syncCatalog(com.mivisor.tv.catalog.datos.CentralProviders.Mode.KEEP_MINE) { toaster.show(it) }
-                }, enabled = !sync.running)
-            }
+            // 3k · Cada botón con su explicación debajo, a lo ancho: así no se corta ningún texto.
+            MvRow("Sincronizar ahora con GitHub", {
+                toaster.show("Sincronizando con GitHub…")
+                graph.providers.syncCatalog(com.mivisor.tv.catalog.datos.CentralProviders.Mode.FULL) { toaster.show(it) }
+            }, subtitle = "Deja los de GitHub igual que el catálogo y vuelve a traer los que borraste", icon = MvIcons.Refresh, enabled = !sync.running)
+            MvRow("Actualizar sin perder mis proveedores", {
+                toaster.show("Actualizando desde GitHub…")
+                graph.providers.syncCatalog(com.mivisor.tv.catalog.datos.CentralProviders.Mode.KEEP_MINE) { toaster.show(it) }
+            }, subtitle = "Solo añade los nuevos y renombra; no quita nada", icon = MvIcons.Layers, enabled = !sync.running)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            MvButton("Añadir proveedor manualmente", { nav.go(Route.AddProvider()) }, icon = MvIcons.Add, primary = true)
-            MvButton(if (lib.loading) "Actualizando…" else "Actualizar todos", { graph.providers.refresh(); toaster.show("Actualizando proveedores…") }, icon = MvIcons.Refresh, enabled = lib.providers.isNotEmpty())
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            MvButton("Añadir manualmente", { nav.go(Route.AddProvider()) }, icon = MvIcons.Add, primary = true)
+            MvButton(if (lib.loading) "Leyendo…" else "Releer todos", { graph.providers.refresh(); toaster.show("Leyendo tus proveedores…") }, icon = MvIcons.Refresh, enabled = lib.providers.isNotEmpty())
         }
         if (lib.providers.isEmpty()) MvText("Todavía no hay proveedores.", MvType.Body, color = MvColors.Text2)
         lib.providers.forEach { p ->
@@ -235,8 +234,7 @@ private fun ProvidersPage(graph: AppGraph, nav: Nav, toaster: Toaster, onEdit: (
             )
         }
         Spacer(Modifier.height(4.dp))
-        MvText("Los canales con el mismo nombre en varios proveedores se juntan en uno; sus enlaces pasan a ser fuentes de ese canal. " +
-            "«Sincronizar ahora» deja los de GitHub igual que en el catálogo (y vuelve a traer los que borraste); «Actualizar sin perder mis proveedores» solo añade y renombra.", MvType.Caption)
+        MvText("Los canales con el mismo nombre en varios proveedores se juntan en uno; sus enlaces pasan a ser fuentes de ese canal.", MvType.Caption)
     }
 }
 
@@ -431,7 +429,13 @@ private fun DisplayPage(graph: AppGraph, onLook: () -> Unit) {
             onLook()
         }, subtitle = "En el móvil siempre va en un lateral fino", trailing = if (navPos == "side") "Lateral" else "Arriba")
         MvRow("Modo ligero", { lite = !lite; graph.prefs.lite = lite; onLook() }) { MvSwitch(lite) }
-        MvRow("Vista previa en Canales", {}, subtitle = "Todavía no disponible: llega en una entrega posterior", enabled = false) { MvSwitch(false) }
+        // 3k · Vista previa en vídeo (sin sonido) del canal enfocado en Canales.
+        val previewAuto = com.mivisor.tv.data.ChannelPreview.defaultOn(context)
+        var preview by remember { mutableStateOf(graph.prefs.channelPreview ?: previewAuto) }
+        MvRow("Vista previa en Canales", { preview = !preview; graph.prefs.channelPreview = preview; if (!preview) graph.preview.release() },
+            subtitle = if (preview) "Con el foco 2,5 s sobre un canal, se ve dentro de su tarjeta sin sonido"
+            else if (!previewAuto) "Apagada por defecto en este aparato (poca memoria). Puedes encenderla"
+            else "Apagada") { MvSwitch(preview) }
         MvRow("Texto más grande", { big = !big; graph.prefs.bigText = big; onLook() }) { MvSwitch(big) }
         MvRow("Al abrir MiVisor", {
             start = when (start) { "home" -> "agenda"; "agenda" -> "channels"; "channels" -> "last"; else -> "home" }
@@ -513,13 +517,13 @@ private fun ImagesPage(graph: AppGraph, toaster: Toaster) {
             KeyValue("Escudos e iconos", "${mb(crestBytes)} guardados (máx. 80 MB)")
             KeyValue("Origen", "mivisor-datos (GitHub), rama banners")
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            MvButton("Buscar banners nuevos", { toaster.show("Consultando GitHub…"); graph.banners.refresh(force = true) { toaster.show(it) } }, icon = MvIcons.Refresh, primary = true)
-            MvButton("Borrar banners", { graph.banners.clear { toaster.show("Banners borrados: se vuelven a descargar") } }, icon = MvIcons.Delete)
-            MvButton("Borrar escudos e iconos", {
-                scope.launch { com.mivisor.tv.ui.ImageLoader.clear(context); crests++; toaster.show("Escudos e iconos borrados: se descargarán al verlos") }
-            }, icon = MvIcons.Delete)
-        }
+        MvRow("Buscar banners nuevos", { toaster.show("Consultando GitHub…"); graph.banners.refresh(force = true) { toaster.show(it) } },
+            subtitle = "Descarga solo los que falten o hayan cambiado", icon = MvIcons.Refresh)
+        MvRow("Borrar banners", { graph.banners.clear { toaster.show("Banners borrados: se vuelven a descargar") } },
+            subtitle = "Se vuelven a descargar enseguida", icon = MvIcons.Delete)
+        MvRow("Borrar escudos e iconos", {
+            scope.launch { com.mivisor.tv.ui.ImageLoader.clear(context); crests++; toaster.show("Escudos e iconos borrados: se descargarán al verlos") }
+        }, subtitle = "Se descargan otra vez al verlos", icon = MvIcons.Delete)
         MvText("Si una competición no tiene banner propio se usa el de su deporte (si existe) y, si no, el fondo de siempre.", MvType.Caption)
     }
 }
@@ -594,8 +598,10 @@ private fun SourcesPage(graph: AppGraph, nav: Nav, forgotten: Int, onForget: () 
         MvRow("Acercarse solo al directo", { autoLive = !autoLive; graph.prefs.autoLive = autoLive },
             subtitle = if (autoLive) "Un corte no te mueve. Cuando la imagen está estable, se acerca poco a poco dejando margen"
             else "Te quedas donde estabas; usa «Ir al directo» o «Adelantar 15 s» en los controles") { MvSwitch(autoLive) }
-        MvRow("No penalizar fuentes por fallos de la red, de la VPN o del aparato", {},
-            subtitle = "Si el corte es de casa, la fuente no va a cuarentena") { MvSwitch(true) }
+        var protect by remember { mutableStateOf(graph.prefs.protectSources) }
+        MvRow("No penalizar fuentes por fallos de la red, de la VPN o del aparato", { protect = !protect; graph.prefs.protectSources = protect },
+            subtitle = if (protect) "Si el corte es de casa (sin Internet, WARP caída, motor o memoria), la fuente no pierde nota"
+            else "Todo fallo cuenta para la fuente, sea de quien sea") { MvSwitch(protect) }
         MvRow("Fuentes que descansan", { nav.go(Route.Quarantine) },
             subtitle = "En pausa o en cuarentena; puedes liberarlas", trailing = "$resting")
         MvPanel {
@@ -614,29 +620,53 @@ private fun SourcesPage(graph: AppGraph, nav: Nav, forgotten: Int, onForget: () 
 @Composable
 private fun VerifierPage(graph: AppGraph, onChange: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val lib by graph.providers.state.collectAsState()
     var favsOnly by remember { mutableStateOf(graph.prefs.verifierFavoritesOnly) }
-    var running by remember { mutableStateOf(false) }
+    /** Qué se está comprobando: null = nada; "" = todo; id = un proveedor. */
+    var running by remember { mutableStateOf<String?>(null) }
     var cancel by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf<String?>(null) }
     var last by remember { mutableStateOf(graph.prefs.verifierLast) }
+    var byProvider by remember { mutableStateOf(graph.prefs.verifierByProvider) }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { cancel = true } }
+    fun start(providerId: String?) {
+        if (running != null) { cancel = true; return }
+        running = providerId ?: ""; cancel = false; progress = "Arrancando Outpace…"
+        graph.player.stop()
+        scope.launch {
+            val text = graph.diagnostics.verify(
+                onProgress = { done, total, ok -> progress = "$done de $total fuentes · $ok con imagen" },
+                isCancelled = { cancel },
+                providerId = providerId
+            )
+            running = null; progress = null
+            last = graph.prefs.verifierLast.ifBlank { text }
+            byProvider = graph.prefs.verifierByProvider
+            onChange()
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        MvRow(if (running) "Comprobando… (OK para parar)" else "Comprobar ahora", {
-            if (running) { cancel = true; return@MvRow }
-            running = true; cancel = false; progress = "Arrancando Outpace…"
-            graph.player.stop()
-            scope.launch {
-                val text = graph.diagnostics.verify(
-                    onProgress = { done, total, ok -> progress = "$done de $total fuentes · $ok con imagen" },
-                    isCancelled = { cancel }
-                )
-                running = false; progress = null; last = graph.prefs.verifierLast.ifBlank { text }; onChange()
-            }
-        }, subtitle = progress ?: "Una pasada ahora, con la app abierta. Solo apunta las fuentes que funcionan; nunca penaliza")
+        MvRow(if (running == "") "Comprobando… (OK para parar)" else "Comprobar todo ahora", { start(null) },
+            subtitle = if (running == "") progress else if (last.isNotBlank()) "Última: $last" else "Una pasada ahora, con la app abierta",
+            icon = MvIcons.Check, enabled = running == null || running == "")
         MvRow("Solo mis favoritos", { favsOnly = !favsOnly; graph.prefs.verifierFavoritesOnly = favsOnly },
-            subtitle = "Si no tienes favoritos, se prueban todos los canales (como mucho 60 fuentes)") { MvSwitch(favsOnly) }
-        if (last.isNotBlank()) MvText("Última comprobación: $last", MvType.Caption)
-        MvText("La comprobación automática en segundo plano sigue desactivada, como se acordó: solo se prueba cuando pulsas «Comprobar ahora».", MvType.Caption)
+            subtitle = "Para «Comprobar todo». Si no tienes favoritos, se prueban todos los canales") { MvSwitch(favsOnly) }
+        // 3k · Por proveedor, por fases: solo las fuentes de ese proveedor (como mucho 80), primero favoritos y lo visto.
+        if (lib.providers.isNotEmpty()) MvText("POR PROVEEDOR", MvType.Eyebrow.copy(color = MvColors.Text2), modifier = Modifier.padding(top = 6.dp))
+        lib.providers.forEach { p ->
+            val mine = running == p.id
+            MvRow(
+                if (mine) "${p.name} · comprobando… (OK para parar)" else p.name,
+                { start(p.id) },
+                subtitle = if (mine) progress else byProvider[p.id]?.let { "Última: $it" } ?: "Sin comprobar · ${p.channels} canales",
+                icon = MvIcons.Layers,
+                trailing = if (mine) null else "Comprobar",
+                enabled = running == null || mine
+            )
+        }
+        MvText("Cada fuente que da imagen suma a su nota y apunta cuánto tardó en arrancar; la que no responde baja un poco (sin pausas ni cuarentena). " +
+            "Con esas notas se ordena «Dónde verlo», se elige la fuente al abrir un canal y se calcula el «arranca en ~N s». " +
+            "Nunca trabaja en segundo plano: solo cuando lo pides aquí.", MvType.Caption)
     }
 }
 

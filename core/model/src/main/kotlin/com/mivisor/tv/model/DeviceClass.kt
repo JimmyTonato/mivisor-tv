@@ -31,11 +31,14 @@ enum class DeviceClass(val id: String, val label: String) {
          *    quepan al menos 440 dp de alto.
          *  - Tablet: la del sistema (los dedos necesitan el tamaño real).
          */
+        const val TV_WIDTH_DP = 1024f
+
         fun density(device: DeviceClass, widthPx: Int, heightPx: Int, systemDensity: Float): Float {
             val long = maxOf(widthPx, heightPx).toFloat()
             val short = minOf(widthPx, heightPx).toFloat()
             return when (device) {
-                TV -> if (long > 0) long / 960f else systemDensity
+                // 3k · 1024 dp de ancho (antes 960): todo un 6 % más pequeño en la tele; se leía grande y cortado.
+                TV -> if (long > 0) long / TV_WIDTH_DP else systemDensity
                 PHONE -> if (short > 0) minOf(systemDensity, short / 440f) else systemDensity
                 TABLET -> systemDensity
             }

@@ -77,8 +77,22 @@ class AppGraph(context: Context) {
         },
         playing = { player.currentContentId() },
         enabled = { prefs.prewarm },
-        log = {}
+        log = {},
+        previewing = { preview.contentId() }
     )
+
+    /** 3k · Vista previa en vídeo (sin sonido) del canal enfocado en Canales. */
+    val preview: com.mivisor.tv.data.ChannelPreview by lazy {
+        com.mivisor.tv.data.ChannelPreview(
+            app, scope,
+            bestSource = { ch ->
+                sources.order(ch.id, ch.sources.map { s -> com.mivisor.tv.playback.PlaySource(s.contentId, s.providerId, s.providerName, s.quality, s.qualityLabel) }, null).firstOrNull()
+            },
+            enabled = { prefs.channelPreview ?: com.mivisor.tv.data.ChannelPreview.defaultOn(app) },
+            keepWarm = { cid -> prewarm.keep(cid) },
+            log = { log.add("Canales", it) }
+        )
+    }
 
     /** 3d: informe, «Probar todo», copias cifradas y verificador manual. */
     val diagnostics by lazy { com.mivisor.tv.data.Diagnostics(this) }

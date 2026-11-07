@@ -291,16 +291,20 @@ private fun Hero(
     val banner = rememberBanner(ev.sport, ev.competition, 1920)
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().height(if (phone) 250.dp else 300.dp)) {
         // 3j · Banner de la competición de fondo (si lo hay en GitHub).
-        BannerBackground(banner)
+        val withBanner = BannerBackground(banner)
         val showCrests = away != null && maxWidth >= 720.dp
+        // 3k · Con banner, los escudos van hacia el centro (zona libre del diseño) y no tapan el logo de la derecha.
+        val crestSize = if (withBanner) 104.dp else 130.dp
         if (showCrests) Row(
-            Modifier.align(Alignment.CenterEnd).padding(end = MvDims.SafeX * 1.5f, bottom = 20.dp), verticalAlignment = Alignment.CenterVertically
+            if (withBanner) Modifier.align(Alignment.Center).padding(start = maxWidth * 0.12f, bottom = 20.dp)
+            else Modifier.align(Alignment.CenterEnd).padding(end = MvDims.SafeX * 1.5f, bottom = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Visual(home, ev.homeVisual, h1, 130.dp, ev.isPersonVsPerson)
-            MvText("vs", MvType.Heading.copy(color = MvColors.Text3), modifier = Modifier.padding(horizontal = 26.dp))
-            Visual(away!!, ev.awayVisual, a1, 130.dp, ev.isPersonVsPerson)
+            Visual(home, ev.homeVisual, h1, crestSize, ev.isPersonVsPerson)
+            MvText("vs", MvType.Heading.copy(color = MvColors.Text3), modifier = Modifier.padding(horizontal = 20.dp))
+            Visual(away!!, ev.awayVisual, a1, crestSize, ev.isPersonVsPerson)
         }
-        Column(Modifier.padding(start = MvDims.SafeX, top = 18.dp, end = MvDims.SafeX).widthIn(max = if (showCrests) 540.dp else 900.dp)) {
+        Column(Modifier.padding(start = MvDims.SafeX, top = 18.dp, end = MvDims.SafeX).widthIn(max = if (!showCrests) 900.dp else if (withBanner) maxWidth * 0.36f else 540.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (live) MvTag("● EN DIRECTO", MvColors.Live, filled = true)
                 else MvTag(if (ev.timeTbd) "HORA POR CONFIRMAR" else "HOY · ${hhmm(ev.startMillis)}", MvColors.Soon, filled = true)
@@ -387,22 +391,23 @@ private fun FeaturedMatch(
                 MvText((ev.competition ?: sportName(ev.sport)).uppercase(), MvType.Eyebrow.copy(color = MvColors.Text2), maxLines = 1)
             }
             Spacer(Modifier.weight(1f))
+            // 3k · Los dos escudos juntos a la izquierda (local · visitante) y los nombres al lado: el lado derecho queda
+            // libre para el logo de la competición del banner (antes el escudo visitante se le ponía encima).
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (away != null) {
-                    Visual(home, ev.homeVisual, h1, if (phone) 44.dp else 56.dp, ev.isPersonVsPerson)
-                    Spacer(Modifier.width(10.dp))
+                    val crest = if (phone) 40.dp else 50.dp
+                    Visual(home, ev.homeVisual, h1, crest, ev.isPersonVsPerson)
+                    Spacer(Modifier.width(6.dp))
+                    Visual(away, ev.awayVisual, a1, crest, ev.isPersonVsPerson)
+                    Spacer(Modifier.width(14.dp))
                 }
-                Column(Modifier.weight(1f)) {
-                    val big = if (phone) 22.sp else 26.sp
+                Column(Modifier.weight(1f).padding(end = if (phone) 0.dp else 120.dp)) {
+                    val big = if (phone) 21.sp else 24.sp
                     val st = MvType.Display.copy(fontSize = big, lineHeight = big * 1.12f, fontWeight = FontWeight.Black)
                     if (away != null) {
                         MvText(home, st, maxLines = 1)
                         MvText(away, st.copy(color = MvColors.Text2), maxLines = 1)
                     } else MvText(ev.title, st, maxLines = 2)
-                }
-                if (away != null) {
-                    Spacer(Modifier.width(10.dp))
-                    Visual(away, ev.awayVisual, a1, if (phone) 44.dp else 56.dp, ev.isPersonVsPerson)
                 }
             }
             Spacer(Modifier.weight(1f))

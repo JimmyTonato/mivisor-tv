@@ -27,7 +27,9 @@ class Prewarm(
     /** Content ID que se está viendo ahora (no se toca). */
     private val playing: () -> String?,
     private val enabled: () -> Boolean,
-    private val log: (String) -> Unit
+    private val log: (String) -> Unit,
+    /** 3k · La fuente de la vista previa de Canales (tampoco se suelta mientras se ve). */
+    private val previewing: () -> String? = { null }
 ) {
     private val lowRam = EngineManager.isLowRam(app)
     private val pool = WarmPool(capacity = if (lowRam) 1 else 2, ttlMs = TTL_MS)
@@ -44,6 +46,15 @@ class Prewarm(
         }
     }
 
+    /** 3k · La vista previa suelta [contentId]: se queda preparada un rato por si lo abres (y luego se para sola). */
+    fun keep(contentId: String) {
+        val base = EngineManager.state.value.baseUrl ?: return
+        pool.add(contentId, now()).filter { busy(it).not() }.forEach { stop(base, it) }
+        scheduleExpiry()
+    }
+
+    private fun busy(cid: String) = cid == playing() || cid == previewing()
+
     /** El reproductor abre [contentId]: ya es suyo. */
     fun taken(contentId: String) {
         pool.take(contentId)
@@ -54,7 +65,7 @@ class Prewarm(
         pending?.cancel()
         val base = EngineManager.state.value.baseUrl ?: return
         val now = playing()
-        pool.drain().filter { it != now }.forEach { stop(base, it) }
+        pool.drain().filter { it != now && it != previewing() }.forEach { stop(base, it) }
     }
 
     private suspend fun warm(channel: TvChannel) {
@@ -68,7 +79,7 @@ class Prewarm(
         val out = pool.add(cid, now())
         log("Precarga: ${channel.name}")
         scope.launch(Dispatchers.IO) { touch(EngineApi.hlsUrl(base, cid)) }
-        out.filter { it != playing() }.forEach { stop(base, it) }
+        out.filter { !busy(it) }.forEach { stop(base, it) }
         scheduleExpiry()
     }
 
@@ -78,7 +89,7 @@ class Prewarm(
             while (pool.size > 0) {
                 delay(10_000)
                 val base = EngineManager.state.value.baseUrl ?: continue
-                pool.expired(now()).filter { it != playing() }.forEach { stop(base, it) }
+                pool.expired(now()).filter { !busy(it) }.forEach { stop(base, it) }
             }
         }
     }

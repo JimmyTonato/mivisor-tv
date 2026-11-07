@@ -221,6 +221,9 @@ class SourceBookImpl(
 
     /** Lo que se sabe del momento del fallo: se rellena SOLO al fallar (sin sondeos continuos). */
     private fun context(source: PlaySource): FailureContext {
+        // 3k · «No penalizar fuentes por fallos de la red…» apagado: todo fallo cuenta para la fuente (salvo con la app
+        // en segundo plano, que nunca es culpa suya).
+        if (!prefs.protectSources) return FailureContext(foreground = foreground)
         val online = NetState.online(app)
         val warpNeeded = providers.usesWarp(source.providerId)
         val warpChangedAt = warp.lastChangeAt

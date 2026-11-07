@@ -1,5 +1,6 @@
 package com.mivisor.tv.ui.screens
 
+import androidx.compose.foundation.layout.aspectRatio
 import com.mivisor.tv.ui.BannerBackground
 import com.mivisor.tv.ui.rememberBanner
 import androidx.compose.foundation.background
@@ -123,12 +124,14 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
     Box(Modifier.fillMaxSize()) {
         // Fondo del diseño: los colores de los dos equipos, de izquierda a derecha, fundidos con el fondo.
         // 3j · Banner de la competición (si lo hay); si no, los colores de los dos equipos.
+        // 3k · Con la proporción de la franja del banner (3,2:1) en cualquier ancho: en la tablet se ve entero como en la
+        // tele (antes, al ser más ancha, se recortaba arriba y abajo).
         val banner = rememberBanner(event.sport, event.competition, 1920)
-        if (!BannerBackground(banner, Modifier.fillMaxWidth().height(330.dp))) Box(
-            Modifier.fillMaxWidth().height(330.dp)
-                .background(Brush.horizontalGradient(listOf(Color.Transparent, h1.copy(alpha = 0.22f), a1.copy(alpha = 0.55f))))
+        val heroBox = Modifier.fillMaxWidth().aspectRatio(3.2f)
+        if (!BannerBackground(banner, heroBox)) Box(
+            heroBox.background(Brush.horizontalGradient(listOf(Color.Transparent, h1.copy(alpha = 0.22f), a1.copy(alpha = 0.55f))))
         )
-        Box(Modifier.fillMaxWidth().height(330.dp).background(Brush.verticalGradient(listOf(Color.Transparent, MvColors.Bg))))
+        Box(heroBox.background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to MvColors.Bg)))
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = MvDims.SafeX, end = MvDims.SafeX, bottom = 48.dp)) {
             item {
                 Row(Modifier.fillMaxWidth().height(250.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -282,8 +285,13 @@ fun Visual(name: String, image: String?, color: Color, size: Dp, person: Boolean
         Crest(ChannelPlates.crest(name), color, size)
         return
     }
+    // 3k · El escudo tal cual, sin el círculo blanco detrás (se veía raro). Solo una sombra muy suave para que se
+    // despegue de un banner claro. Las fotos de deportistas siguen recortadas en círculo.
     Box(
-        Modifier.size(size).background(if (person) color else Color(0x26FFFFFF), CircleShape).padding(if (person) 0.dp else size / 8),
+        Modifier.size(size).then(
+            if (person) Modifier.background(color, CircleShape)
+            else Modifier.background(Brush.radialGradient(listOf(Color(0x59000000), Color.Transparent)), CircleShape)
+        ).padding(if (person) 0.dp else size / 14),
         contentAlignment = Alignment.Center
     ) {
         RemoteImage(image, size, Modifier.fillMaxSize(), crop = person) { Crest(ChannelPlates.crest(name), color, size) }
