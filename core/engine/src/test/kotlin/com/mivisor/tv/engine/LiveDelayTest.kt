@@ -103,3 +103,15 @@ class LiveDelayTest {
         }
     }
 }
+
+class CatalogHostsEnvTest {
+    @org.junit.Test fun pasaLosServidoresAlMotorYUsaLosDeSerieSinFichero() {
+        val dir = java.nio.file.Files.createTempDirectory("eng").toFile()
+        org.junit.Assert.assertEquals(EngineConfig.DEFAULT_CATALOG_HOSTS, EngineConfig.savedCatalogHosts(dir))
+        java.io.File(dir, EngineConfig.CATALOG_HOSTS_FILE).writeText("1.2.3.4:8081\n\n5.6.7.8:8081\n")
+        val hosts = EngineConfig.savedCatalogHosts(dir)
+        org.junit.Assert.assertEquals(listOf("1.2.3.4:8081", "5.6.7.8:8081"), hosts)
+        val env = EngineConfig(16900, "/d", "/h", false, hosts).environment()
+        org.junit.Assert.assertEquals("1.2.3.4:8081,5.6.7.8:8081", env["OUTPACE_CATALOG_HOSTS"])
+    }
+}

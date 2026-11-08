@@ -61,6 +61,8 @@ class AppGraph(context: Context) {
         catalogDir = File(app.filesDir, "providers-catalog"))
     /** 3j · Banners de competiciones (rama banners de mivisor-datos), guardados en la memoria de la app. */
     val banners = com.mivisor.tv.data.BannerStore(app, scope, { agenda.url }, log)
+    /** 3o · Servidores del catálogo de Ace Stream (rama catalogo de mivisor-datos) para el motor. */
+    val catalogHosts = com.mivisor.tv.data.CatalogHostsStore(app, scope, { agenda.url }, log)
     /** «Dónde verlo» de los eventos que no traen canales: TheSportsDB, solo al abrir el evento y con caché. */
     val tvChannels = TvChannelsRepository(File(app.cacheDir, "tvchannels"))
     val reminders = RemindersRepository(app, db, log, scope)
@@ -121,6 +123,7 @@ class AppGraph(context: Context) {
         providers.startupSync()
         agenda.load()
         banners.start()
+        catalogHosts.start()
         // Logos que trae la agenda (futbolenlatv): se aprovechan para los canales de tus proveedores.
         scope.launch {
             agenda.state.collect { st ->

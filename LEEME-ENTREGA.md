@@ -1,30 +1,34 @@
-# MiVisor TV · Entrega 3n: «Abrir un ID» (con QR desde el móvil)
+# MiVisor TV · Entrega 3o: servidores del catálogo de Ace Stream actualizables
 
-La 3m está en `docs/entregas/3m.md`. Se mantienen el paquete, los datos, la firma y la verificación de WARP.
+La 3n está en `docs/entregas/3n.md`. Se mantienen el paquete, los datos, la firma y la verificación de WARP.
 
-## Ajustes › Abrir un ID
+## El problema
 
-Sirve para ver un ID o enlace de Ace Stream que te pasa alguien y que no está en tus canales.
+Outpace convierte cada ID en su descriptor preguntando al catálogo de Ace Stream. Lo hacía solo a **4 IPs fijas en su código**, copiadas del motor oficial 3.2.11 en julio. Ace Stream ya usa otras (por ejemplo `51.158.152.5:8081`). Resultado: hay IDs que en Ace Stream o CanalPeer van y en MiVisor dan «0 pares», con WARP o sin ella.
 
-- **Qué se puede pegar:**
-  - el ID de 40 caracteres;
-  - `acestream://…`;
-  - un enlace con `?id=`, `content_id=` o `getstream?id=`;
-  - un mensaje entero con el ID en medio.
+## Lo que cambia
 
-  El ID se saca solo; si no hay ninguno, lo dice.
-- **Desde el móvil:** a la derecha hay un QR.
-  1. Lo escaneas con el móvil.
-  2. Pegas allí el ID o el enlace y lo envías.
-  3. Llega al campo de la tele; no se abre solo.
+- **Parche de Outpace** (`tools/outpace-patches/0001-catalog-hosts-env.patch`):
+  - lee la variable `OUTPACE_CATALOG_HOSTS` (`ip:puerto,…`, solo IPv4 públicas, máximo 16) y prueba esos servidores primero;
+  - los 4 de serie quedan detrás, como respaldo;
+  - GitHub Actions aplica el parche al compilar el commit fijado de siempre y pasa su prueba antes de compilar. Si el parche no encaja, la compilación se para.
+  - **Licencia:** el código modificado está en el repo y el aviso de la licencia AGPL está en `assets/licenses/outpace-MODIFICACIONES.txt`.
+- **Lista en mivisor-datos, rama `catalogo`** (`catalog-hosts.json`):
+  - la app la descarga al abrirse (como mucho cada 6 h, con ETag), la valida y la guarda;
+  - el motor la usa al arrancar;
+  - sin red, o si el fichero está roto, sigue con la última lista buena;
+  - mientras no exista la rama, se usa la de serie de MiVisor: `51.158.152.5:8081`.
+- **Ajustes › Motor:**
+  - «Servidores del catálogo»: la lista en uso, de qué fecha es y el último aviso de catálogo del motor. OK para buscar una lista nueva;
+  - botón «Reiniciar motor», para aplicar una lista nueva al momento;
+  - en Diagnóstico › Motor, una línea de RESOLUCIÓN dice qué servidores se pasan al motor.
 
-  Funciona solo en la red de casa y el QR caduca, igual que el de «Añadir proveedor».
-- **Nombre opcional:** se le puede poner un nombre («Partido de Juan»).
-- **Abrir:** se ve con Outpace, como cualquier canal. Se reintenta solo si se corta.
-- **Abiertos hace poco:** los últimos 8. OK para volver a abrirlo; mantener OK para quitarlo de la lista.
-- **Qué no toca:** no añade nada a tus proveedores ni a tus canales, y no se guarda como último canal visto.
+## Primer commit de la rama `catalogo`
+
+Va aparte, en `MiVisor-datos-rama-catalogo.zip`: la lista, el README y dos scripts (comprobar los servidores y descubrir los que usa el motor oficial).
 
 ## Compilación
 
-- **Pruebas:** pasan las **232 pruebas** JVM. Hay 3 nuevas: qué textos se aceptan como ID y cuáles no; por ejemplo, un código de proveedor de 24 caracteres no vale.
-- **Código Android:** no se ha compilado aquí ni se ha probado en ningún aparato. Se comprueba en GitHub Actions.
+- **Pruebas JVM:** pasan las **236 pruebas** (nuevas: la lista y el paso al motor).
+- **Parche de Outpace:** aquí solo se ha probado la función que lee la lista (aislada, con rustc). Encaja en el commit fijado, pero no se ha compilado Outpace entero porque desde aquí no hay acceso a crates.io. Lo compila y lo prueba GitHub Actions.
+- **Código Android:** no se ha compilado aquí ni se ha probado en ningún aparato.

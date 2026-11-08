@@ -17,4 +17,6 @@ object GitHubData {
     fun bannersBase(agendaUrl: String?) = branchUrl(agendaUrl, "banners")
     fun bannersManifest(agendaUrl: String?) = branchUrl(agendaUrl, "banners", "manifest.json")
     fun providersCatalog(agendaUrl: String?) = branchUrl(agendaUrl, "providers", "proveedores.json")
+    /** 3o · Servidores del catálogo de Ace Stream (rama `catalogo`). */
+    fun catalogHosts(agendaUrl: String?) = branchUrl(agendaUrl, "catalogo", "catalog-hosts.json")
 }

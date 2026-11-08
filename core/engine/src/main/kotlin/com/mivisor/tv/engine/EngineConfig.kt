@@ -18,11 +18,18 @@ data class EngineConfig(
     val bindPort: Int,
     val dataDir: String,
     val homeDir: String,
-    val lowRam: Boolean
+    val lowRam: Boolean,
+    /**
+     * 3o · Servidores del catálogo de Ace Stream («ip:puerto»), los primeros que se prueban al convertir un ID en su
+     * descriptor. Los integrados en Outpace quedan detrás como respaldo. Vacío = solo los integrados.
+     */
+    val catalogHosts: List<String> = DEFAULT_CATALOG_HOSTS
 ) {
     fun environment(): Map<String, String> {
         val limits = if (lowRam) LOW_RAM else NORMAL
         return linkedMapOf(
+            // 3o · Parche MiVisor de Outpace (tools/outpace-patches): lista de catálogo actualizable desde mivisor-datos.
+            "OUTPACE_CATALOG_HOSTS" to catalogHosts.joinToString(","),
             "OUTPACE_BIND" to "$HOST:$bindPort",
             "OUTPACE_DATA_DIR" to dataDir,
             "HOME" to homeDir,
@@ -95,6 +102,15 @@ data class EngineConfig(
         /** Duración pedida de cada segmento HLS (se corta en el siguiente keyframe pasado este tiempo). */
         const val HLS_SEGMENT_MS = 2000L
         const val BINARY_NAME = "liboutpace.so"
+        /** 3o · Lista de serie mientras no llegue la de mivisor-datos (rama `catalogo`). */
+        val DEFAULT_CATALOG_HOSTS = listOf("51.158.152.5:8081")
+        /** Fichero (en la carpeta del motor) con la última lista válida descargada, una «ip:puerto» por línea. */
+        const val CATALOG_HOSTS_FILE = "catalog-hosts.txt"
+
+        /** La lista guardada o, si no hay o está vacía, la de serie. */
+        fun savedCatalogHosts(workDir: java.io.File): List<String> =
+            runCatching { java.io.File(workDir, CATALOG_HOSTS_FILE).readLines().map { it.trim() }.filter { it.isNotEmpty() } }
+                .getOrNull()?.takeIf { it.isNotEmpty() } ?: DEFAULT_CATALOG_HOSTS
         private const val MAX_PIECE_BYTES = 1L shl 20
 
         private val NORMAL = Limits(

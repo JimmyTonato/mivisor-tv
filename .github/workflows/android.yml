@@ -68,11 +68,23 @@ jobs:
           test "$(git rev-parse HEAD)" = "$OUTPACE_COMMIT"
           # La licencia incluida en la app debe ser la del commit compilado.
           cmp LICENSE "$GITHUB_WORKSPACE/app/src/main/assets/licenses/outpace-LICENSE.txt"
+          # 3o · Parches de MiVisor sobre Outpace (AGPL: el código modificado está en tools/outpace-patches).
+          # 0001: servidores del catálogo de Ace Stream desde OUTPACE_CATALOG_HOSTS (antes solo fijos en el código).
+          for p in "$GITHUB_WORKSPACE"/tools/outpace-patches/*.patch; do
+            git apply --check "$p"
+            git apply "$p"
+            echo "Aplicado: $(basename "$p")"
+          done
 
       - name: Caché de Cargo
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ runner.temp }}/outpace -> target
+
+      - name: Probar el parche de Outpace (lista del catálogo)
+        shell: bash
+        working-directory: ${{ runner.temp }}/outpace
+        run: cargo test -q -p ace-swarm --lib mivisor_parse_catalog_hosts
 
       - name: Compilar Outpace (ARM64 + ARMv7)
         shell: bash

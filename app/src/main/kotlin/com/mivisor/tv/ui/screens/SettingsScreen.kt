@@ -144,7 +144,7 @@ fun SettingsScreen(graph: AppGraph, nav: Nav, toaster: Toaster, onLook: () -> Un
                 page.intro?.let { MvText(it, MvType.Body.copy(color = MvColors.Text2), modifier = Modifier.padding(bottom = 16.dp)) }
                 when (page) {
                     Page.PROVIDERS -> ProvidersPage(graph, nav, toaster, onEdit = { editing = it })
-                    Page.ENGINE -> EnginePage(graph, onChange = { values++ })
+                    Page.ENGINE -> EnginePage(graph, onChange = { values++ }, toaster = { toaster.show(it) })
                     Page.WARP -> WarpPage(graph, nav)
                     Page.AUDIO -> AudioPage(graph)
                     Page.SOURCES -> SourcesPage(graph, nav, forgotten, onForget = { forgetting = true })
@@ -271,7 +271,7 @@ private fun ProviderOptions(graph: AppGraph, p: ProviderInfo, onClose: () -> Uni
 // ------------------------------------------------------------------ Motor
 
 @Composable
-private fun EnginePage(graph: AppGraph, onChange: () -> Unit) {
+private fun EnginePage(graph: AppGraph, onChange: () -> Unit, toaster: (String) -> Unit = {}) {
     val context = LocalContext.current
     val engine by EngineManager.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -315,7 +315,18 @@ private fun EnginePage(graph: AppGraph, onChange: () -> Unit) {
                 m.liveDelayMs?.let { KeyValue("Retraso", "$it ms (objetivo ${m.liveTargetMs} ms) · saltos al directo ${m.liveResyncs}") }
             }
         }
+        // 3o · Servidores del catálogo de Ace Stream (rama catalogo de mivisor-datos).
+        val cat by graph.catalogHosts.state.collectAsState()
+        val lastCatalogError = remember(tick) {
+            EngineDiagnostics.snapshot().lastOrNull { l -> val x = l.lowercase(); "catalog" in x && ("fail" in x || "timeout" in x || "error" in x || "not found" in x) }
+        }
+        MvRow("Servidores del catálogo", { graph.catalogHosts.refresh(force = true) { toaster(it) } },
+            subtitle = cat.hosts.joinToString(" · ") + (cat.updated?.let { " · lista del $it" } ?: " · lista de serie") +
+                (if (cat.note.isNotEmpty()) "\n${cat.note}" else "") +
+                (lastCatalogError?.let { "\nÚltimo aviso del motor: ${it.takeLast(90)}" } ?: ""),
+            icon = MvIcons.Refresh, trailing = "Buscar lista nueva")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            MvButton("Reiniciar motor", { graph.player.stop(); scope.launch { EngineManager.stop(); EngineManager.ensureStarted(context) } }, icon = MvIcons.Refresh, enabled = supported == null)
             MvButton("Arrancar", { scope.launch { EngineManager.ensureStarted(context) } }, icon = MvIcons.Play, enabled = supported == null)
             MvButton("Parar", { graph.player.stop(); scope.launch { EngineManager.stop() } }, icon = MvIcons.Close)
         }

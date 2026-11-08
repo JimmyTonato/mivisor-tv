@@ -1,0 +1,9 @@
+MiVisor TV incluye Outpace (https://github.com/jamezrin/outpace, AGPL-3.0-or-later) compilado desde el
+commit indicado en Ajustes › Motor, con estas modificaciones de MiVisor TV:
+
+0001-catalog-hosts-env.patch (crates/ace-swarm/src/resolve.rs)
+  Los servidores del catálogo de Ace Stream se pueden indicar con la variable OUTPACE_CATALOG_HOSTS
+  ("ip:puerto,ip:puerto"; solo IPv4 públicas, máx. 16). Se prueban primero y en orden; los que trae
+  Outpace de serie quedan detrás como respaldo.
+
+El código fuente de las modificaciones está en el repositorio de MiVisor TV, carpeta tools/outpace-patches.

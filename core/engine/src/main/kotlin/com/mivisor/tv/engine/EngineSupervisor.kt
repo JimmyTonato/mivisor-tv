@@ -53,12 +53,13 @@ class EngineSupervisor(
             stopLocked()
             killOrphan()
             val port = choosePort()
-            val cfg = EngineConfig(port, File(workDir, "outpace").absolutePath, workDir.absolutePath, lowRam)
+            val cfg = EngineConfig(port, File(workDir, "outpace").absolutePath, workDir.absolutePath, lowRam, EngineConfig.savedCatalogHosts(workDir))
             val problems = cfg.validate()
             if (problems.isNotEmpty()) return@withContext set(State(Phase.FAILED, message = "Configuración no válida: ${problems.first()}"), listener)
             if (!binary.isFile) return@withContext set(State(Phase.FAILED, message = "No está el binario del motor para esta arquitectura"), listener)
             set(State(Phase.STARTING, port), listener)
             EngineDiagnostics.log(EngineDiagnostics.Cat.PROCESS, "Arrancando motor en 127.0.0.1:$port (low-RAM: $lowRam)", important = true)
+            EngineDiagnostics.log(EngineDiagnostics.Cat.RESOLUTION, "Catálogo: ${cfg.catalogHosts.joinToString(", ")} (y los de serie de Outpace)")
             val p = try {
                 ProcessBuilder(binary.absolutePath, "serve").redirectErrorStream(true).directory(workDir.apply { mkdirs() }).also { pb ->
                     pb.environment().putAll(cfg.environment())

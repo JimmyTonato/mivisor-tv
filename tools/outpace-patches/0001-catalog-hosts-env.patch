@@ -1,0 +1,63 @@
+diff --git a/crates/ace-swarm/src/resolve.rs b/crates/ace-swarm/src/resolve.rs
+index f397626..7123fe1 100644
+--- a/crates/ace-swarm/src/resolve.rs
++++ b/crates/ace-swarm/src/resolve.rs
+@@ -68,2 +68,37 @@ const CATALOG_HOSTS: &[(&str, u16)] = &[
+ ];
++/// MiVisor: extra catalog hosts from `OUTPACE_CATALOG_HOSTS` (`ip:port,ip:port`), tried FIRST and in order;
++/// the built-in [`CATALOG_HOSTS`] stay as the fallback. Lets the embedding app update the list without a new
++/// engine build when the official catalog moves.
++const CATALOG_HOSTS_ENV: &str = "OUTPACE_CATALOG_HOSTS";
++const CATALOG_HOSTS_MAX: usize = 16;
++
++fn catalog_hosts() -> Vec<(String, u16)> {
++    let mut hosts = parse_catalog_hosts(std::env::var(CATALOG_HOSTS_ENV).ok().as_deref());
++    for &(host, port) in CATALOG_HOSTS {
++        if !hosts.iter().any(|(h, p)| h == host && *p == port) {
++            hosts.push((host.to_string(), port));
++        }
++    }
++    hosts
++}
++
++/// Pure parse of `OUTPACE_CATALOG_HOSTS`: comma/space separated `ipv4:port`; invalid entries are skipped,
++/// duplicates removed, at most [`CATALOG_HOSTS_MAX`]. Only literal IPv4 addresses (no names, no DNS).
++fn parse_catalog_hosts(value: Option<&str>) -> Vec<(String, u16)> {
++    let mut out: Vec<(String, u16)> = Vec::new();
++    for item in value.unwrap_or("").split(|c: char| c == ',' || c.is_whitespace()) {
++        let Some((host, port)) = item.trim().rsplit_once(':') else { continue };
++        let Ok(ip) = host.parse::<std::net::Ipv4Addr>() else { continue };
++        let Ok(port) = port.parse::<u16>() else { continue };
++        if port == 0 || ip.is_unspecified() || ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_broadcast() {
++            continue;
++        }
++        let entry = (ip.to_string(), port);
++        if !out.contains(&entry) && out.len() < CATALOG_HOSTS_MAX {
++            out.push(entry);
++        }
++    }
++    out
++}
++
+ const CATALOG_HOST_TIMEOUT: Duration = Duration::from_secs(4);
+@@ -317,6 +352,6 @@ async fn catalog_transport_bytes_query(
+     let mut last = ResolveError::Catalog("catalog request failed");
+-    for &(host, port) in CATALOG_HOSTS {
++    for (host, port) in catalog_hosts() {
+         match tokio::time::timeout(
+             CATALOG_HOST_TIMEOUT,
+-            fetch_catalog_transport_query(host, port, parameter, value),
++            fetch_catalog_transport_query(&host, port, parameter, value),
+         )
+@@ -808,2 +843,11 @@ pub async fn transport_bytes_from_url(url: &str) -> Result<Vec<u8>, ResolveError
+ mod tests {
++    #[test]
++    fn mivisor_parse_catalog_hosts() {
++        assert_eq!(
++            super::parse_catalog_hosts(Some("51.158.152.5:8081, 5.252.161.191:8081 bad 10.0.0.1:8081 1.2.3.4:0 51.158.152.5:8081 host.name:8081")),
++            vec![("51.158.152.5".to_string(), 8081), ("5.252.161.191".to_string(), 8081)]
++        );
++        assert!(super::parse_catalog_hosts(None).is_empty());
++    }
++
+     use super::*;
