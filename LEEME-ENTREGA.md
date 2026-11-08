@@ -1,8 +1,23 @@
-# MiVisor TV · Entrega 3l: banners enteros y «En línea» en Canales
+# MiVisor TV · Entrega 3m: banner a todo el ancho sin zoom, «VS» nuevo y «En línea» en Canales
+
+## 3m · Cambios sobre la 3l
+
+- **Ficha del partido:**
+  - se quita el banner pegado a la derecha (no gustó);
+  - vuelve a ir a todo el ancho, pero **entero (16:9)**, sin recortar arriba ni abajo, así que no hay zoom y el logo sale completo;
+  - por debajo se funde con el fondo, donde van «Dónde verlo» y la lista;
+  - se decodifica al ancho real de la pantalla para que no pierda calidad;
+  - igual en tele y en tablet.
+- **Portada grande y cabecera de la Agenda:** vuelven a ir a todo el ancho, como antes.
+- **Tarjetas «En emisión y a continuación»:** los escudos van más a la izquierda y ya no tapan el logo de la competición.
+- **«VS» nuevo:** una placa champán inclinada con brillo, en las tarjetas, en Partidos principales, en la portada y en la ficha.
+
+---
+(Lo de la 3l:)
 
 La 3k (con la 3k.1 y la 3k.2) está en `docs/entregas/3k.md`. Se mantienen el paquete, los datos, la firma y la verificación de WARP.
 
-## Banners sin zoom y con mejor calidad
+## Banners (3l, sustituido por lo de arriba)
 
 - **Antes:** en la ficha del partido, en la cabecera de la Agenda y en la portada grande, el banner se estiraba a todo el ancho. Eso hacía zoom: el logo salía enorme, cortado («Premier Lea…») y algo borroso.
 - **Ahora:**

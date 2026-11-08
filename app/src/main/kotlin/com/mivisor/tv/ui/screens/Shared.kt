@@ -1,5 +1,9 @@
 package com.mivisor.tv.ui.screens
 
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -204,5 +208,32 @@ fun Banner(text: String, color: androidx.compose.ui.graphics.Color = MvColors.So
         MvTag("AVISO", color)
         Spacer(Modifier.width(12.dp))
         MvText(text, MvType.Small, color = MvColors.Text)
+    }
+}
+
+
+/**
+ * 3l · El «VS» de los partidos: una placa champán inclinada con brillo, en vez de un «vs» suelto. [size] = altura
+ * aproximada de la placa.
+ */
+@Composable
+fun VsBadge(size: Dp = 24.dp, modifier: Modifier = Modifier) {
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(size * 0.24f)
+    Box(
+        modifier
+            .graphicsLayer { rotationZ = -9f }
+            .shadow(size * 0.45f, shape, ambientColor = MvColors.Accent, spotColor = MvColors.Accent)
+            .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(MvColors.Accent2, MvColors.Accent, Color(0xFFC9A16E))), shape)
+            .padding(horizontal = size * 0.34f, vertical = size * 0.06f),
+        contentAlignment = Alignment.Center
+    ) {
+        MvText(
+            "VS",
+            MvType.Heading.copy(
+                fontSize = (size.value * 0.62f).sp, lineHeight = (size.value * 0.8f).sp, color = MvColors.Bg,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Black, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                letterSpacing = 0.5.sp
+            )
+        )
     }
 }

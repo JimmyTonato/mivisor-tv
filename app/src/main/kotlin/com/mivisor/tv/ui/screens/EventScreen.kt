@@ -122,17 +122,19 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
     val (a1, _) = MvPalette.pair(event.away ?: event.sport)
     val mine = announced.options.flatMap { it.yours }.distinctBy { it.id }
 
-    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
         // Fondo del diseño: los colores de los dos equipos, de izquierda a derecha, fundidos con el fondo.
         // 3j · Banner de la competición (si lo hay); si no, los colores de los dos equipos.
-        // 3k · El banner ENTERO a la derecha (16:9, a la altura de la cabecera) y fundido hacia la izquierda: sin zoom,
-        // con el logo completo y la calidad del original, igual en tele y en tablet.
-        val banner = rememberBanner(event.sport, event.competition, 1920)
-        val heroBox = Modifier.fillMaxWidth().height(maxHeight * 0.58f)
-        if (!BannerBackground(banner, heroBox, whole = true)) Box(
+        // 3l · A todo el ancho como antes, pero «alejado»: el banner se ve ENTERO (16:9, sin recortar arriba ni abajo),
+        // así el logo sale completo y no parece ampliado. Por debajo se funde con el fondo (ahí van «Dónde verlo» y la
+        // lista). Mismo cálculo en tele y tablet, y decodificado al ancho real de la pantalla.
+        val screenPx = androidx.compose.ui.platform.LocalContext.current.resources.displayMetrics.widthPixels.coerceIn(1280, 2560)
+        val banner = rememberBanner(event.sport, event.competition, screenPx)
+        val heroBox = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+        if (!BannerBackground(banner, heroBox)) Box(
             heroBox.background(Brush.horizontalGradient(listOf(Color.Transparent, h1.copy(alpha = 0.22f), a1.copy(alpha = 0.55f))))
         )
-        Box(heroBox.background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to MvColors.Bg)))
+        Box(heroBox.background(Brush.verticalGradient(0.5f to Color.Transparent, 0.82f to MvColors.Bg.copy(alpha = 0.85f), 1f to MvColors.Bg)))
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = MvDims.SafeX, end = MvDims.SafeX, bottom = 48.dp)) {
             item {
                 Row(Modifier.fillMaxWidth().height(250.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -157,7 +159,7 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
                         Spacer(Modifier.height(10.dp))
                         if (event.away != null) Row(verticalAlignment = Alignment.CenterVertically) {
                             Visual(home, event.homeVisual, h1, 84.dp, event.isPersonVsPerson)
-                            MvText("vs", MvType.Heading.copy(color = MvColors.Text2), modifier = Modifier.padding(horizontal = 14.dp))
+                            VsBadge(26.dp, Modifier.padding(horizontal = 14.dp))
                             Visual(event.away ?: "", event.awayVisual, a1, 84.dp, event.isPersonVsPerson)
                             Spacer(Modifier.width(28.dp))
                             Column {
@@ -255,7 +257,7 @@ fun EventHeader(event: AgendaEvent, now: Long) {
         if (away != null) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 Participant(home, event.homeVisual, h1, event.isPersonVsPerson)
-                MvText("vs", MvType.Heading.copy(color = Color(0xB3FFFFFF)))
+                VsBadge(26.dp)
                 Participant(away, event.awayVisual, a1, event.isPersonVsPerson)
             }
             Spacer(Modifier.height(16.dp))

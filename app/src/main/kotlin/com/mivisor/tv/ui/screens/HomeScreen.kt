@@ -291,18 +291,18 @@ private fun Hero(
     val banner = rememberBanner(ev.sport, ev.competition, 1920)
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().height(if (phone) 250.dp else 300.dp)) {
         // 3j · Banner de la competición de fondo (si lo hay en GitHub).
-        val withBanner = BannerBackground(banner, whole = true)
+        val withBanner = BannerBackground(banner)
         val showCrests = away != null && maxWidth >= 720.dp
         // 3k · Con banner, los escudos van hacia el centro (zona libre del diseño) y no tapan el logo de la derecha.
         val crestSize = if (withBanner) 104.dp else 130.dp
         if (showCrests) Row(
-            // Centrados en la zona libre del banner (que ocupa la derecha a la altura de la portada).
-            if (withBanner) Modifier.align(Alignment.CenterEnd).padding(end = (minOf(maxWidth, maxHeight * (16f / 9f)) / 2 - 150.dp).coerceAtLeast(0.dp), bottom = 20.dp)
+            // Centrados en la zona libre del banner (el logo de la competición queda a la derecha).
+            if (withBanner) Modifier.align(Alignment.Center).padding(start = maxWidth * 0.12f, bottom = 20.dp)
             else Modifier.align(Alignment.CenterEnd).padding(end = MvDims.SafeX * 1.5f, bottom = 20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Visual(home, ev.homeVisual, h1, crestSize, ev.isPersonVsPerson)
-            MvText("vs", MvType.Heading.copy(color = MvColors.Text3), modifier = Modifier.padding(horizontal = 20.dp))
+            VsBadge(30.dp, Modifier.padding(horizontal = 18.dp))
             Visual(away!!, ev.awayVisual, a1, crestSize, ev.isPersonVsPerson)
         }
         Column(Modifier.padding(start = MvDims.SafeX, top = 18.dp, end = MvDims.SafeX).widthIn(max = if (!showCrests) 900.dp else if (withBanner) maxWidth * 0.36f else 540.dp)) {
@@ -398,7 +398,7 @@ private fun FeaturedMatch(
                 if (away != null) {
                     val crest = if (phone) 40.dp else 50.dp
                     Visual(home, ev.homeVisual, h1, crest, ev.isPersonVsPerson)
-                    Spacer(Modifier.width(6.dp))
+                    VsBadge(if (phone) 16.dp else 18.dp, Modifier.padding(horizontal = 6.dp))
                     Visual(away, ev.awayVisual, a1, crest, ev.isPersonVsPerson)
                     Spacer(Modifier.width(14.dp))
                 }
@@ -591,9 +591,10 @@ fun EventTile(ev: AgendaEvent, chs: List<TvChannel>, now: Long, onClick: () -> U
                 if (live) MvTag("● EN DIRECTO", MvColors.Live, filled = true)
                 else MvTag(if (ev.timeTbd) "POR CONFIRMAR" else hhmm(ev.startMillis), MvColors.Soon, filled = true)
             }
-            if (away != null) Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
-                Visual(home, ev.homeVisual, h1, 64.dp, ev.isPersonVsPerson)
-                MvText("vs", MvType.Small.copy(color = Color(0xCCFFFFFF)), modifier = Modifier.padding(horizontal = 16.dp))
+            // 3l · Escudos más a la izquierda: el logo de la competición del banner (a la derecha) queda a la vista.
+            if (away != null) Row(Modifier.align(Alignment.CenterStart).padding(start = 18.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Visual(home, ev.homeVisual, h1, 62.dp, ev.isPersonVsPerson)
+                VsBadge(20.dp, Modifier.padding(horizontal = 10.dp))
                 Visual(away, ev.awayVisual, a1, 64.dp, ev.isPersonVsPerson)
             }
             Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
