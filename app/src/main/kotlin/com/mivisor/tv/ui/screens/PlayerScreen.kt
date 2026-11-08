@@ -126,7 +126,8 @@ fun PlayerScreen(
     val ui by graph.player.ui.collectAsState()
     val lib by graph.providers.state.collectAsState()
     val mine by graph.mylist.state.collectAsState()
-    val channel = lib.library.channel(route.channelId)
+    // 3n · Un ID abierto a mano (Ajustes › Abrir un ID) no está en la biblioteca: canal suelto con esa única fuente.
+    val channel = lib.library.channel(route.channelId) ?: remember(route.channelId) { directChannel(graph, route.channelId) }
     var controls by remember { mutableStateOf(false) }
     val form = com.mivisor.tv.ui.design.LocalUiForm.current
     var shownOnce by remember(route) { mutableStateOf(false) }
@@ -162,7 +163,7 @@ fun PlayerScreen(
     // lo aprendido, o la primera si ninguna se ha probado; si falla, recupera y pasa a la siguiente solo.
     LaunchedEffect(route, channel != null) {
         val ch = channel ?: return@LaunchedEffect
-        graph.watched(ch.id)
+        if (!ch.id.startsWith(com.mivisor.tv.catalog.datos.DirectStream.PREFIX)) graph.watched(ch.id)
         if (graph.prefs.engine == "ace" && aceInstalled) {
             openInAce(ch)
             return@LaunchedEffect
@@ -1003,4 +1004,17 @@ private fun InfoTab(channel: TvChannel, ui: com.mivisor.tv.playback.PlaybackCont
     kv("Motor", "Outpace")
     val audio = ui.tracks.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.selected }
     audio?.let { kv("Audio", it.label + (it.detail?.let { d -> " · $d" } ?: "")) }
+}
+
+
+/** 3n · Canal suelto para un ID de Ace Stream abierto a mano (con el nombre que le diste, si le diste uno). */
+private fun directChannel(graph: AppGraph, channelId: String): TvChannel? {
+    val cid = com.mivisor.tv.catalog.datos.DirectStream.contentIdOf(channelId) ?: return null
+    val name = graph.prefs.directRecent.firstOrNull { it.substringBefore('\t') == cid }?.substringAfter('\t', "")?.takeIf { it.isNotBlank() }
+        ?: "Enlace directo " + com.mivisor.tv.catalog.datos.DirectStream.short(cid)
+    return TvChannel(
+        id = channelId, name = name, brandKey = null, brandName = null,
+        sources = listOf(com.mivisor.tv.catalog.tv.TvSource(cid, "direct", "Abierto a mano", 0, null, "")),
+        initials = "ID"
+    )
 }

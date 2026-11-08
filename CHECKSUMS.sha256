@@ -1,6 +1,6 @@
 dea4aa89d3c238f6905bea122ba82a347706068343d6a2791b31ea2e8a465ed6  ./.github/workflows/android.yml
 28d6607679788262d4002817ef2fc775c6c2a94465c679109f455926a0bf8f36  ./.gitignore
-f631a77c8c3706f3c9d0f30bd7cb555049054e702085a148d3c9f492eca3e852  ./LEEME-ENTREGA.md
+f86e9c88800885e482fd17e7ad167b8559d92ec56245bf6c54ea2db4c75d8430  ./LEEME-ENTREGA.md
 a26aad067c7b5574310a95f3c68d69b7985b96440c9affeb5c3221a45a41decf  ./README.md
 5b8a79080ed839d30ee13a5f01fd3e9404ef8f83d0837d34b1e721b23264b7de  ./app/build.gradle.kts
 b08412c601cc0e51e5fa5e8724efb06df59937dfe084b0989ff91f016383addf  ./app/debug.keystore
@@ -43,10 +43,10 @@ d29349556c44ad49e0526102debafc93d34d7c33fdf67449111db8f70780929e  ./app/src/main
 74e67d43751347340c4715a36cad3005eea4abaab2057ed987a01d1523f57a71  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/EventScreen.kt
 794ea0cbff9db39b6d234e4171a09c6b708b6dfcae5989ad9938c2fcd1c00a05  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/HomeScreen.kt
 a72fdcbba8f301bdd678ba8af56112a94209a1da9eb895f87f4f721eda74da9f  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/MyListScreen.kt
-15faf0118c8b4cf5850de6ed4444fcfef7e010035a8302707cd99eef08f362f9  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/PlayerScreen.kt
+73e1ccf33d0d019248ef7140a7aec7fa128790364f9f4749e31e9ef7dee977fa  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/PlayerScreen.kt
 627ec8c2345fdfb706e87e90caf1033d792687089d73ffaea340206149dcfc8a  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/Reminders.kt
 36da4eeecf1d97d8ba54b93b2603ea7d5b21e189f449ac1004832d640507d8d5  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/SearchScreen.kt
-62927f76ffad61c1d4eca8ab62c30092043e2a74a17a107b7326ce986a5f3531  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/SettingsScreen.kt
+607c86bbbe75480a52588d1b3b2276104fa9277f6ccacdedfc54614149eca161  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/SettingsScreen.kt
 357c0574c4e95ee28441feb263251e74be574d3d673c0cd6f172b9347e30ab61  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/Shared.kt
 c0a06e01f317633c5c95b6ad6d1ba89eb0724e7ac0c5a6dafb119bf7e333ac29  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/WizardScreen.kt
 a9ba522df9369b47884c61cfc4165b9b23b48e353eb3302d64d02a21cde28134  ./app/src/main/res/drawable-xhdpi/tv_banner.png
@@ -95,6 +95,7 @@ a91c06b90f0ae91abfe5cbadbd754575ce074ca17e38ce15d697f15aa9fb8cc1  ./core/catalog
 4223699d8d0850d3d85dd17a3b1ad81cc7ab49a8d372032412396c0087a17ffe  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/datos/BannerRepository.kt
 62035d16f93e566bde5e20b6d05066ed1ddf27e811e18c951fa10247afc4a65c  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/datos/CachedJson.kt
 5e17ae731455113d7c90ee58058ac6a38cc44a8ffb1cd21284db15a63e106d26  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/datos/CentralProviders.kt
+b848903c0ca42053a1cdacc9839cfe075cbbc3196a39eb67a3736a7913c32ad0  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/datos/DirectStream.kt
 3b902da84751a92a6eda40e3c9a8ad674778362b030e59f47303734989d7490f  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/datos/GitHubData.kt
 6e7c3e5aa61170b9265e36de23149b78d7e6d586da4f9a0eb9596d9216aaac44  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/datos/HttpFetch.kt
 ec3ee0cc1cf2d3c61e94568a7e31f75fc70a0f8d45b993bd205a69d25e1b5dba  ./core/catalog/src/main/kotlin/com/mivisor/tv/catalog/logos/ChannelCategories.kt
@@ -130,6 +131,7 @@ d4d3e4a4c0886943b8e4eba19ff00ed5146bcf9fc38797ce54f6aefdf5c01177  ./core/catalog
 62c55da5a14ddea7403cc76bdfd53c634487a08f46bae8697962735c7544d2c2  ./core/catalog/src/test/kotlin/com/mivisor/tv/catalog/datos/BannerCatalogTest.kt
 34c911b79e9abf0f58b6c719a200410a1f89069626ff4b04f1fb047335849fde  ./core/catalog/src/test/kotlin/com/mivisor/tv/catalog/datos/BannerRepositoryTest.kt
 ae9337b4ec611d0abde582c38b14244dd9c3c87aee12099ee3999ac2fabbebfa  ./core/catalog/src/test/kotlin/com/mivisor/tv/catalog/datos/CentralProvidersTest.kt
+04d5dca5dbaa55dfde96a7eae414db48641adfa71e8e2be4865506f44678c3e6  ./core/catalog/src/test/kotlin/com/mivisor/tv/catalog/datos/DirectStreamTest.kt
 d9b55c7714857c9a525b172909177bf675bf51077e8612a4e76af10e079926de  ./core/diagnostics/build.gradle.kts
 c86f668536cdd55c3992500e79ac4d6ec26416ab2e111485057e52513883a63c  ./core/diagnostics/src/main/kotlin/com/mivisor/tv/backup/Backup.kt
 aeecc07710081404742f12e966d24678d512e634ffad79a1a89f50c4bfc1e22d  ./core/diagnostics/src/main/kotlin/com/mivisor/tv/diagnostics/LogSanitizer.kt
@@ -205,7 +207,7 @@ de58cdabcd13dd9289bb835011daf73973371c5973a0d2730f5aa8979a433973  ./core/storage
 daa0fb1f32ba7ea85a07ef6302ab3d58c3407d7fd2aa03ec132cb9e38e8d9849  ./core/storage/src/main/AndroidManifest.xml
 a11fe37e44e6be7ca8cd877026741ba41dfc85527b26d686f96a4fc85cdc3048  ./core/storage/src/main/kotlin/com/mivisor/tv/storage/CodeVault.kt
 fa6f8d93c9b894882e580a8350ec664ad270d584c64910972c6a1f5519c69217  ./core/storage/src/main/kotlin/com/mivisor/tv/storage/MvDatabase.kt
-134a47038dafe7f7d95a61d25427642302ff72f62e23fd6fc7cc5a93dc2c1202  ./core/storage/src/main/kotlin/com/mivisor/tv/storage/Prefs.kt
+ca240ad4175c359e5c96055c0d139aa451e3b3a58564e04fa2181db11d510f95  ./core/storage/src/main/kotlin/com/mivisor/tv/storage/Prefs.kt
 0861f7262e1034008f944baab9558c99794aff7804b5f16ab66d9471a2d9933f  ./docs/diseno-06/01_SISTEMA_DE_DISENO.md
 50cebe3fbbac6ab1617e23fbe1616844d293507b667116a063ce5a3bb3dfe826  ./docs/diseno-06/02_PANTALLAS_Y_MANDO.md
 f577066a6bbfaaf1af6f4aecbf13a75aa76e2b0e06d2678fea341a116bb623b7  ./docs/diseno-06/03_CONTRATOS_DE_DATOS.md
@@ -229,6 +231,7 @@ e38fdfe60e5ccebc15885e33601f26b6a55fa5fb474a3a48f69ff05e57186d9e  ./docs/diseno-
 583960f18d3e30d8cf3cf04bafc856d2498672b62c7e43b9d27c825426f17670  ./docs/entregas/3j.md
 9c9353cb304939b2b14794ea5814a3e36b4a0476f2443d763a3269f638549a4e  ./docs/entregas/3k.md
 7dacf50ea960c843701356c83651024a01971f7dec2185edb8a073f2a01b865f  ./docs/entregas/3l.md
+f631a77c8c3706f3c9d0f30bd7cb555049054e702085a148d3c9f492eca3e852  ./docs/entregas/3m.md
 412dac1cd1c3549992477b5602ba3a873a5a674c04062b93ecf61e2971d82688  ./engine/outpace/build.gradle.kts
 530dc96350e37f037f43627f5de25c300c182445af9f9649ed8a2b1d60fb6a8c  ./engine/outpace/consumer-rules.pro
 daa0fb1f32ba7ea85a07ef6302ab3d58c3407d7fd2aa03ec132cb9e38e8d9849  ./engine/outpace/src/main/AndroidManifest.xml

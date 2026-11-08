@@ -122,6 +122,11 @@ class Prefs(context: Context) {
         get() = sp.getString("verifier_last", "") ?: ""
         set(v) = sp.edit().putString("verifier_last", v).apply()
 
+    /** 3n · IDs abiertos a mano (Ajustes › Abrir un ID), el más reciente primero: «id\tnombre». */
+    var directRecent: List<String>
+        get() = (sp.getString("direct_recent", "") ?: "").split('\n').filter { it.isNotBlank() }
+        set(v) = sp.edit().putString("direct_recent", v.take(8).joinToString("\n")).apply()
+
     /** 3k · Última comprobación de cada proveedor (id → resumen). */
     var verifierByProvider: Map<String, String>
         get() = (sp.getStringSet("verifier_by_provider", emptySet()) ?: emptySet())

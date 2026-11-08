@@ -1,45 +1,30 @@
-# MiVisor TV · Entrega 3m: banner a todo el ancho sin zoom, «VS» nuevo y «En línea» en Canales
+# MiVisor TV · Entrega 3n: «Abrir un ID» (con QR desde el móvil)
 
-## 3m · Cambios sobre la 3l
+La 3m está en `docs/entregas/3m.md`. Se mantienen el paquete, los datos, la firma y la verificación de WARP.
 
-- **Ficha del partido:**
-  - se quita el banner pegado a la derecha (no gustó);
-  - vuelve a ir a todo el ancho, pero **entero (16:9)**, sin recortar arriba ni abajo, así que no hay zoom y el logo sale completo;
-  - por debajo se funde con el fondo, donde van «Dónde verlo» y la lista;
-  - se decodifica al ancho real de la pantalla para que no pierda calidad;
-  - igual en tele y en tablet.
-- **Portada grande y cabecera de la Agenda:** vuelven a ir a todo el ancho, como antes.
-- **Tarjetas «En emisión y a continuación»:** los escudos van más a la izquierda y ya no tapan el logo de la competición.
-- **«VS» nuevo:** una placa champán inclinada con brillo, en las tarjetas, en Partidos principales, en la portada y en la ficha.
+## Ajustes › Abrir un ID
 
----
-(Lo de la 3l:)
+Sirve para ver un ID o enlace de Ace Stream que te pasa alguien y que no está en tus canales.
 
-La 3k (con la 3k.1 y la 3k.2) está en `docs/entregas/3k.md`. Se mantienen el paquete, los datos, la firma y la verificación de WARP.
+- **Qué se puede pegar:**
+  - el ID de 40 caracteres;
+  - `acestream://…`;
+  - un enlace con `?id=`, `content_id=` o `getstream?id=`;
+  - un mensaje entero con el ID en medio.
 
-## Banners (3l, sustituido por lo de arriba)
+  El ID se saca solo; si no hay ninguno, lo dice.
+- **Desde el móvil:** a la derecha hay un QR.
+  1. Lo escaneas con el móvil.
+  2. Pegas allí el ID o el enlace y lo envías.
+  3. Llega al campo de la tele; no se abre solo.
 
-- **Antes:** en la ficha del partido, en la cabecera de la Agenda y en la portada grande, el banner se estiraba a todo el ancho. Eso hacía zoom: el logo salía enorme, cortado («Premier Lea…») y algo borroso.
-- **Ahora:**
-  - el banner se ve **entero (16:9)**, a la altura de la cabecera;
-  - va pegado a la derecha y fundido hacia la izquierda, donde va el texto;
-  - el logo se ve completo, igual en tele y en tablet;
-  - en la portada grande, los escudos van en el hueco libre del banner.
-- **Calidad:** solo se baja la resolución en aparatos con muy poca memoria. Antes se hacía en muchas teles y por eso se veían borrosos.
-- **Sin cambios:** las tarjetas de «Partidos principales» y «En directo» siguen como estaban.
-
-## «En línea» en Canales
-
-- **Dónde está:** junto a Proveedores · Categorías · Favoritos, la pastilla verde **«En línea · N»**. Filtra lo que estés viendo (un proveedor, sus grupos, una categoría o favoritos); las pastillas de proveedor muestran cuántos tienen en línea.
-- **Qué es un canal en línea:** alguna de sus fuentes **dio imagen en las últimas 12 horas** (al verlo o con el verificador) y:
-  - no ha fallado después;
-  - no está en pausa ni en cuarentena;
-  - su nota es buena.
-
-  Si lo abres, lo normal es que salga imagen enseguida.
-- **Actualización:** la lista se recalcula al entrar y cada minuto. Para llenarla: Ajustes › Verificador, por proveedor.
+  Funciona solo en la red de casa y el QR caduca, igual que el de «Añadir proveedor».
+- **Nombre opcional:** se le puede poner un nombre («Partido de Juan»).
+- **Abrir:** se ve con Outpace, como cualquier canal. Se reintenta solo si se corta.
+- **Abiertos hace poco:** los últimos 8. OK para volver a abrirlo; mantener OK para quitarlo de la lista.
+- **Qué no toca:** no añade nada a tus proveedores ni a tus canales, y no se guarda como último canal visto.
 
 ## Compilación
 
-- **Pruebas:** pasan las **229 pruebas** JVM (nueva: qué cuenta como «en línea»). Todas las importaciones del proyecto existen.
+- **Pruebas:** pasan las **232 pruebas** JVM. Hay 3 nuevas: qué textos se aceptan como ID y cuáles no; por ejemplo, un código de proveedor de 24 caracteres no vale.
 - **Código Android:** no se ha compilado aquí ni se ha probado en ningún aparato. Se comprueba en GitHub Actions.

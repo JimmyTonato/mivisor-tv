@@ -75,6 +75,7 @@ import kotlinx.coroutines.withContext
 /** Menú de Ajustes del diseño (con su icono y el valor actual a la derecha). */
 private enum class Page(val title: String, val icon: Int, val intro: String?) {
     PROVIDERS("Proveedores", MvIcons.Box, null),
+    OPEN_ID("Abrir un ID", MvIcons.Play, "Para ver un ID o enlace de Ace Stream que te han pasado y que no está en tus canales. Pégalo aquí o mándalo desde el móvil con el QR."),
     ENGINE("Motor", MvIcons.Chip, "Outpace va dentro de MiVisor TV y es el que se usa siempre que funciona. Ace Stream es una app aparte que puedes elegir como alternativa."),
     WARP("WARP", MvIcons.Shield, null),
     AUDIO("Audio y subtítulos", MvIcons.Volume, "Se aplican al abrir un canal. Si la emisión no trae tu idioma, se usa la pista principal."),
@@ -151,6 +152,7 @@ fun SettingsScreen(graph: AppGraph, nav: Nav, toaster: Toaster, onLook: () -> Un
                     Page.DISPLAY -> DisplayPage(graph, onLook)
                     Page.AGENDA -> AgendaPage(graph, toaster)
                     Page.IMAGES -> ImagesPage(graph, toaster)
+                    Page.OPEN_ID -> OpenIdPage(graph, nav, toaster)
                     Page.COMPETITIONS -> CompetitionsPage(graph, onChange = { values++ })
                     Page.DIAGNOSTICS -> DiagnosticsPage(graph, nav)
                     Page.MOBILE -> MobilePage(nav)
@@ -492,6 +494,72 @@ private fun AgendaPage(graph: AppGraph, toaster: Toaster) {
             MvButton("Usar la de por defecto", { url = ""; graph.prefs.agendaUrl = ""; graph.agenda.load(force = true) })
         }
         MvText("MiVisor TV solo lee la agenda publicada en GitHub. No depende de la Raspberry ni cambia nada en ella.", MvType.Caption)
+    }
+}
+
+// ------------------------------------------------------------------ Abrir un ID (3n)
+
+@Composable
+private fun OpenIdPage(graph: AppGraph, nav: Nav, toaster: Toaster) {
+    var text by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var recent by remember { mutableStateOf(graph.prefs.directRecent) }
+    val parsed = com.mivisor.tv.catalog.datos.DirectStream.parse(text)
+
+    fun open(cid: String, label: String) {
+        val clean = label.trim().take(40)
+        graph.prefs.directRecent = listOf(cid + "\t" + clean) + graph.prefs.directRecent.filter { it.substringBefore('\t') != cid }
+        recent = graph.prefs.directRecent
+        graph.log.add("Abrir un ID", "Se abre " + com.mivisor.tv.catalog.datos.DirectStream.short(cid) + (if (clean.isNotEmpty()) " ($clean)" else ""))
+        nav.go(Route.Player(com.mivisor.tv.catalog.datos.DirectStream.channelId(cid)))
+    }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            MvTextField(text, { text = it; error = null }, "ID o enlace", placeholder = "acestream://… o los 40 caracteres", onDone = {
+                parsed?.let { open(it, name) } ?: run { error = "Ahí no hay un ID de Ace Stream (son 40 letras y números)" }
+            })
+            MvTextField(name, { name = it }, "Nombre (opcional)", placeholder = "p. ej. Partido de Juan")
+            MvRow(
+                if (parsed != null) "Abrir " + com.mivisor.tv.catalog.datos.DirectStream.short(parsed) else "Abrir",
+                { parsed?.let { open(it, name) } ?: run { error = "Escribe o manda desde el móvil un ID de Ace Stream" } },
+                subtitle = error ?: if (parsed != null) "Se abre con Outpace, como cualquier canal" else "Pega el ID o el enlace completo: se saca el ID solo",
+                icon = MvIcons.Play
+            )
+        }
+        // Mandarlo desde el móvil: se escanea, se pega allí y llega a este campo (no se abre solo).
+        com.mivisor.tv.ui.PhoneQrCard(
+            "Desde el móvil", "Escanea, pega el ID o el enlace y envíalo. Llega al campo de la izquierda.",
+            onText = { t ->
+                text = t.trim(); error = null
+                if (com.mivisor.tv.catalog.datos.DirectStream.parse(t) == null) toaster.show("Ha llegado texto, pero sin un ID de Ace Stream")
+                else toaster.show("ID recibido: pulsa «Abrir»")
+            },
+            modifier = Modifier.width(250.dp)
+        )
+    }
+    if (recent.isNotEmpty()) {
+        Spacer(Modifier.height(14.dp))
+        MvText("ABIERTOS HACE POCO", MvType.Eyebrow.copy(color = MvColors.Text2))
+        Spacer(Modifier.height(6.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            recent.forEach { line ->
+                val cid = line.substringBefore('\t')
+                val label = line.substringAfter('\t', "")
+                MvRow(
+                    label.ifBlank { "Enlace directo " + com.mivisor.tv.catalog.datos.DirectStream.short(cid) },
+                    { open(cid, label) },
+                    subtitle = com.mivisor.tv.catalog.datos.DirectStream.short(cid) + " · OK para abrir · mantén OK para quitarlo",
+                    icon = MvIcons.Link,
+                    onLongClick = {
+                        graph.prefs.directRecent = graph.prefs.directRecent.filter { it.substringBefore('\t') != cid }
+                        recent = graph.prefs.directRecent
+                        toaster.show("Quitado de la lista")
+                    }
+                )
+            }
+        }
     }
 }
 
