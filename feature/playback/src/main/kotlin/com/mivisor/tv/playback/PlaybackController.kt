@@ -149,7 +149,13 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     }
     private val _live = MutableStateFlow(Live())
     val live: StateFlow<Live> = _live.asStateFlow()
-    private val catchUp = CatchUpController()
+    private val catchUp = CatchUpController().also { it.maxDelayMs = com.mivisor.tv.engine.EngineConfig.maxSafeDelayMs(EngineManager.isLowRam(context.applicationContext)) }
+    /**
+     * 3p · Colchón con el que se retoma tras un corte (recarga): en vez de volver pegado al directo (y volver a cortarse),
+     * se vuelve con el retraso aprendido de los cortes recientes. Crece si los cortes se repiten; 0 = el normal.
+     */
+    private var cushionMs = 0L
+    private var recentReloads = ArrayDeque<Long>()
     /** Tras un salto propio dentro de lo descargado, un buffering breve no cuenta como corte. */
     private var jumpGraceUntil = 0L
 
@@ -265,6 +271,8 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         val gen = generation
         liveDelay.reset(SystemClock.elapsedRealtime())
         catchUp.reset(SystemClock.elapsedRealtime())
+        cushionMs = 0L
+        recentReloads.clear()
         _live.value = Live()
         _ui.value = Ui(Phase.STARTING_ENGINE, req.channelId, req.channelName, sourceCount = req.sources.size, message = "Preparando el motor…")
         EngineDiagnostics.update { it.copy(channel = req.channelName, sourceCount = req.sources.size, sourceSwitches = 0, rebuffers = 0, firstFrameMs = null) }
@@ -508,6 +516,8 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         p.clearMediaItems()
         liveDelay.reset(SystemClock.elapsedRealtime(), keepStats = true)
         catchUp.reset(SystemClock.elapsedRealtime())
+        cushionMs = 0L
+        recentReloads.clear()
         p.setPlaybackSpeed(1f)
         p.setMediaItem(mediaItemFor(base, cid))
         p.volume = 1f
@@ -665,14 +675,22 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             runCatching { p.seekTo(p.currentPosition) }
         } else {
             lastReloadAt = SystemClock.elapsedRealtime()
-            _ui.value = _ui.value.copy(recovering = "Recuperando la imagen: recargando la fuente…")
+            // 3p · Se retoma con colchón, no pegado al directo: el colchón aprendido de los cortes y, si las recargas se
+            // repiten (3 en 2 min), un 50 % más cada vez. Nunca más allá de lo que guarda el motor.
+            val now = lastReloadAt
+            recentReloads.addLast(now)
+            while (recentReloads.isNotEmpty() && now - recentReloads.first() > 120_000L) recentReloads.removeFirst()
+            val base0 = catchUp.reserveMs(now, loadControl?.policy?.targetMs ?: 6_000L)
+            val grown = if (recentReloads.size >= 3) (maxOf(cushionMs, base0) * 1.5).toLong() else maxOf(cushionMs, base0)
+            cushionMs = grown.coerceAtMost(catchUp.maxDelayMs - 6_000L).coerceAtLeast(0)
+            _ui.value = _ui.value.copy(recovering = "Recuperando la imagen…")
             resyncing = false
             p.stop()
             p.setMediaItem(mediaItemFor(base, src.contentId))
             p.prepare()
             p.play()
         }
-        book.log("Recuperación", "${mask(src.contentId)}: escalón $step")
+        book.log("Recuperación", "${mask(src.contentId)}: escalón $step" + if (step == 2 && cushionMs > 0) " · se retoma con ${cushionMs / 1000} s de colchón" else "")
     }
 
     /**
@@ -957,7 +975,8 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     }
 
     private fun mediaItemFor(base: String, contentId: String): MediaItem {
-        val target = loadControl?.policy?.targetMs ?: 6_000L
+        // 3p · Tras cortes se arranca con colchón (ver [cushionMs]); la ventana del motor ya guarda esa imagen.
+        val target = maxOf(loadControl?.policy?.targetMs ?: 6_000L, cushionMs)
         return MediaItem.Builder()
             .setMediaId(EngineApi.key(contentId))
             .setUri(Uri.parse(EngineApi.hlsUrl(base, contentId)))

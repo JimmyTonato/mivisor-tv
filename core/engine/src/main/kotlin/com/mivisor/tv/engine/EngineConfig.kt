@@ -113,15 +113,26 @@ data class EngineConfig(
                 .getOrNull()?.takeIf { it.isNotEmpty() } ?: DEFAULT_CATALOG_HOSTS
         private const val MAX_PIECE_BYTES = 1L shl 20
 
+        /** 3p · Lo que el motor guarda hacia atrás (ventana HLS) en este aparato. */
+        fun hlsWindowMs(lowRam: Boolean): Long = (if (lowRam) LOW_RAM else NORMAL).hlsWindow * HLS_SEGMENT_MS
+
+        /**
+         * 3p · Retraso máximo seguro para el reproductor: la ventana menos un margen (los segmentos duran algo más de lo
+         * pedido porque se cortan en keyframe, y el más antiguo puede estar a punto de salir).
+         */
+        fun maxSafeDelayMs(lowRam: Boolean): Long = hlsWindowMs(lowRam) - 14_000L
+
         private val NORMAL = Limits(
             upstreams = 4, parallelConnect = 12, pieceAdvance = 64, reasmAhead = 128,
             sessionBuffer = 256, prebufferBytes = 24L shl 20, seedStoreBytes = 24L shl 20,
-            hlsWindow = 8, hlsSegmentPackets = 32768                          // 16 s de ventana; ≤ ~6 MB por segmento
+            // 3p · 60 s de ventana (antes 16 s): con cortes, el retraso crecía más que la ventana, el reproductor se
+            // salía de ella (BEHIND_LIVE_WINDOW / 404) y había que recargar → bucle de cortes. ~1,5 MB por segmento típico.
+            hlsWindow = 30, hlsSegmentPackets = 32768
         )
         private val LOW_RAM = Limits(
             upstreams = 3, parallelConnect = 8, pieceAdvance = 32, reasmAhead = 64,
             sessionBuffer = 128, prebufferBytes = 12L shl 20, seedStoreBytes = 12L shl 20,
-            hlsWindow = 6, hlsSegmentPackets = 16384                          // 12 s de ventana; ≤ ~3 MB por segmento
+            hlsWindow = 18, hlsSegmentPackets = 16384                         // 3p · 36 s de ventana (antes 12 s)
         )
     }
 }

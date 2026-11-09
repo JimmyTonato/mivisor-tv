@@ -1,15 +1,16 @@
 package com.mivisor.tv.engine
 
 /**
- * 3h · Vuelta al directo ADAPTATIVA (sin ajustes): números en un sitio.
+ * 3h/3q · Vuelta al directo ADAPTATIVA (sin ajustes): lo más cerca del directo que la red permita, sin cortes.
  *
- *  1. Un corte no mueve al usuario: la imagen sigue donde se paró y el retraso puede crecer (20 s, 40 s, 1 min…).
- *  2. Se mide todo el rato cuánto lleva sin cortes y cuánta imagen hay YA descargada por delante.
- *  3. Solo se acerca al directo cuando ve la oportunidad (estable un rato y con imagen de sobra) y en PROPORCIÓN:
- *     poco retraso → poco recorte; mucho retraso y mucha estabilidad → más recorte. Nunca de golpe hasta el borde.
- *  4. Deja siempre un COLCHÓN aprendido de la red (≈ 2 × lo que duran sus cortes): no vuelve al borde para cortarse.
- *  5. Un corte suspende la vuelta al momento; el colchón crece y se exige más estabilidad antes de volver a bajar.
- *  6. Recortes pequeños: acelerando un poco (inapreciable). Grandes: salto DENTRO de lo ya descargado (sin negro).
+ *  1. Un corte no mueve al usuario: la imagen sigue donde se paró y el retraso crece lo que haga falta.
+ *  2. Se revisa todo el rato si la descarga va bien: ¿está bajado todo hasta (casi) el directo? ¿crece lo descargado?
+ *  3. Si va bien, se PRUEBA a acercarse 10 s (salto dentro de lo ya descargado, sin negro). Se espera 30 s a ver qué
+ *     tal: si no hay cortes y sigue yendo bien, otros 10 s… hasta quedarse a ~10 s del directo (o el colchón aprendido).
+ *  4. Si tras acercarse hay un corte, la prueba ha salido mal: el colchón crece y se espera el doble antes de volver a
+ *     probar (30 s → 1 min → 2 min → 4 min). Cada prueba buena relaja esa espera.
+ *  5. Si la descarga va justa, no se prueba nada: se mantiene el retraso y la imagen fluida.
+ *  6. Nunca se sale de lo que guarda el motor: si el retraso se acerca a su ventana, se adelanta lo justo.
  */
 object CatchUpPolicy {
     /** Sin cortes este tiempo antes de acercarse… */
@@ -17,7 +18,7 @@ object CatchUpPolicy {
     /** …más esto por cada corte reciente (red inestable = más prudencia)… */
     const val STABLE_PER_STALL_MS = 10_000L
     /** …y como mucho esto. */
-    const val STABLE_MAX_MS = 90_000L
+    const val STABLE_MAX_MS = 240_000L
     /** «Reciente» para contar cortes y medir su duración. */
     const val RECENT_MS = 5 * 60_000L
     /** Tras tanto tiempo estable se recorta más (la mitad del exceso en vez de un tercio). */
@@ -41,6 +42,23 @@ object CatchUpPolicy {
     const val RESERVE_BURSTY = 1.5
     /** …y como mucho esto. */
     const val MAX_RESERVE_MS = 45_000L
+    /**
+     * 3p · Con tantos cortes recientes (red a rachas) NO se intenta volver al directo: se mantiene el retraso que haya.
+     * Volver al directo con la red así es lo que provocaba el bucle «corte → directo → corte».
+     */
+    const val BURSTY_STALLS = 3
+    /** 3q · Retraso al que se quiere llegar cuando la red va bien (más cerca, poco margen ante un bache). */
+    const val PREFERRED_DELAY_MS = 10_000L
+    /** 3q · Cada prueba de acercamiento: como mucho esto… */
+    const val PROBE_STEP_MS = 10_000L
+    /** …y después se espera esto, sin cortes, antes de la siguiente (y para dar la prueba por buena). */
+    const val PROBE_EVAL_MS = 30_000L
+    /** 3q · «Va bien»: lo descargado llega hasta el directo menos esto (la red sigue el ritmo del directo)… */
+    const val KEEP_PACE_GAP_MS = 6_000L
+    /** …o lo descargado crece al menos esto por segundo visto (5 %). */
+    const val MARGIN_OK = 0.05
+    /** 3p · Margen que se deja siempre respecto al final de la ventana que guarda el motor. */
+    const val WINDOW_GUARD_MS = 8_000L
     /**
      * 3i · Margen de descarga: cuánto crece lo descargado por delante por cada segundo visto a velocidad normal
      * (0,10 = la red baja un 10 % más rápido de lo que se ve). Por debajo de esto la red va justa: solo se recorta si
@@ -86,6 +104,10 @@ class CatchUpController {
     private var stallStart = -1L
     private var stableSince = -1L
     private var lastStepAt = Long.MIN_VALUE / 2
+    /** 3q · Pruebas que han salido mal seguidas (cada una dobla la espera antes de volver a probar). */
+    private var backoff = 0
+    /** 3q · Hay una prueba de acercamiento pendiente de evaluar. */
+    private var probing = false
     /** Acelerando: retraso al que se quiere llegar. */
     private var speedGoal = -1L
     // 3i · Medida del margen de descarga (media móvil de lo que crece lo descargado por delante).
@@ -116,6 +138,9 @@ class CatchUpController {
         if (stallStart < 0) {
             stallStart = nowMs
             stalls += Stall(nowMs, 0)
+            // 3q · Un corte poco después de acercarse = la prueba salió mal: más espera antes de la siguiente.
+            if (probing && nowMs - lastStepAt <= CatchUpPolicy.PROBE_EVAL_MS) backoff = minOf(backoff + 1, 4)
+            probing = false
         }
         stableSince = -1
         resetMargin()
@@ -139,6 +164,12 @@ class CatchUpController {
         return stopSpeeding(State.WAITING)
     }
 
+    /**
+     * 3p · Retraso máximo que admite la ventana HLS del motor (lo que guarda hacia atrás menos un margen). Si se pasa,
+     * el reproductor se sale de la ventana (BEHIND_LIVE_WINDOW / 404) y hay que recargar: se evita ANTES.
+     */
+    var maxDelayMs: Long = Long.MAX_VALUE
+
     /** Canal o fuente nueva: se olvida todo (los cortes de otra fuente no dicen nada de esta). */
     fun reset(nowMs: Long) {
         stalls.clear()
@@ -148,6 +179,8 @@ class CatchUpController {
         speedGoal = -1
         margin = null
         marginSamples = 0
+        backoff = 0
+        probing = false
         resetMargin()
         stats = Stats()
     }
@@ -155,11 +188,13 @@ class CatchUpController {
     /** Colchón que se deja siempre respecto al directo, aprendido de los cortes recientes. */
     fun reserveMs(nowMs: Long, targetMs: Long): Long {
         val recent = stalls.filter { nowMs - it.at <= CatchUpPolicy.RECENT_MS && it.durationMs > 0 }
-        if (recent.isEmpty()) return targetMs
+        if (recent.isEmpty()) return maxOf(targetMs, CatchUpPolicy.PREFERRED_DELAY_MS).coerceAtMost(maxOf(targetMs, maxDelayMs - CatchUpPolicy.WINDOW_GUARD_MS))
         val longest = recent.takeLast(3).maxOf { it.durationMs }
         var r = (longest * CatchUpPolicy.RESERVE_FACTOR).toLong()
         if (recent.size >= 3) r = (r * CatchUpPolicy.RESERVE_BURSTY).toLong()
-        return r.coerceIn(targetMs, maxOf(targetMs, CatchUpPolicy.MAX_RESERVE_MS))
+        val cap = minOf(CatchUpPolicy.MAX_RESERVE_MS, maxDelayMs - CatchUpPolicy.WINDOW_GUARD_MS)
+        val floor = maxOf(targetMs, CatchUpPolicy.PREFERRED_DELAY_MS)
+        return r.coerceIn(floor, maxOf(floor, cap))
     }
 
     /**
@@ -168,7 +203,10 @@ class CatchUpController {
      */
     fun onTick(nowMs: Long, delayMs: Long?, bufferAheadMs: Long, targetMs: Long, playing: Boolean): Action {
         val recentStalls = stalls.count { nowMs - it.at <= CatchUpPolicy.RECENT_MS }
-        val required = minOf(CatchUpPolicy.STABLE_MAX_MS, CatchUpPolicy.STABLE_MS + recentStalls * CatchUpPolicy.STABLE_PER_STALL_MS)
+        val required = minOf(
+            CatchUpPolicy.STABLE_MAX_MS,
+            maxOf(CatchUpPolicy.STABLE_MS + recentStalls * CatchUpPolicy.STABLE_PER_STALL_MS, CatchUpPolicy.STABLE_MS shl backoff)
+        )
         val reserve = reserveMs(nowMs, targetMs)
         if (playing && stableSince < 0) stableSince = nowMs
         val stableFor = if (playing && stableSince >= 0) nowMs - stableSince else 0
@@ -192,43 +230,50 @@ class CatchUpController {
             } else Action.None
         }
 
+        // 3p · Guarda de la ventana: si el retraso se acerca al final de lo que guarda el motor, se adelanta lo justo
+        // AHORA (aunque no sea estable): es eso o salirse de la ventana y tener que recargar (mucho peor).
+        if (delayMs > maxDelayMs) {
+            val step = delayMs - (maxDelayMs - CatchUpPolicy.WINDOW_GUARD_MS)
+            lastStepAt = nowMs
+            resetMargin()
+            stats = stats.copy(steps = stats.steps + 1, recoveredMs = stats.recoveredMs + step, state = State.CATCHING_UP)
+            return Action.SeekForward(step)
+        }
         val excess = delayMs - reserve
+        // Prueba anterior evaluada: 30 s sin cortes desde que se acercó = salió bien (se relaja la espera).
+        if (probing && nowMs - lastStepAt >= CatchUpPolicy.PROBE_EVAL_MS) {
+            probing = false
+            if (backoff > 0) backoff--
+        }
         if (excess <= CatchUpPolicy.TOLERANCE_MS) {
             stats = stats.copy(state = State.ON_TIME)
             return Action.None
         }
-        if (stableFor < required || nowMs - lastStepAt < CatchUpPolicy.STEP_GAP_MS) {
+        // ¿Va bien la descarga? Lo bajado llega casi al directo, o crece a buen ritmo. Con la red a rachas se pide más.
+        val keepsPace = bufferAheadMs >= delayMs - CatchUpPolicy.KEEP_PACE_GAP_MS
+        val needMargin = if (recentStalls >= CatchUpPolicy.BURSTY_STALLS) CatchUpPolicy.MARGIN_GOOD else CatchUpPolicy.MARGIN_OK
+        val healthy = (keepsPace && recentStalls < CatchUpPolicy.BURSTY_STALLS) || (known != null && known >= needMargin)
+        if (!healthy || stableFor < required || nowMs - lastStepAt < CatchUpPolicy.PROBE_EVAL_MS) {
             stats = stats.copy(state = State.WAITING)
             return Action.None
         }
-        // Recorte proporcional al exceso: un tercio, o la mitad si lleva mucho estable.
-        // 3i · Con la red sobrada (margen alto) también se recorta la mitad.
-        val fraction = if (stableFor >= CatchUpPolicy.LONG_STABLE_MS || (known ?: 0.0) >= CatchUpPolicy.MARGIN_GOOD) 0.5 else 1.0 / 3.0
-        val step = (excess * fraction).toLong().coerceIn(minOf(CatchUpPolicy.MIN_STEP_MS, excess), CatchUpPolicy.MAX_STEP_MS)
-        // 3i · Red justa: solo si tras el recorte sigue quedando el colchón ya descargado (no se vuelve a regenerar).
-        if (known != null && known < CatchUpPolicy.MARGIN_TIGHT && bufferAheadMs - step < reserve) {
-            stats = stats.copy(state = State.WAITING)
-            return Action.None
-        }
+        // Prueba: acercarse 10 s (o lo que falte), sin comerse el colchón.
+        val step = minOf(CatchUpPolicy.PROBE_STEP_MS, excess)
         return when {
-            step <= CatchUpPolicy.SPEED_UP_MAX_MS && bufferAheadMs >= CatchUpPolicy.SPEED_MIN_BUFFER_MS + step / 4 -> {
-                speedGoal = delayMs - step
-                stats = stats.copy(steps = stats.steps + 1, recoveredMs = stats.recoveredMs + step, state = State.CATCHING_UP, speeding = true)
-                Action.SetSpeed(CatchUpPolicy.SPEED)
-            }
             bufferAheadMs >= step + CatchUpPolicy.SEEK_MARGIN_MS -> {
                 lastStepAt = nowMs
+                probing = true
                 resetMargin()
                 stats = stats.copy(steps = stats.steps + 1, recoveredMs = stats.recoveredMs + step, state = State.CATCHING_UP)
                 Action.SeekForward(step)
             }
-            // Lo descargado no llega para el recorte entero: se recorta lo que sí hay (si merece la pena).
-            bufferAheadMs - CatchUpPolicy.SEEK_MARGIN_MS >= CatchUpPolicy.MIN_STEP_MS * 2 -> {
-                val partial = bufferAheadMs - CatchUpPolicy.SEEK_MARGIN_MS
+            // Lo bajado no llega para saltar: si es poco, acelerando un pelín (inapreciable) mientras dure lo descargado.
+            step <= CatchUpPolicy.SPEED_UP_MAX_MS && bufferAheadMs >= CatchUpPolicy.SPEED_MIN_BUFFER_MS + step / 4 -> {
+                speedGoal = delayMs - step
                 lastStepAt = nowMs
-                resetMargin()
-                stats = stats.copy(steps = stats.steps + 1, recoveredMs = stats.recoveredMs + partial, state = State.CATCHING_UP)
-                Action.SeekForward(partial)
+                probing = true
+                stats = stats.copy(steps = stats.steps + 1, recoveredMs = stats.recoveredMs + step, state = State.CATCHING_UP, speeding = true)
+                Action.SetSpeed(CatchUpPolicy.SPEED)
             }
             else -> {
                 stats = stats.copy(state = State.WAITING)

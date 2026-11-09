@@ -115,3 +115,13 @@ class CatalogHostsEnvTest {
         org.junit.Assert.assertEquals("1.2.3.4:8081,5.6.7.8:8081", env["OUTPACE_CATALOG_HOSTS"])
     }
 }
+
+class HlsWindowTest {
+    @org.junit.Test fun laVentanaDejaMargenParaLosCortes() {
+        org.junit.Assert.assertEquals(60_000L, EngineConfig.hlsWindowMs(false))
+        org.junit.Assert.assertEquals(46_000L, EngineConfig.maxSafeDelayMs(false))
+        org.junit.Assert.assertEquals(22_000L, EngineConfig.maxSafeDelayMs(true))
+        // El colchón máximo de la vuelta al directo cabe dentro con su margen en los dos tipos de aparato.
+        org.junit.Assert.assertTrue(EngineConfig.maxSafeDelayMs(true) - CatchUpPolicy.WINDOW_GUARD_MS >= 12_000L)
+    }
+}
