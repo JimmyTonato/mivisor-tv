@@ -116,6 +116,7 @@ class AppGraph(context: Context) {
 
     /** Al abrir la app: lo guardado al instante y después la red. */
     fun start() {
+        com.mivisor.tv.outpace.EngineManager.fullP2p = prefs.fullP2p    // 3s · antes de que arranque el motor
         sources.load()
         mylist.load()
         reminders.load()

@@ -31,6 +31,8 @@ class EngineSupervisor(
     private val killPid: (Int) -> Unit,
     private val onLine: (String) -> Unit = {},
     private val preferredPort: Int = EngineConfig.PREFERRED_PORT,
+    /** 3s · «P2P completo» (Ajustes › Motor). Se lee en cada arranque: cambiarlo pide reiniciar el motor. */
+    private val fullP2p: () -> Boolean = { false },
     private val readyTimeoutMs: Long = 20_000
 ) {
     enum class Phase { STOPPED, STARTING, READY, FAILED }
@@ -53,13 +55,18 @@ class EngineSupervisor(
             stopLocked()
             killOrphan()
             val port = choosePort()
-            val cfg = EngineConfig(port, File(workDir, "outpace").absolutePath, workDir.absolutePath, lowRam, EngineConfig.savedCatalogHosts(workDir))
+            val full = fullP2p()
+            val cfg = EngineConfig(port, File(workDir, "outpace").absolutePath, workDir.absolutePath, lowRam, EngineConfig.savedCatalogHosts(workDir),
+                fullP2p = full, peerPort = if (full) choosePeerPort(port) else 0)
             val problems = cfg.validate()
             if (problems.isNotEmpty()) return@withContext set(State(Phase.FAILED, message = "Configuración no válida: ${problems.first()}"), listener)
             if (!binary.isFile) return@withContext set(State(Phase.FAILED, message = "No está el binario del motor para esta arquitectura"), listener)
             set(State(Phase.STARTING, port), listener)
             EngineDiagnostics.log(EngineDiagnostics.Cat.PROCESS, "Arrancando motor en 127.0.0.1:$port (low-RAM: $lowRam)", important = true)
             EngineDiagnostics.log(EngineDiagnostics.Cat.RESOLUTION, "Catálogo: ${cfg.catalogHosts.joinToString(", ")} (y los de serie de Outpace)")
+            EngineDiagnostics.log(EngineDiagnostics.Cat.PROCESS,
+                if (full) "P2P completo: acepta conexiones de otros en el puerto ${cfg.peerPort} y pide al router abrirlo (UPnP/NAT-PMP)"
+                else "P2P solo saliente (no acepta conexiones de otros)", important = true)
             val p = try {
                 ProcessBuilder(binary.absolutePath, "serve").redirectErrorStream(true).directory(workDir.apply { mkdirs() }).also { pb ->
                     pb.environment().putAll(cfg.environment())
@@ -157,6 +164,13 @@ class EngineSupervisor(
         return ServerSocket(0, 1, InetAddress.getByName(EngineConfig.HOST)).use { it.localPort }
     }
 
+    /** 3s · Puerto de pares para P2P completo: 18621 si está libre en todas las interfaces; si no, uno libre. */
+    private fun choosePeerPort(httpPort: Int): Int {
+        val preferred = EngineConfig.PREFERRED_PEER_PORT
+        if (preferred != httpPort && portFree(preferred, EngineConfig.ANY)) return preferred
+        return ServerSocket(0, 1, InetAddress.getByName(EngineConfig.ANY)).use { it.localPort }
+    }
+
     private fun set(s: State, listener: (State) -> Unit): State {
         state = s
         listener(s)
@@ -168,10 +182,10 @@ class EngineSupervisor(
          * ¿Puede el motor escuchar en [port]? Igual que hace él al arrancar (SO_REUSEADDR): una conexión vieja en
          * TIME_WAIT no cuenta como ocupado; otra app ESCUCHANDO en ese puerto, sí.
          */
-        fun portFree(port: Int): Boolean = runCatching {
+        fun portFree(port: Int, host: String = EngineConfig.HOST): Boolean = runCatching {
             ServerSocket().use { s ->
                 s.reuseAddress = true
-                s.bind(java.net.InetSocketAddress(InetAddress.getByName(EngineConfig.HOST), port), 1)
+                s.bind(java.net.InetSocketAddress(InetAddress.getByName(host), port), 1)
                 true
             }
         }.getOrDefault(false)

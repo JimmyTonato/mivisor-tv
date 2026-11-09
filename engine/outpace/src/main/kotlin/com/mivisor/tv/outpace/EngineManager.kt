@@ -64,8 +64,12 @@ object EngineManager {
         workDir = File(context.filesDir, "engine"),
         lowRam = isLowRam(context),
         killPid = { pid -> android.os.Process.killProcess(pid) },    // solo procesos de nuestro propio uid
-        onLine = EngineDiagnostics::engineLine
+        onLine = EngineDiagnostics::engineLine,
+        fullP2p = { fullP2p }
     ).also { supervisor = it }
+
+    /** 3s · «Aceptar conexiones de otros (P2P completo)». Lo fija la app desde sus ajustes; vale en el próximo arranque. */
+    @Volatile var fullP2p: Boolean = false
 
     /** Arranca o reutiliza el motor. Idempotente: nunca crea un segundo proceso. */
     suspend fun ensureStarted(context: Context): EngineSupervisor.State {

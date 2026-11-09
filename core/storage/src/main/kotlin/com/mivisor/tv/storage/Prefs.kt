@@ -143,6 +143,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("protect_sources", true)
         set(v) = sp.edit().putBoolean("protect_sources", v).apply()
 
+    /** 3s · Motor en «P2P completo»: acepta conexiones de otros y abre el puerto en el router (por defecto no). */
+    var fullP2p: Boolean
+        get() = sp.getBoolean("full_p2p", false)
+        set(v) = sp.edit().putBoolean("full_p2p", v).apply()
+
     /** Ajustes copiables a otra tele (copia cifrada): solo preferencias, nunca datos del aparato. */
     fun exportable(): Map<String, String> = mapOf(
         "lite" to lite.toString(), "nav_style" to navStyle, "big_text" to bigText.toString(), "start_screen" to startScreen,

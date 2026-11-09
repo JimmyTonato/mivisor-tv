@@ -5,8 +5,8 @@ package com.mivisor.tv.engine
  *
  * Cliente de reproducción, no nodo de la red:
  *  - HTTP solo en 127.0.0.1 (puerto preferido 16900, o uno libre si está ocupado por otra app).
- *  - Sin listener de peers entrantes, sin seeding y sin mapeo de puertos (UPnP/NAT-PMP): no son necesarios para
- *    ver un canal y eran la fuente de colisiones de puertos en la POC. RTMP aislado en un puerto efímero.
+ *  - Por defecto sin listener de peers entrantes, sin seeding y sin mapeo de puertos (UPnP/NAT-PMP). Con
+ *    [fullP2p] (3s, Ajustes › Motor) se activan los tres, como en Ace Stream oficial. RTMP aislado en un puerto efímero.
  *  - Sin rutas compatibles con Ace (las de /ace): MiVisor usa la API nativa.
  *  - Resolución de Content ID por el catálogo y, si falla, BEP-9 (comprueba SHA-1 del descriptor).
  *
@@ -23,7 +23,15 @@ data class EngineConfig(
      * 3o · Servidores del catálogo de Ace Stream («ip:puerto»), los primeros que se prueban al convertir un ID en su
      * descriptor. Los integrados en Outpace quedan detrás como respaldo. Vacío = solo los integrados.
      */
-    val catalogHosts: List<String> = DEFAULT_CATALOG_HOSTS
+    val catalogHosts: List<String> = DEFAULT_CATALOG_HOSTS,
+    /**
+     * 3s · «P2P completo»: además de conectarse a otros, acepta conexiones de otros (puerto [peerPort] en todas las
+     * interfaces), se anuncia para que lo encuentren, comparte lo que ya tiene y pide al router que abra el puerto
+     * (UPnP / NAT-PMP). Es lo que hace Ace Stream oficial y lo que permite ver canales con 1–2 personas cuando ambas
+     * están detrás de un router. Con WARP activo no ayuda (nadie puede entrar por WARP).
+     */
+    val fullP2p: Boolean = false,
+    val peerPort: Int = 0
 ) {
     fun environment(): Map<String, String> {
         val limits = if (lowRam) LOW_RAM else NORMAL
@@ -35,11 +43,12 @@ data class EngineConfig(
             "HOME" to homeDir,
             // Servicios auxiliares: aislados o apagados.
             "OUTPACE_RTMP_BIND" to "$HOST:0",
-            "OUTPACE_PEER_LISTEN" to "$HOST:0",
-            "OUTPACE_ENABLE_INBOUND" to "0",
-            "OUTPACE_ENABLE_SEEDING" to "0",
-            "OUTPACE_ENABLE_PORT_MAPPING" to "0",
-            "OUTPACE_PORT_MAP_BACKEND" to "none",
+            "OUTPACE_PEER_LISTEN" to if (fullP2p) "$ANY:$peerPort" else "$HOST:0",
+            "OUTPACE_ENABLE_INBOUND" to flag(fullP2p),
+            "OUTPACE_ENABLE_SEEDING" to flag(fullP2p),
+            "OUTPACE_ENABLE_PORT_MAPPING" to flag(fullP2p),
+            "OUTPACE_PORT_MAP_BACKEND" to if (fullP2p) "auto" else "none",
+            "OUTPACE_MAX_INBOUND" to (if (fullP2p) limits.maxInbound else 0).toString(),
             "OUTPACE_ACE_COMPAT" to "0",
             // Resolución: catálogo primero; BEP-9 solo como respaldo verificado.
             "OUTPACE_BEP9_CONTENT_ID_FALLBACK" to "1",
@@ -82,6 +91,7 @@ data class EngineConfig(
             if (n("OUTPACE_MAX_REASM_PIECES_AHEAD") < n("OUTPACE_MAX_PIECE_ADVANCE")) add("MAX_REASM_PIECES_AHEAD debe ser >= MAX_PIECE_ADVANCE")
             if (n("OUTPACE_SEED_STORE_BYTES") < MAX_PIECE_BYTES) add("SEED_STORE_BYTES debe admitir al menos una pieza de 1 MiB")
             if (bindPort !in 1..65535) add("puerto fuera de rango")
+            if (fullP2p && (peerPort !in 1..65535 || peerPort == bindPort)) add("puerto P2P no válido")
             if (n("OUTPACE_HLS_STARTUP_SEGMENTS") > n("OUTPACE_HLS_WINDOW_SEGMENTS")) add("HLS_STARTUP_SEGMENTS debe ser <= HLS_WINDOW_SEGMENTS")
             if (n("OUTPACE_HLS_STARTUP_TIMEOUT_MS") < n("OUTPACE_HLS_SEGMENT_DURATION_MS")) add("HLS_STARTUP_TIMEOUT debe ser >= HLS_SEGMENT_DURATION")
             if (n("OUTPACE_HLS_SEGMENT_PACKETS") < 3) add("HLS_SEGMENT_PACKETS debe ser >= 3")
@@ -93,11 +103,16 @@ data class EngineConfig(
     private class Limits(
         val upstreams: Int, val parallelConnect: Int, val pieceAdvance: Int, val reasmAhead: Int,
         val sessionBuffer: Int, val prebufferBytes: Long, val seedStoreBytes: Long,
-        val hlsWindow: Int, val hlsSegmentPackets: Int
+        val hlsWindow: Int, val hlsSegmentPackets: Int, val maxInbound: Int
     )
 
     companion object {
         const val HOST = "127.0.0.1"
+        /** 3s · P2P completo: escucha de pares en todas las interfaces. */
+        const val ANY = "0.0.0.0"
+        /** 3s · Puerto de pares preferido en P2P completo (Ace Stream usa 8621; este no choca con él). */
+        const val PREFERRED_PEER_PORT = 18621
+        private fun flag(b: Boolean) = if (b) "1" else "0"
         const val PREFERRED_PORT = 16900
         /** Duración pedida de cada segmento HLS (se corta en el siguiente keyframe pasado este tiempo). */
         const val HLS_SEGMENT_MS = 2000L
@@ -127,12 +142,13 @@ data class EngineConfig(
             sessionBuffer = 256, prebufferBytes = 24L shl 20, seedStoreBytes = 24L shl 20,
             // 3p · 60 s de ventana (antes 16 s): con cortes, el retraso crecía más que la ventana, el reproductor se
             // salía de ella (BEHIND_LIVE_WINDOW / 404) y había que recargar → bucle de cortes. ~1,5 MB por segmento típico.
-            hlsWindow = 30, hlsSegmentPackets = 32768
+            hlsWindow = 30, hlsSegmentPackets = 32768, maxInbound = 8
         )
         private val LOW_RAM = Limits(
             upstreams = 3, parallelConnect = 8, pieceAdvance = 32, reasmAhead = 64,
             sessionBuffer = 128, prebufferBytes = 12L shl 20, seedStoreBytes = 12L shl 20,
-            hlsWindow = 18, hlsSegmentPackets = 16384                         // 3p · 36 s de ventana (antes 12 s)
+            hlsWindow = 18, hlsSegmentPackets = 16384,                        // 3p · 36 s de ventana (antes 12 s)
+            maxInbound = 4
         )
     }
 }

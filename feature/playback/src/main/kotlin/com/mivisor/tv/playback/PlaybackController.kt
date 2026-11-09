@@ -820,7 +820,9 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                 LoadStage.RESOLVING -> "No se ha encontrado el canal en el catálogo de Ace Stream" +
                     (if ((cycle?.order?.size ?: 0) > 1) " en ninguna de sus ${cycle?.order?.size} fuentes" else "") +
                     ". Suele ser el bloqueo de la operadora: conecta WARP y reintenta. Si con WARP tampoco, puede que los servidores del catálogo hayan cambiado (Ajustes › Motor)."
-                LoadStage.PEERS -> "El canal existe, pero no hay nadie emitiéndolo ahora mismo (0 emisores). Puede que la emisión esté caída: prueba más tarde u otra fuente."
+                LoadStage.PEERS -> "El canal existe, pero no ha llegado ningún emisor (0)." +
+                    if (!EngineManager.fullP2p) " Si en Ace Stream u otra app sí se ve, activa «Aceptar conexiones de otros (P2P completo)» en Ajustes › Motor y reintenta."
+                    else " Puede que la emisión esté caída, o que con WARP conectado nadie pueda llegar hasta ti: prueba sin WARP, más tarde u otra fuente."
                 LoadStage.BUFFERING -> "Había emisores, pero no llegó imagen a tiempo. Reintentar suele bastar."
                 else -> "Ninguna de las ${cycle?.order?.size ?: 0} fuentes ha dado imagen ahora. Puedes reintentar o elegir una en «Fuentes»."
             }

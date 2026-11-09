@@ -325,6 +325,18 @@ private fun EnginePage(graph: AppGraph, onChange: () -> Unit, toaster: (String) 
                 (if (cat.note.isNotEmpty()) "\n${cat.note}" else "") +
                 (lastCatalogError?.let { "\nÚltimo aviso del motor: ${it.takeLast(90)}" } ?: ""),
             icon = MvIcons.Refresh, trailing = "Buscar lista nueva")
+        // 3s · P2P completo: aceptar conexiones de otros (como Ace Stream oficial). Se aplica reiniciando el motor.
+        var full by remember { mutableStateOf(graph.prefs.fullP2p) }
+        val warpOn = graph.warp.state.collectAsState().value.phase == WarpPhase.CONNECTED
+        MvRow("Aceptar conexiones de otros (P2P completo)", {
+            full = !full; graph.prefs.fullP2p = full; EngineManager.fullP2p = full
+            graph.player.stop()
+            scope.launch { EngineManager.stop(); EngineManager.ensureStarted(context) }
+            toaster(if (full) "P2P completo activado: el motor se ha reiniciado" else "P2P completo desactivado: el motor se ha reiniciado")
+        }, subtitle = (if (full) "Acepta conexiones de otros espectadores y pide al router que abra el puerto, como Ace Stream. " +
+                "Ayuda con canales de muy poca gente. Gasta algo más de red (comparte lo que ya tiene)."
+            else "Solo se conecta él a otros. Si un canal sale con nombre pero sin emisores, prueba a activarlo.") +
+            (if (full && warpOn) "\nCon WARP conectado nadie puede entrar: para que sirva, prueba con WARP apagado." else "")) { MvSwitch(full) }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             MvButton("Reiniciar motor", { graph.player.stop(); scope.launch { EngineManager.stop(); EngineManager.ensureStarted(context) } }, icon = MvIcons.Refresh, enabled = supported == null)
             MvButton("Arrancar", { scope.launch { EngineManager.ensureStarted(context) } }, icon = MvIcons.Play, enabled = supported == null)

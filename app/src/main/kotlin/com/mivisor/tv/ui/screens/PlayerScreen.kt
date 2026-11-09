@@ -360,7 +360,11 @@ fun PlayerScreen(
                         else "Localizando el canal en el catálogo de Ace Stream. A veces tarda hasta un minuto: no cierres, sigue buscando." +
                             if (ui.stageSecs >= 30 && graph.warp.state.value.phase != com.mivisor.tv.services.WarpPhase.CONNECTED) " Si tarda mucho, conecta WARP." else ""
                     ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.PEERS ->
-                        "Encontrado en ${ui.resolvedInSecs ?: 0} s." + if (ui.stageSecs >= 25) " Nadie lo está emitiendo todavía: puede que la emisión esté caída." else " Esperando a quien lo emite."
+                        "Encontrado en ${ui.resolvedInSecs ?: 0} s." + when {
+                            ui.stageSecs < 25 -> " Esperando a quien lo emite."
+                            !com.mivisor.tv.outpace.EngineManager.fullP2p -> " Aún sin emisores. Si en Ace Stream sí se ve, activa «Aceptar conexiones de otros» en Ajustes › Motor."
+                            else -> " Nadie lo está emitiendo todavía: puede que la emisión esté caída."
+                        }
                     else -> null
                 },
                 detail = listOfNotNull(
