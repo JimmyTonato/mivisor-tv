@@ -16,4 +16,9 @@ commit indicado en Ajustes › Motor, con estas modificaciones de MiVisor TV:
   Escribe en la salida qué servidor del catálogo dio el descriptor (y cuáles no) y, al abrir un canal,
   el descriptor recibido: infohash, si está firmado, tamaño de pieza, título y lista completa de trackers.
 
+0004-trackers-en-una-cadena.patch (crates/ace-wire/src/transport.rs)
+  Algunos descriptores traen todos los trackers en una sola cadena separada por espacios. Outpace la
+  tomaba como una única URL demasiado larga y la descartaba: el canal se quedaba sin trackers. Ahora
+  se separan en URLs individuales (sin repetidas, máx. 64).
+
 El código fuente de las modificaciones está en el repositorio de MiVisor TV, carpeta tools/outpace-patches.

@@ -1,0 +1,61 @@
+diff --git a/crates/ace-wire/src/transport.rs b/crates/ace-wire/src/transport.rs
+index e326903..6756bc9 100644
+--- a/crates/ace-wire/src/transport.rs
++++ b/crates/ace-wire/src/transport.rs
+@@ -188,11 +188,13 @@ pub fn decode_transport_with_key(
+         .unwrap_or_default();
+ 
+     let trackers: Vec<String> = match raw.get(b"trackers") {
+-        Some(Bencode::List(list)) => list
+-            .iter()
+-            .filter_map(|item| item.as_bytes())
+-            .map(|b| String::from_utf8_lossy(b).into_owned())
+-            .collect(),
++        Some(Bencode::List(list)) => split_tracker_entries(
++            list.iter()
++                .filter_map(|item| item.as_bytes())
++                .map(|b| String::from_utf8_lossy(b).into_owned()),
++        ),
++        // MiVisor (parche 0004): algunos descriptores traen los trackers en una sola cadena.
++        Some(Bencode::Bytes(b)) => split_tracker_entries([String::from_utf8_lossy(b).into_owned()]),
+         _ => Vec::new(),
+     };
+ 
+@@ -239,8 +241,37 @@ pub fn encode_transport_with_key(descriptor: &Bencode, key: &[u8; 16], iv: &[u8;
+     out
+ }
+ 
++/// MiVisor (parche 0004): hay descriptores cuya lista `trackers` trae UNA entrada con todas las URL
++/// separadas por espacios o saltos de línea ("udp://a/announce udp://b/announce …"). Outpace la
++/// trataba como una sola URL de cientos de caracteres y la descartaba, así que el canal se quedaba
++/// sin ningún tracker. Separa cada entrada por espacios, comas y saltos de línea, quita repetidas y
++/// conserva el orden. Máximo 64.
++pub fn split_tracker_entries<I: IntoIterator<Item = String>>(entries: I) -> Vec<String> {
++    let mut out: Vec<String> = Vec::new();
++    for entry in entries {
++        for url in entry.split(|c: char| c.is_whitespace() || c == ',') {
++            let url = url.trim();
++            if !url.is_empty() && url.contains("://") && !out.iter().any(|u| u == url) && out.len() < 64 {
++                out.push(url.to_string());
++            }
++        }
++    }
++    out
++}
++
+ #[cfg(test)]
+ mod tests {
++    #[test]
++    fn mivisor_trackers_en_una_sola_cadena() {
++        let one = vec!["udp://a:1/announce udp://b:2/announce\nhttp://c:3/announce,udp://a:1/announce".to_string()];
++        assert_eq!(
++            super::split_tracker_entries(one),
++            vec!["udp://a:1/announce", "udp://b:2/announce", "http://c:3/announce"]
++        );
++        let normal = vec!["udp://a:1/announce".to_string(), "  ".to_string(), "basura".to_string()];
++        assert_eq!(super::split_tracker_entries(normal), vec!["udp://a:1/announce"]);
++    }
++
+     use super::*;
+ 
+     /// Wrap raw bencode `plaintext` into a transport file under the global key/IV.

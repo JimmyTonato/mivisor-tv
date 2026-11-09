@@ -72,6 +72,7 @@ jobs:
           # 0001: servidores del catálogo de Ace Stream desde OUTPACE_CATALOG_HOSTS (antes solo fijos en el código).
           # 0002: trackers HTTP(S) además de UDP, y líneas de diagnóstico con los pares encontrados por vía.
           # 0003: diagnóstico del descriptor (qué servidor del catálogo lo dio, infohash, título, trackers completos).
+          # 0004: descriptores con todos los trackers en una sola cadena → se separan (antes se perdían todos).
           for p in "$GITHUB_WORKSPACE"/tools/outpace-patches/*.patch; do
             git apply --check "$p"
             git apply "$p"
@@ -86,7 +87,9 @@ jobs:
       - name: Probar los parches de Outpace (catálogo y trackers HTTP)
         shell: bash
         working-directory: ${{ runner.temp }}/outpace
-        run: cargo test -q -p ace-swarm --lib mivisor_
+        run: |
+          cargo test -q -p ace-swarm --lib mivisor_
+          cargo test -q -p ace-wire --lib mivisor_
 
       - name: Compilar Outpace (ARM64 + ARMv7)
         shell: bash
