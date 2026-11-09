@@ -1,6 +1,6 @@
 4ce61d2598ccdbf8949bf8cfafb0e6da497fd04e4538e939aca85309f0b8a19c  ./.github/workflows/android.yml
 28d6607679788262d4002817ef2fc775c6c2a94465c679109f455926a0bf8f36  ./.gitignore
-4b0bba880c1ed5e5b85472e92980d681b172808ff4d9ff240dc524e55c2aca48  ./LEEME-ENTREGA.md
+6f76a59cf43b8f3d2eef8a9f2a77b4d0fca2cbd6ce1307cdff1326fc19cc5fb8  ./LEEME-ENTREGA.md
 a26aad067c7b5574310a95f3c68d69b7985b96440c9affeb5c3221a45a41decf  ./README.md
 5b8a79080ed839d30ee13a5f01fd3e9404ef8f83d0837d34b1e721b23264b7de  ./app/build.gradle.kts
 b08412c601cc0e51e5fa5e8724efb06df59937dfe084b0989ff91f016383addf  ./app/debug.keystore
@@ -45,7 +45,7 @@ d29349556c44ad49e0526102debafc93d34d7c33fdf67449111db8f70780929e  ./app/src/main
 74e67d43751347340c4715a36cad3005eea4abaab2057ed987a01d1523f57a71  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/EventScreen.kt
 794ea0cbff9db39b6d234e4171a09c6b708b6dfcae5989ad9938c2fcd1c00a05  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/HomeScreen.kt
 a72fdcbba8f301bdd678ba8af56112a94209a1da9eb895f87f4f721eda74da9f  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/MyListScreen.kt
-73e1ccf33d0d019248ef7140a7aec7fa128790364f9f4749e31e9ef7dee977fa  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/PlayerScreen.kt
+06dab8e9f53dbee67bfdbc28259ef7eec2347a5507bf55e6ff0189b78ab9b021  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/PlayerScreen.kt
 627ec8c2345fdfb706e87e90caf1033d792687089d73ffaea340206149dcfc8a  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/Reminders.kt
 36da4eeecf1d97d8ba54b93b2603ea7d5b21e189f449ac1004832d640507d8d5  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/SearchScreen.kt
 36c91368aa1be98f712a1e945ba4f31a35fbdef79c020feb460782a6efaa1924  ./app/src/main/kotlin/com/mivisor/tv/ui/screens/SettingsScreen.kt
@@ -237,6 +237,7 @@ e38fdfe60e5ccebc15885e33601f26b6a55fa5fb474a3a48f69ff05e57186d9e  ./docs/diseno-
 7dacf50ea960c843701356c83651024a01971f7dec2185edb8a073f2a01b865f  ./docs/entregas/3l.md
 f631a77c8c3706f3c9d0f30bd7cb555049054e702085a148d3c9f492eca3e852  ./docs/entregas/3m.md
 f86e9c88800885e482fd17e7ad167b8559d92ec56245bf6c54ea2db4c75d8430  ./docs/entregas/3n.md
+9386e3691b7863ea089a74c275a25773c201e8afa56f56909d46938e05481d91  ./docs/entregas/3o.md
 412dac1cd1c3549992477b5602ba3a873a5a674c04062b93ecf61e2971d82688  ./engine/outpace/build.gradle.kts
 530dc96350e37f037f43627f5de25c300c182445af9f9649ed8a2b1d60fb6a8c  ./engine/outpace/consumer-rules.pro
 daa0fb1f32ba7ea85a07ef6302ab3d58c3407d7fd2aa03ec132cb9e38e8d9849  ./engine/outpace/src/main/AndroidManifest.xml
@@ -245,7 +246,7 @@ a014a5470af1a81c637cee9ac99a7f1abf6d9e1f6f1b0bd6835691a3952e59dd  ./engine/outpa
 530dc96350e37f037f43627f5de25c300c182445af9f9649ed8a2b1d60fb6a8c  ./feature/playback/consumer-rules.pro
 daa0fb1f32ba7ea85a07ef6302ab3d58c3407d7fd2aa03ec132cb9e38e8d9849  ./feature/playback/src/main/AndroidManifest.xml
 3518785fbb4bfce9dc6d78e6979b29c9f33f4fe63871841a32c63dd81877c1b1  ./feature/playback/src/main/kotlin/com/mivisor/tv/playback/AdaptiveLoadControl.kt
-392ecbad47212440c0c998d2c844b8479ba6145409d13b1fc6fda46533120371  ./feature/playback/src/main/kotlin/com/mivisor/tv/playback/PlaybackController.kt
+69ea7731acf2e3dc34f0187cff4d00c3dbe89c125c82a8dadba57fe4397bfa6f  ./feature/playback/src/main/kotlin/com/mivisor/tv/playback/PlaybackController.kt
 2e4c9e3aacd623758ececa82cd6c48676b6e1385eb17c26d4efcca753a5730f5  ./feature/playback/src/main/kotlin/com/mivisor/tv/playback/SourceBook.kt
 8d8926f13fcbc7b4b133ed02de50ea5defb14a4e4c3643c35568300a164eee49  ./feature/warp/build.gradle.kts
 530dc96350e37f037f43627f5de25c300c182445af9f9649ed8a2b1d60fb6a8c  ./feature/warp/consumer-rules.pro
@@ -260,7 +261,7 @@ b187b4c52e749f5760afdd6fadc31b2a98ad35fb249bf0dff03b72650f320409  ./gradlew
 1d297e00bd21de3ace22b4d7f2de1f9dfa858883d66bbf7c1ccbecccec8f4f3b  ./gradlew.bat
 c4000ec99daa477eba9ee89184c41ec8a3ccbcb46c373b2b02bc72c341adfb11  ./settings.gradle.kts
 406e9d2adc9c655d158a3fda2e5eeebb72197753b0b7bf4806a65ce5b43cb983  ./tools/check-no-secrets.sh
-aeca69830cc43d7a9ac7825cf86c7f667fca276a13c0016401b4549aca39c305  ./tools/outpace-patches/0001-catalog-hosts-env.patch
+8e3b6800a8793321f1d4a36cf0593dda8a00feea9cea450a16bc25aa0972ab2d  ./tools/outpace-patches/0001-catalog-hosts-env.patch
 5df87087135a5d21eea32b80d67efb9eff835eab4077cb48ae0e38348a2a10f3  ./tools/perf/EquivalenceDump.kt
 f0a577cf6571a48ef016bec53a478feb0e2cdfb120c424e1b438bf2cc969b6e2  ./tools/perf/LibraryBench.kt
 45abbf8267d8f4ffcc766b796580495aabec904ec001afd63f6e4189d0727b23  ./tools/warp-fingerprint.sh

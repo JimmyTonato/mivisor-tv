@@ -107,10 +107,25 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         val paused: Boolean = false,
         val startMs: Long? = null,
         /** Recuperando un corte de la fuente que se veía (escalón 1 a 3) o esperando a que vuelva la red. */
-        val recovering: String? = null
+        val recovering: String? = null,
+        /** 3p · En qué paso va la carga de la fuente actual, y cuántos segundos lleva en él. */
+        val stage: LoadStage = LoadStage.NONE,
+        val stageSecs: Int = 0,
+        /** 3p · Cuánto tardó en encontrar el canal (descriptor), si ya lo encontró. */
+        val resolvedInSecs: Int? = null,
+        /** 3p · Cómo acabó la última fuente que falló: dónde se quedó (para explicarlo, no un «sin imagen» genérico). */
+        val lastFailStage: LoadStage? = null
     ) {
         val active: Boolean get() = phase == Phase.STARTING_ENGINE || phase == Phase.TRYING || phase == Phase.PLAYING
     }
+
+    /**
+     * 3p · Pasos de la carga, lo que ve el usuario mientras espera:
+     *  - [RESOLVING]: buscando el canal (su descriptor) en el catálogo de Ace Stream. Puede tardar; NO es que no vaya.
+     *  - [PEERS]: canal encontrado, buscando emisores. Si aquí no aparece ninguno, la emisión puede estar caída.
+     *  - [BUFFERING]: ya hay emisores, preparando la imagen.
+     */
+    enum class LoadStage { NONE, RESOLVING, PEERS, BUFFERING }
 
     private val app = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -485,7 +500,8 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         _ui.value = _ui.value.copy(
             phase = Phase.TRYING, sourceIndex = c.indexOf(cid) + 1, sourceCount = c.order.size, provider = src.providerName,
             quality = src.qualityLabel, peers = 0, message = "Buscando emisores…", cause = null, sources = rows(),
-            tracks = emptyList(), paused = false, startMs = null, recovering = null
+            tracks = emptyList(), paused = false, startMs = null, recovering = null,
+            stage = LoadStage.RESOLVING, stageSecs = 0, resolvedInSecs = null
         )
         EngineDiagnostics.update { it.copy(sourceIndex = c.indexOf(cid) + 1, sourceCount = c.order.size, sourceId = mask(cid), sourceSwitches = c.triedCount - 1) }
         p.stop()
@@ -507,6 +523,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             var sawStatus = false
             var maxPeers = 0
             var tick = 0
+            var stageSince = 0
             while (isActive && gen == generation) {
                 delay(1_000)
                 tick++
@@ -533,6 +550,26 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                     )
                 }
                 _ui.value = _ui.value.copy(peers = status?.peers ?: _ui.value.peers)
+                // 3p · Paso de la carga: sin sesión en el motor = aún buscando el descriptor; con sesión y 0 emisores =
+                // encontrado, buscando emisores; con emisores = preparando la imagen.
+                if (_ui.value.phase == Phase.TRYING) {
+                    val stage = when {
+                        !sawStatus -> LoadStage.RESOLVING
+                        maxPeers == 0 -> LoadStage.PEERS
+                        else -> LoadStage.BUFFERING
+                    }
+                    val prev = _ui.value.stage
+                    if (stage != prev) {
+                        stageSince = tick
+                        if (prev == LoadStage.RESOLVING && stage != LoadStage.RESOLVING) {
+                            book.log("Fuente", "${mask(src.contentId)}: canal encontrado en ${tick} s")
+                        }
+                    }
+                    _ui.value = _ui.value.copy(
+                        stage = stage, stageSecs = tick - stageSince,
+                        resolvedInSecs = if (stage != LoadStage.RESOLVING) (_ui.value.resolvedInSecs ?: tick) else null
+                    )
+                }
                 when (_ui.value.phase) {
                     Phase.TRYING -> {
                         val elapsed = SystemClock.elapsedRealtime() - attemptStartedAt
@@ -597,6 +634,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     private fun failed(kind: String, detail: String) {
         val src = currentSource ?: return
         val req = request ?: return
+        _ui.value = _ui.value.copy(lastFailStage = _ui.value.stage.takeIf { it != LoadStage.NONE })
         monitor?.cancel()
         closeCurrent()
         val gen = ++generation
@@ -759,7 +797,15 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         }
         _ui.value = _ui.value.copy(
             phase = Phase.FAILED, cause = null, sources = rows(),
-            message = "Ninguna de las ${cycle?.order?.size ?: 0} fuentes ha dado imagen ahora. Puedes reintentar o elegir una en «Fuentes»."
+            message = when (_ui.value.lastFailStage) {
+                // 3p · Decir DÓNDE se quedó: no es lo mismo no encontrar el canal que no encontrar emisores.
+                LoadStage.RESOLVING -> "No se ha encontrado el canal en el catálogo de Ace Stream" +
+                    (if ((cycle?.order?.size ?: 0) > 1) " en ninguna de sus ${cycle?.order?.size} fuentes" else "") +
+                    ". Suele ser el bloqueo de la operadora: conecta WARP y reintenta. Si con WARP tampoco, puede que los servidores del catálogo hayan cambiado (Ajustes › Motor)."
+                LoadStage.PEERS -> "El canal existe, pero no hay nadie emitiéndolo ahora mismo (0 emisores). Puede que la emisión esté caída: prueba más tarde u otra fuente."
+                LoadStage.BUFFERING -> "Había emisores, pero no llegó imagen a tiempo. Reintentar suele bastar."
+                else -> "Ninguna de las ${cycle?.order?.size ?: 0} fuentes ha dado imagen ahora. Puedes reintentar o elegir una en «Fuentes»."
+            }
         )
         book.log("Reproducción", "Fin del ciclo sin imagen")
     }

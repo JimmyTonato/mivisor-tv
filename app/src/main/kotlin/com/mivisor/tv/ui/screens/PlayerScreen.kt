@@ -341,12 +341,27 @@ fun PlayerScreen(
                     else -> 1
                 },
                 peers = ui.peers,
+                // 3p · Qué está pasando de verdad, para que se sepa si esperar o no.
                 status = when {
-                    phase == Phase.STARTING_ENGINE -> "Preparando…"
-                    phase == Phase.TRYING && loadingLong && ui.message != null -> ui.message!!
-                    ui.sourceIndex > 1 -> "Probando otra señal…"
-                    ui.peers > 0 -> "Conectando…"
+                    phase == Phase.STARTING_ENGINE -> "Arrancando el motor…"
+                    ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.RESOLVING ->
+                        "Buscando el canal…" + if (ui.stageSecs >= 3) " ${ui.stageSecs} s" else ""
+                    ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.PEERS ->
+                        "Canal encontrado · buscando emisores…" + if (ui.stageSecs >= 3) " ${ui.stageSecs} s" else ""
+                    ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.BUFFERING ->
+                        "Conectado a ${ui.peers} ${if (ui.peers == 1) "emisor" else "emisores"} · preparando la imagen…"
+                    ui.sourceIndex > 1 -> "Probando otra fuente…"
                     else -> "Buscando señal…"
+                },
+                hint = when {
+                    phase != Phase.TRYING -> null
+                    ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.RESOLVING ->
+                        if (ui.stageSecs < 6) null
+                        else "Localizando el canal en el catálogo de Ace Stream. A veces tarda hasta un minuto: no cierres, sigue buscando." +
+                            if (ui.stageSecs >= 30 && graph.warp.state.value.phase != com.mivisor.tv.services.WarpPhase.CONNECTED) " Si tarda mucho, conecta WARP." else ""
+                    ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.PEERS ->
+                        "Encontrado en ${ui.resolvedInSecs ?: 0} s." + if (ui.stageSecs >= 25) " Nadie lo está emitiendo todavía: puede que la emisión esté caída." else " Esperando a quien lo emite."
+                    else -> null
                 },
                 detail = listOfNotNull(
                     sourceTag?.let { "Fuente ${ui.sourceIndex} de ${ui.sourceCount}" },
@@ -519,6 +534,8 @@ private fun Loading(
     peers: Int,
     status: String,
     detail: String?,
+    /** 3p · Explicación del paso en curso (si hay que esperar o si algo va mal). */
+    hint: String? = null,
     extra: @Composable () -> Unit = {}
 ) {
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF142235), Color(0xFF0A1420), Color(0xFF060B12)), radius = 900f))) {
@@ -541,6 +558,11 @@ private fun Loading(
             if (channel != null) {
                 Spacer(Modifier.height(14.dp))
                 MvText(status, MvType.Body.copy(color = MvColors.Text2), maxLines = 1)
+            }
+            if (hint != null) {
+                Spacer(Modifier.height(6.dp))
+                MvText(hint, MvType.Small.copy(color = MvColors.Text3, textAlign = androidx.compose.ui.text.style.TextAlign.Center),
+                    maxLines = 2, modifier = Modifier.widthIn(max = 520.dp))
             }
         }
         Column(Modifier.align(Alignment.BottomCenter).padding(bottom = MvDims.SafeY), horizontalAlignment = Alignment.CenterHorizontally) {

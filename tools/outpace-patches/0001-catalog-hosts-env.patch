@@ -1,8 +1,8 @@
 diff --git a/crates/ace-swarm/src/resolve.rs b/crates/ace-swarm/src/resolve.rs
-index f397626..7123fe1 100644
+index f397626..acc78b9 100644
 --- a/crates/ace-swarm/src/resolve.rs
 +++ b/crates/ace-swarm/src/resolve.rs
-@@ -68,2 +68,37 @@ const CATALOG_HOSTS: &[(&str, u16)] = &[
+@@ -68,2 +68,43 @@ const CATALOG_HOSTS: &[(&str, u16)] = &[
  ];
 +/// MiVisor: extra catalog hosts from `OUTPACE_CATALOG_HOSTS` (`ip:port,ip:port`), tried FIRST and in order;
 +/// the built-in [`CATALOG_HOSTS`] stay as the fallback. Lets the embedding app update the list without a new
@@ -10,8 +10,14 @@ index f397626..7123fe1 100644
 +const CATALOG_HOSTS_ENV: &str = "OUTPACE_CATALOG_HOSTS";
 +const CATALOG_HOSTS_MAX: usize = 16;
 +
++/// MiVisor: `OUTPACE_CATALOG_HOSTS_ONLY=1` skips the built-in hosts (to test one catalog host on its own).
++const CATALOG_HOSTS_ONLY_ENV: &str = "OUTPACE_CATALOG_HOSTS_ONLY";
++
 +fn catalog_hosts() -> Vec<(String, u16)> {
 +    let mut hosts = parse_catalog_hosts(std::env::var(CATALOG_HOSTS_ENV).ok().as_deref());
++    if std::env::var(CATALOG_HOSTS_ONLY_ENV).ok().as_deref() == Some("1") && !hosts.is_empty() {
++        return hosts;
++    }
 +    for &(host, port) in CATALOG_HOSTS {
 +        if !hosts.iter().any(|(h, p)| h == host && *p == port) {
 +            hosts.push((host.to_string(), port));
@@ -40,7 +46,7 @@ index f397626..7123fe1 100644
 +}
 +
  const CATALOG_HOST_TIMEOUT: Duration = Duration::from_secs(4);
-@@ -317,6 +352,6 @@ async fn catalog_transport_bytes_query(
+@@ -317,6 +358,6 @@ async fn catalog_transport_bytes_query(
      let mut last = ResolveError::Catalog("catalog request failed");
 -    for &(host, port) in CATALOG_HOSTS {
 +    for (host, port) in catalog_hosts() {
@@ -49,7 +55,7 @@ index f397626..7123fe1 100644
 -            fetch_catalog_transport_query(host, port, parameter, value),
 +            fetch_catalog_transport_query(&host, port, parameter, value),
          )
-@@ -808,2 +843,11 @@ pub async fn transport_bytes_from_url(url: &str) -> Result<Vec<u8>, ResolveError
+@@ -808,2 +849,11 @@ pub async fn transport_bytes_from_url(url: &str) -> Result<Vec<u8>, ResolveError
  mod tests {
 +    #[test]
 +    fn mivisor_parse_catalog_hosts() {
