@@ -78,7 +78,29 @@ object EngineDiagnostics {
     }
 
     /** Línea del proceso del motor: se clasifica por palabras clave para que se distinga el tipo de problema. */
+    /**
+     * 3t · Vías por las que el motor busca gente (parche 0002 de Outpace). Se guardan SIEMPRE, aunque el registro
+     * detallado esté apagado, para enseñarlas en Ajustes › Motor y en el informe.
+     */
+    data class Vias(val trackers: String? = null, val porTracker: String? = null, val porDht: String? = null)
+    @Volatile var vias: Vias = Vias()
+        private set
+
+    /** Pura: actualiza [Vias] con una línea del motor, si es de las suyas. */
+    fun parseVia(current: Vias, raw: String): Vias {
+        val i = raw.indexOf("[mivisor] ")
+        if (i < 0) return current
+        val text = raw.substring(i + 10).trim()
+        return when {
+            text.startsWith("trackers del descriptor:") -> current.copy(trackers = text.removePrefix("trackers del descriptor:").trim())
+            text.startsWith("pares por tracker:") -> current.copy(porTracker = text.removePrefix("pares por tracker:").trim())
+            text.startsWith("pares por dht:") -> current.copy(porDht = text.removePrefix("pares por dht:").trim())
+            else -> current
+        }
+    }
+
     fun engineLine(raw: String) {
+        if ("[mivisor] " in raw) vias = parseVia(vias, raw)
         if (!enabled) return
         add("${stamp()} [motor/${classify(raw).label}] ${LogSanitizer.clean(raw).take(MAX_LINE_CHARS)}")
     }
@@ -104,6 +126,10 @@ object EngineDiagnostics {
         appendLine("Motor seleccionado: ${m.engineMode} · estado: ${m.engineState} · puerto localhost: ${m.port ?: "—"}")
         appendLine("Canal: ${m.channel ?: "—"} · fuente ${m.sourceIndex}/${m.sourceCount} · ${m.sourceId ?: "—"}")
         appendLine("Peers: ${m.peers} · bitrate: ${"%.2f".format(Locale.US, m.bitrateBps / 1_000_000.0)} Mb/s")
+        vias.let { v ->
+            appendLine("Trackers del descriptor: ${v.trackers ?: "—"}")
+            appendLine("Pares encontrados · trackers: ${v.porTracker ?: "—"} · DHT: ${v.porDht ?: "—"}")
+        }
         appendLine("Buffer motor: ${m.engineBufferMs} ms · buffer Media3: ${m.playerBufferMs} ms (objetivo ${m.bufferTargetMs} ms)")
         appendLine("Directo (${m.transport}): objetivo ${m.liveTargetMs} ms · retraso ${m.liveDelayMs?.let { "$it ms" + if (m.liveDelayEstimated) " (estimado)" else "" } ?: "—"} · desviación ${m.liveDeviationMs?.let { (if (it >= 0) "+" else "") + it + " ms" } ?: "—"}")
         appendLine("Resyncs: ${m.liveResyncs} (${m.liveDiscardedMs / 1000.0} s descartados) · recuperaciones suaves 1.06x: ${m.liveSpeedUpsDone}/${m.liveSpeedUps}" + (if (m.liveSpeeding) " (acelerando ahora)" else "") + " · motor: ${m.enginePiecesBehind?.let { "$it piezas tras el borde" } ?: "—"}")

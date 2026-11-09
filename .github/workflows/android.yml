@@ -70,6 +70,7 @@ jobs:
           cmp LICENSE "$GITHUB_WORKSPACE/app/src/main/assets/licenses/outpace-LICENSE.txt"
           # 3o · Parches de MiVisor sobre Outpace (AGPL: el código modificado está en tools/outpace-patches).
           # 0001: servidores del catálogo de Ace Stream desde OUTPACE_CATALOG_HOSTS (antes solo fijos en el código).
+          # 0002: trackers HTTP(S) además de UDP, y líneas de diagnóstico con los pares encontrados por vía.
           for p in "$GITHUB_WORKSPACE"/tools/outpace-patches/*.patch; do
             git apply --check "$p"
             git apply "$p"
@@ -81,10 +82,10 @@ jobs:
         with:
           workspaces: ${{ runner.temp }}/outpace -> target
 
-      - name: Probar el parche de Outpace (lista del catálogo)
+      - name: Probar los parches de Outpace (catálogo y trackers HTTP)
         shell: bash
         working-directory: ${{ runner.temp }}/outpace
-        run: cargo test -q -p ace-swarm --lib mivisor_parse_catalog_hosts
+        run: cargo test -q -p ace-swarm --lib mivisor_
 
       - name: Compilar Outpace (ARM64 + ARMv7)
         shell: bash

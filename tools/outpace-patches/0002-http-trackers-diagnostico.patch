@@ -1,0 +1,369 @@
+diff --git a/crates/ace-swarm/src/discover.rs b/crates/ace-swarm/src/discover.rs
+index a11a60b..b72f27a 100644
+--- a/crates/ace-swarm/src/discover.rs
++++ b/crates/ace-swarm/src/discover.rs
+@@ -233,6 +233,9 @@ async fn stream_tracker_peers(
+ ) {
+     let mut jobs = tokio::task::JoinSet::new();
+     let mut urls = trackers.iter().take(MAX_TRACKERS);
++    // MiVisor (parche 0002): trackers HTTP(S) además de UDP, y recuento por vía para el diagnóstico.
++    crate::http_tracker::log_trackers_once(trackers);
++    let (mut udp_found, mut http_found) = (0usize, 0usize);
+     loop {
+         while jobs.len() < TRACKER_PARALLELISM {
+             let Some(url) = urls.next() else {
+@@ -244,8 +247,22 @@ async fn stream_tracker_peers(
+             let url = url.clone();
+             let infohash = *infohash;
+             let peer_id = *peer_id;
++            let http = crate::http_tracker::is_http_tracker(&url);
+             jobs.spawn(async move {
+-                tracker_exchange(
++                if http {
++                    let found = crate::http_tracker::http_tracker_peers(
++                        &url,
++                        &infohash,
++                        &peer_id,
++                        port,
++                        left,
++                        event == AnnounceEvent::Started,
++                        policy.allow_non_global,
++                    )
++                    .await;
++                    return (true, found);
++                }
++                let found = tracker_exchange(
+                     resolve_trackers_with_policy(&[url], policy),
+                     &infohash,
+                     &peer_id,
+@@ -253,13 +270,24 @@ async fn stream_tracker_peers(
+                     event,
+                     left,
+                 )
+-                .await
++                .await;
++                (false, found)
+             });
+         }
+         let Some(result) = jobs.join_next().await else {
++            crate::http_tracker::log_tracker_round(
++                trackers.len().min(MAX_TRACKERS),
++                udp_found,
++                http_found,
++            );
+             break;
+         };
+-        if let Ok(found) = result {
++        if let Ok((http, found)) = result {
++            if http {
++                http_found += found.len();
++            } else {
++                udp_found += found.len();
++            }
+             for peer in found {
+                 if peers.send(peer).await.is_err() {
+                     return;
+@@ -328,13 +356,18 @@ pub async fn discover_peers_incremental(
+         tracker_tx,
+     );
+     let dht = async move {
++        let mut dht_found = 0usize;
+         dht_get_peers_incremental(
+             infohash,
+             options.dht_budget,
+             options.peer_target.max(1),
+-            |peer| source_tx.try_send(peer).is_ok(),
++            |peer| {
++                dht_found += 1;
++                source_tx.try_send(peer).is_ok()
++            },
+         )
+         .await;
++        crate::http_tracker::log_dht_round(dht_found); // MiVisor (parche 0002)
+     };
+     forward_discovery_sources(tracker, dht, source_rx, peers).await;
+ }
+diff --git a/crates/ace-swarm/src/http_tracker.rs b/crates/ace-swarm/src/http_tracker.rs
+new file mode 100644
+index 0000000..9a395eb
+--- /dev/null
++++ b/crates/ace-swarm/src/http_tracker.rs
+@@ -0,0 +1,266 @@
++//! MiVisor (parche 0002): trackers HTTP(S) y recuento por vía para el diagnóstico.
++//!
++//! Los descriptores de Ace Stream pueden traer trackers `http://` además de `udp://`, y en directo
++//! el motor oficial no usa la DHT: encuentra a la gente por esos trackers (y PEX). Outpace solo
++//! hablaba UDP, así que con un descriptor de trackers HTTP se quedaba sin nadie.
++//!
++//! - Anuncio HTTP estándar (BEP-3) pidiendo respuesta compacta (BEP-23); también acepta la lista
++//!   de diccionarios. Solo IPv4, como el resto de Outpace.
++//! - Mismo control de direcciones que el resto de descargas (`http_fetch`): sin destinos privados
++//!   salvo `OUTPACE_TRACKER_ALLOW_NON_GLOBAL=1`, sin redirecciones, tiempo y tamaño acotados.
++//! - Líneas `outpace: [mivisor] …` en la salida, que la app guarda en su diagnóstico: qué trackers
++//!   trae cada descriptor y cuánta gente llega por UDP, HTTP y DHT.
++
++use crate::http_fetch::{self, FetchLimits, FetchPolicy, FetchUrl};
++use ace_wire::bencode::Bencode;
++use std::collections::hash_map::DefaultHasher;
++use std::hash::{Hash, Hasher};
++use std::net::{Ipv4Addr, SocketAddrV4};
++use std::sync::Mutex;
++use std::time::Duration;
++
++const HTTP_TRACKER_CONNECT: Duration = Duration::from_secs(3);
++const HTTP_TRACKER_TIMEOUT: Duration = Duration::from_secs(5);
++const MAX_HTTP_TRACKER_BODY: usize = 64 * 1024;
++const MAX_HTTP_TRACKER_PEERS: usize = 200;
++
++/// ¿Es un tracker HTTP(S)?
++pub fn is_http_tracker(url: &str) -> bool {
++    let head = url.get(..8).unwrap_or(url).to_ascii_lowercase();
++    head.starts_with("http://") || head.starts_with("https://")
++}
++
++/// Codifica bytes crudos para la query (RFC 3986: sin reservar se deja tal cual).
++pub fn url_encode_bytes(bytes: &[u8]) -> String {
++    let mut out = String::with_capacity(bytes.len() * 3);
++    for &b in bytes {
++        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
++            out.push(b as char);
++        } else {
++            out.push_str(&format!("%{b:02X}"));
++        }
++    }
++    out
++}
++
++/// URL de anuncio HTTP para `infohash`.
++pub fn announce_url(
++    base: &str,
++    infohash: &[u8; 20],
++    peer_id: &[u8; 20],
++    port: u16,
++    left: u64,
++    started: bool,
++) -> String {
++    let sep = if base.contains('?') { '&' } else { '?' };
++    // Muchos trackers leen `left` como entero con signo de 64 bits.
++    let left = left.min(i64::MAX as u64);
++    format!(
++        "{base}{sep}info_hash={}&peer_id={}&port={port}&uploaded=0&downloaded=0&left={left}&compact=1&no_peer_id=1&numwant={MAX_HTTP_TRACKER_PEERS}{}",
++        url_encode_bytes(infohash),
++        url_encode_bytes(peer_id),
++        if started { "&event=started" } else { "" },
++    )
++}
++
++/// Lee la respuesta de un tracker HTTP: `peers` compacto (6 bytes por par) o lista de diccionarios.
++pub fn parse_announce_response(body: &[u8]) -> Result<Vec<SocketAddrV4>, &'static str> {
++    let (root, _) = Bencode::parse_prefix(body).map_err(|_| "respuesta no bencode")?;
++    if root.get(b"failure reason").is_some() {
++        return Err("el tracker rechazó el anuncio");
++    }
++    let mut out: Vec<SocketAddrV4> = Vec::new();
++    let mut push = |addr: SocketAddrV4| {
++        if addr.port() != 0
++            && !addr.ip().is_unspecified()
++            && !out.contains(&addr)
++            && out.len() < MAX_HTTP_TRACKER_PEERS
++        {
++            out.push(addr);
++        }
++    };
++    match root.get(b"peers") {
++        Some(Bencode::Bytes(compact)) => {
++            for c in compact.chunks_exact(6) {
++                push(SocketAddrV4::new(
++                    Ipv4Addr::new(c[0], c[1], c[2], c[3]),
++                    u16::from_be_bytes([c[4], c[5]]),
++                ));
++            }
++        }
++        Some(Bencode::List(list)) => {
++            for p in list {
++                let ip = p
++                    .get(b"ip")
++                    .and_then(Bencode::as_bytes)
++                    .and_then(|b| std::str::from_utf8(b).ok())
++                    .and_then(|s| s.parse::<Ipv4Addr>().ok());
++                let port = p
++                    .get(b"port")
++                    .and_then(Bencode::as_int)
++                    .and_then(|n| u16::try_from(n).ok());
++                if let (Some(ip), Some(port)) = (ip, port) {
++                    push(SocketAddrV4::new(ip, port));
++                }
++            }
++        }
++        _ => {}
++    }
++    Ok(out)
++}
++
++/// Anuncia `infohash` en un tracker HTTP(S) y devuelve los pares IPv4. Cualquier fallo = vacío.
++pub async fn http_tracker_peers(
++    url: &str,
++    infohash: &[u8; 20],
++    peer_id: &[u8; 20],
++    port: u16,
++    left: u64,
++    started: bool,
++    allow_non_global: bool,
++) -> Vec<SocketAddrV4> {
++    let full = announce_url(url, infohash, peer_id, port, left, started);
++    let Ok(parsed) = FetchUrl::parse_transport(&full) else {
++        return Vec::new();
++    };
++    let policy = FetchPolicy { allow_non_global };
++    let limits = FetchLimits {
++        connect_timeout: HTTP_TRACKER_CONNECT,
++        headers_timeout: HTTP_TRACKER_TIMEOUT,
++        source_response: false,
++    };
++    let fetch = async {
++        let (_cancel_tx, cancel) = tokio::sync::watch::channel(false);
++        let mut response = http_fetch::open(&parsed, policy, limits, cancel).await.ok()?;
++        let mut body = Vec::new();
++        while let Some(chunk) = response.next_chunk().await.ok()? {
++            if body.len() + chunk.len() > MAX_HTTP_TRACKER_BODY {
++                return None;
++            }
++            body.extend_from_slice(&chunk);
++        }
++        Some(body)
++    };
++    let body = tokio::time::timeout(HTTP_TRACKER_TIMEOUT + HTTP_TRACKER_CONNECT, fetch)
++        .await
++        .ok()
++        .flatten();
++    body.and_then(|b| parse_announce_response(&b).ok())
++        .unwrap_or_default()
++}
++
++/// Host:puerto de un tracker, sin esquema ni ruta (para el diagnóstico).
++pub fn tracker_host(url: &str) -> &str {
++    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
++    rest.split(['/', '?']).next().unwrap_or(rest)
++}
++
++/// Resumen de la lista de trackers de un descriptor: (udp, http, otros).
++pub fn tracker_kinds(trackers: &[String]) -> (usize, usize, usize) {
++    let udp = trackers
++        .iter()
++        .filter(|t| t.to_ascii_lowercase().starts_with("udp://"))
++        .count();
++    let http = trackers.iter().filter(|t| is_http_tracker(t)).count();
++    (udp, http, trackers.len() - udp - http)
++}
++
++static LAST_LIST: Mutex<Option<u64>> = Mutex::new(None);
++
++/// Escribe UNA vez por lista distinta qué trackers trae el descriptor (los anuncios se repiten).
++pub fn log_trackers_once(trackers: &[String]) {
++    let mut h = DefaultHasher::new();
++    trackers.hash(&mut h);
++    let key = h.finish();
++    if let Ok(mut last) = LAST_LIST.lock() {
++        if *last == Some(key) {
++            return;
++        }
++        *last = Some(key);
++    }
++    let (udp, http, other) = tracker_kinds(trackers);
++    let hosts: Vec<&str> = trackers.iter().take(12).map(|t| tracker_host(t)).collect();
++    eprintln!(
++        "outpace: [mivisor] trackers del descriptor: {} (udp={udp} http={http} otros={other}) {}",
++        trackers.len(),
++        hosts.join(" ")
++    );
++}
++
++/// Una línea por ronda de búsqueda en trackers.
++pub fn log_tracker_round(trackers: usize, udp_peers: usize, http_peers: usize) {
++    eprintln!(
++        "outpace: [mivisor] pares por tracker: udp={udp_peers} http={http_peers} (de {trackers} trackers)"
++    );
++}
++
++/// Una línea por ronda de búsqueda en la DHT.
++pub fn log_dht_round(peers: usize) {
++    eprintln!("outpace: [mivisor] pares por dht: {peers}");
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn mivisor_http_tracker_detecta_esquema() {
++        assert!(is_http_tracker("http://t.example:80/announce"));
++        assert!(is_http_tracker("HTTPS://t.example/announce"));
++        assert!(!is_http_tracker("udp://t.example:6969/announce"));
++        assert!(!is_http_tracker("ws://x"));
++    }
++
++    #[test]
++    fn mivisor_http_tracker_url_de_anuncio() {
++        let ih = [0xABu8; 20];
++        let pid = *b"-OP0001-abcdefghijkl";
++        let u = announce_url("http://t.example/announce", &ih, &pid, 18621, u64::MAX, true);
++        assert!(u.starts_with("http://t.example/announce?info_hash=%AB%AB"));
++        assert!(u.contains("&peer_id=-OP0001-abcdefghijkl&port=18621&"));
++        assert!(u.contains(&format!("&left={}&compact=1", i64::MAX)));
++        assert!(u.ends_with("&event=started"));
++        let u2 = announce_url("http://t.example/a?k=1", &ih, &pid, 0, 5, false);
++        assert!(u2.starts_with("http://t.example/a?k=1&info_hash="));
++        assert!(!u2.contains("event="));
++    }
++
++    #[test]
++    fn mivisor_http_tracker_respuesta_compacta() {
++        let mut body = b"d8:intervali1800e5:peers18:".to_vec();
++        body.extend_from_slice(&[1, 2, 3, 4, 0x1F, 0x90]); // 1.2.3.4:8080
++        body.extend_from_slice(&[5, 6, 7, 8, 0x48, 0xDD]); // 5.6.7.8:18653
++        body.extend_from_slice(&[0, 0, 0, 0, 0x00, 0x50]); // descartado
++        body.extend_from_slice(b"e");
++        assert_eq!(
++            parse_announce_response(&body).unwrap(),
++            vec![
++                SocketAddrV4::new(Ipv4Addr::new(1, 2, 3, 4), 8080),
++                SocketAddrV4::new(Ipv4Addr::new(5, 6, 7, 8), 18653)
++            ]
++        );
++    }
++
++    #[test]
++    fn mivisor_http_tracker_respuesta_en_lista_y_errores() {
++        let body = b"d5:peersld2:ip7:9.9.9.94:porti6881eed2:ip3:::14:porti1eeee";
++        assert_eq!(
++            parse_announce_response(body).unwrap(),
++            vec![SocketAddrV4::new(Ipv4Addr::new(9, 9, 9, 9), 6881)]
++        );
++        assert!(parse_announce_response(b"d14:failure reason4:nopee").is_err());
++        assert!(parse_announce_response(b"<html>").is_err());
++        assert!(parse_announce_response(b"d8:intervali60ee").unwrap().is_empty());
++    }
++
++    #[test]
++    fn mivisor_http_tracker_resumen_de_lista() {
++        let t: Vec<String> = ["udp://a:1/announce", "http://b:2/announce", "https://c/x", "wss://d"]
++            .iter()
++            .map(|s| s.to_string())
++            .collect();
++        assert_eq!(tracker_kinds(&t), (1, 2, 1));
++        assert_eq!(tracker_host("http://b:2/announce?x=1"), "b:2");
++        assert_eq!(tracker_host("udp://a:1"), "a:1");
++    }
++}
+diff --git a/crates/ace-swarm/src/lib.rs b/crates/ace-swarm/src/lib.rs
+index 4003520..d51bde6 100644
+--- a/crates/ace-swarm/src/lib.rs
++++ b/crates/ace-swarm/src/lib.rs
+@@ -26,6 +26,7 @@ pub use ace_log::alog;
+ pub mod dht;
+ pub mod discover;
+ pub mod http_fetch;
++pub mod http_tracker;
+ pub mod listen;
+ pub mod live_session;
+ pub mod portmap;

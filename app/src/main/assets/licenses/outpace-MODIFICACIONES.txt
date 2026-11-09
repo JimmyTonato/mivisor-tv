@@ -6,4 +6,10 @@ commit indicado en Ajustes › Motor, con estas modificaciones de MiVisor TV:
   ("ip:puerto,ip:puerto"; solo IPv4 públicas, máx. 16). Se prueban primero y en orden; los que trae
   Outpace de serie quedan detrás como respaldo.
 
+0002-http-trackers-diagnostico.patch (crates/ace-swarm/src/discover.rs, lib.rs, http_tracker.rs nuevo)
+  Además de los trackers UDP, anuncia en los trackers HTTP(S) que trae el descriptor (respuesta
+  compacta, solo IPv4, mismas protecciones de red que el resto de descargas). Escribe en la salida
+  líneas "outpace: [mivisor] ..." con los trackers del descriptor y los pares encontrados por UDP,
+  HTTP y DHT, para el diagnóstico de la app.
+
 El código fuente de las modificaciones está en el repositorio de MiVisor TV, carpeta tools/outpace-patches.

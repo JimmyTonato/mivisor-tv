@@ -1,37 +1,45 @@
-# MiVisor TV · Entrega 3s: «Aceptar conexiones de otros (P2P completo)»
+# MiVisor TV · Entrega 3t: trackers HTTP y diagnóstico de por dónde llega la gente
 
-La 3r está en `docs/entregas/3r.md`. Se mantiene todo lo de la 3r.
+La 3s está en `docs/entregas/3s.md`. Se mantiene todo, incluido «Aceptar conexiones de otros (P2P completo)».
 
 ## Por qué
 
-Hay canales que salen con su nombre (el descriptor llega bien) pero se quedan en 0 emisores, mientras que en Ace Stream
-oficial o en CanalPeer sí se ven. Pasa con canales de muy poca gente: si el que lo comparte está detrás de su router y
-nosotros no aceptamos conexiones, nadie puede conectar con nadie. Ace Stream oficial acepta conexiones de otros y pide al
-router que abra el puerto; hasta ahora MiVisor no.
+El descriptor de cada canal trae la lista de **trackers** (servidores que dicen quién lo está viendo). Outpace solo
+usaba los `udp://` y tiraba los `http://`. En directo, Ace Stream oficial no usa la DHT: encuentra a la gente por esos
+trackers. Con un descriptor de trackers HTTP, nosotros nos quedábamos sin nadie.
 
 ## Qué cambia
 
-- **Ajustes › Motor › «Aceptar conexiones de otros (P2P completo)»** (apagado por defecto). Al activarlo, el motor:
-  - escucha conexiones de otros espectadores en el puerto 18621 (si está ocupado, en otro libre);
-  - se anuncia para que lo encuentren y comparte lo que ya ha descargado;
-  - pide al router que abra ese puerto (UPnP o NAT-PMP, lo que tenga el router).
-  - Como mucho 8 conexiones entrantes (4 en aparatos con poca memoria).
-- Cambiar el interruptor reinicia el motor al momento.
-- La API del motor sigue solo en 127.0.0.1.
-- **Con WARP conectado no sirve**: nadie puede entrar por WARP. El ajuste lo avisa.
-- **Pantalla de carga**: si tras 25 s sigue sin emisores y el P2P completo está apagado, lo sugiere. El mensaje final de
-  «0 emisores» también lo dice.
-- **Diagnóstico (Ajustes › Motor y el informe)**: al arrancar dice si el motor va en «P2P completo» y en qué puerto, o
-  «solo saliente».
+**Motor (parche `tools/outpace-patches/0002-http-trackers-diagnostico.patch`, se aplica en CI tras el 0001):**
+- Anuncia también en los trackers `http://` y `https://` del descriptor:
+  - pide respuesta corta (compacta) y entiende también el formato largo;
+  - solo IPv4;
+  - mismas protecciones de red que el resto (sin redirecciones, 5 s y 64 KB como mucho por tracker).
+- Escribe en su salida:
+  - qué trackers trae el descriptor, cuántos UDP y cuántos HTTP;
+  - cuánta gente encuentra por trackers UDP, por trackers HTTP y por DHT.
 
-## Cómo probarlo
+**App:**
+- **Ajustes › Motor** enseña dos datos nuevos mientras ves un canal: «Trackers del canal» y «Gente encontrada»
+  (trackers UDP/HTTP y DHT). Se guardan siempre, aunque el registro detallado esté apagado.
+- El informe de diagnóstico incluye esas dos líneas.
 
-1. Abre el canal que fallaba con el interruptor apagado: confirma que se queda en 0 emisores.
-2. Actívalo (con WARP apagado) y vuelve a abrirlo.
-3. Si sigue sin emisores, manda el informe de diagnóstico: dirá si el router abrió el puerto.
+## Cómo leerlo con el canal que fallaba
+
+| Ves | Significa |
+| --- | --- |
+| `http=1` o más en los trackers y gente por `http` | Era eso: ahora llega por los trackers HTTP |
+| Trackers solo UDP y 0 en todo | Nadie anunciado: el canal no tiene gente a la vista, o va por otra vía (WebRTC) |
+| Gente encontrada > 0 pero 0 emisores | Los encontramos pero no podemos conectar: P2P completo sin WARP (3s) |
+| Sin trackers en el descriptor | Solo DHT/PEX; Ace Stream usaría otra vía |
 
 ## Compilación
 
-- **Pruebas:** pasan las **246 pruebas** JVM (4 nuevas sobre la configuración del motor en P2P completo).
+- **Pruebas JVM:** pasan las **248** (2 nuevas sobre las líneas de diagnóstico).
+- **Parche del motor:**
+  - 5 pruebas nuevas del parche (`mivisor_http_tracker_*`): URL de anuncio, respuestas compacta y en lista, errores
+    y resumen de trackers. Las funciones puras se han compilado y probado aquí con rustc.
+  - El motor completo no se ha compilado aquí (sin acceso a crates.io). En CI se aplican los dos parches, se pasan sus
+    pruebas (`cargo test ... mivisor_`) y se compila.
 - **Código Android:** no se ha compilado aquí ni se ha probado en ningún aparato. Se comprueba en GitHub Actions.
 - Firma, paquete `com.mivisor.tv` y comprobación SHA-256 de WARP: sin cambios.

@@ -314,6 +314,12 @@ private fun EnginePage(graph: AppGraph, onChange: () -> Unit, toaster: (String) 
                 KeyValue("Buffer", "motor ${m.engineBufferMs} ms · reproductor ${m.playerBufferMs} ms · objetivo ${m.bufferTargetMs} ms · cortes ${m.rebuffers}")
                 m.liveDelayMs?.let { KeyValue("Retraso", "$it ms (objetivo ${m.liveTargetMs} ms) · saltos al directo ${m.liveResyncs}") }
             }
+            // 3t · Por dónde busca gente el motor (trackers del descriptor y pares por vía).
+            val vias = remember(tick) { EngineDiagnostics.vias }
+            if (vias.trackers != null || vias.porTracker != null || vias.porDht != null) {
+                KeyValue("Trackers del canal", vias.trackers ?: "—")
+                KeyValue("Gente encontrada", "trackers ${vias.porTracker ?: "—"} · DHT ${vias.porDht ?: "—"}")
+            }
         }
         // 3o · Servidores del catálogo de Ace Stream (rama catalogo de mivisor-datos).
         val cat by graph.catalogHosts.state.collectAsState()
