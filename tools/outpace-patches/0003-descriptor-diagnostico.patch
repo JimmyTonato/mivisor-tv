@@ -1,0 +1,50 @@
+diff --git a/crates/ace-engine/src/ace_provider.rs b/crates/ace-engine/src/ace_provider.rs
+index 352401d..35cdf45 100644
+--- a/crates/ace-engine/src/ace_provider.rs
++++ b/crates/ace-engine/src/ace_provider.rs
+@@ -553,6 +553,18 @@ impl StreamProvider for AceProvider {
+             "[ace] discovery stage=resolved resolve_ms={}",
+             opening.elapsed().as_millis()
+         );
++        // MiVisor (parche 0003): el descriptor recibido, para verlo en Ajustes › Motor.
++        eprintln!(
++            "outpace: [mivisor] descriptor: infohash={} firmado={} pieza={} titulo={}",
++            hex::encode(info.infohash),
++            if info.sig_len > 0 { "si" } else { "no" },
++            info.piece_length,
++            info.metadata.title.as_deref().unwrap_or("-").replace(['\n', '\r'], " "),
++        );
++        eprintln!(
++            "outpace: [mivisor] descriptor trackers: {}",
++            if info.trackers.is_empty() { "ninguno".to_string() } else { info.trackers.join(" ") }
++        );
+ 
+         let trackers = info.trackers.clone();
+         let infohash = info.infohash;
+diff --git a/crates/ace-swarm/src/resolve.rs b/crates/ace-swarm/src/resolve.rs
+index acc78b9..5fe8f9b 100644
+--- a/crates/ace-swarm/src/resolve.rs
++++ b/crates/ace-swarm/src/resolve.rs
+@@ -363,9 +363,19 @@ async fn catalog_transport_bytes_query(
+         )
+         .await
+         {
+-            Ok(Ok(transport)) => return Ok(transport),
+-            Ok(Err(e)) => last = e,
+-            Err(_) => last = ResolveError::Catalog("catalog timeout"),
++            Ok(Ok(transport)) => {
++                // MiVisor (parche 0003): qué servidor del catálogo dio el descriptor.
++                eprintln!("outpace: [mivisor] descriptor del catalogo {host}:{port}");
++                return Ok(transport);
++            }
++            Ok(Err(e)) => {
++                eprintln!("outpace: [mivisor] catalogo {host}:{port} sin descriptor: {e:?}");
++                last = e
++            }
++            Err(_) => {
++                eprintln!("outpace: [mivisor] catalogo {host}:{port} sin respuesta");
++                last = ResolveError::Catalog("catalog timeout")
++            }
+         }
+     }
+     Err(last)

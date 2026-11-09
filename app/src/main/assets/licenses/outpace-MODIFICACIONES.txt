@@ -12,4 +12,8 @@ commit indicado en Ajustes › Motor, con estas modificaciones de MiVisor TV:
   líneas "outpace: [mivisor] ..." con los trackers del descriptor y los pares encontrados por UDP,
   HTTP y DHT, para el diagnóstico de la app.
 
+0003-descriptor-diagnostico.patch (crates/ace-swarm/src/resolve.rs, crates/ace-engine/src/ace_provider.rs)
+  Escribe en la salida qué servidor del catálogo dio el descriptor (y cuáles no) y, al abrir un canal,
+  el descriptor recibido: infohash, si está firmado, tamaño de pieza, título y lista completa de trackers.
+
 El código fuente de las modificaciones está en el repositorio de MiVisor TV, carpeta tools/outpace-patches.

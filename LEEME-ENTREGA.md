@@ -1,45 +1,35 @@
-# MiVisor TV · Entrega 3t: trackers HTTP y diagnóstico de por dónde llega la gente
+# MiVisor TV · Entrega 3u: ver el descriptor del canal
 
-La 3s está en `docs/entregas/3s.md`. Se mantiene todo, incluido «Aceptar conexiones de otros (P2P completo)».
-
-## Por qué
-
-El descriptor de cada canal trae la lista de **trackers** (servidores que dicen quién lo está viendo). Outpace solo
-usaba los `udp://` y tiraba los `http://`. En directo, Ace Stream oficial no usa la DHT: encuentra a la gente por esos
-trackers. Con un descriptor de trackers HTTP, nosotros nos quedábamos sin nadie.
+La 3t está en `docs/entregas/3t.md`. Se mantiene todo (P2P completo, trackers HTTP, vías).
 
 ## Qué cambia
 
-**Motor (parche `tools/outpace-patches/0002-http-trackers-diagnostico.patch`, se aplica en CI tras el 0001):**
-- Anuncia también en los trackers `http://` y `https://` del descriptor:
-  - pide respuesta corta (compacta) y entiende también el formato largo;
-  - solo IPv4;
-  - mismas protecciones de red que el resto (sin redirecciones, 5 s y 64 KB como mucho por tracker).
-- Escribe en su salida:
-  - qué trackers trae el descriptor, cuántos UDP y cuántos HTTP;
-  - cuánta gente encuentra por trackers UDP, por trackers HTTP y por DHT.
+**Motor (parche `tools/outpace-patches/0003-descriptor-diagnostico.patch`, tras el 0001 y el 0002):** al abrir un canal
+escribe en su salida el descriptor que ha recibido:
+- qué servidor del catálogo lo dio, o cuáles no lo tenían o no respondieron;
+- infohash, si está firmado (directo) y tamaño de pieza;
+- título;
+- la lista **completa** de trackers, con su esquema (`udp://`, `http://`…), o «ninguno».
 
-**App:**
-- **Ajustes › Motor** enseña dos datos nuevos mientras ves un canal: «Trackers del canal» y «Gente encontrada»
-  (trackers UDP/HTTP y DHT). Se guardan siempre, aunque el registro detallado esté apagado.
-- El informe de diagnóstico incluye esas dos líneas.
+**App · Ajustes › Motor:** panel nuevo **«Descriptor del último canal»** con todo lo anterior. Se rellena al abrir un
+canal y se queda con el último. También va en el informe de diagnóstico.
 
-## Cómo leerlo con el canal que fallaba
+## Cómo usarlo
+
+1. Abre el canal que falla y espera a que salga su nombre.
+2. Atrás → Ajustes › Motor → «Descriptor del último canal».
+3. Haz una foto o manda el informe.
 
 | Ves | Significa |
 | --- | --- |
-| `http=1` o más en los trackers y gente por `http` | Era eso: ahora llega por los trackers HTTP |
-| Trackers solo UDP y 0 en todo | Nadie anunciado: el canal no tiene gente a la vista, o va por otra vía (WebRTC) |
-| Gente encontrada > 0 pero 0 emisores | Los encontramos pero no podemos conectar: P2P completo sin WARP (3s) |
-| Sin trackers en el descriptor | Solo DHT/PEX; Ace Stream usaría otra vía |
+| Trackers: Ninguno | El canal no trae trackers: solo se puede encontrar gente por DHT/PEX. Ace Stream la encuentra por su vía propia (WebRTC) |
+| Solo `udp://` y «Gente encontrada» a 0 | Los trackers no conocen a nadie en ese canal |
+| Algún `http://` | Ya se usa (3t); mira «Gente encontrada» → `http=` |
 
 ## Compilación
 
-- **Pruebas JVM:** pasan las **248** (2 nuevas sobre las líneas de diagnóstico).
-- **Parche del motor:**
-  - 5 pruebas nuevas del parche (`mivisor_http_tracker_*`): URL de anuncio, respuestas compacta y en lista, errores
-    y resumen de trackers. Las funciones puras se han compilado y probado aquí con rustc.
-  - El motor completo no se ha compilado aquí (sin acceso a crates.io). En CI se aplican los dos parches, se pasan sus
-    pruebas (`cargo test ... mivisor_`) y se compila.
+- **Pruebas JVM:** pasan las **249** (1 nueva que lee el descriptor de las líneas del motor).
+- **Parche 0003:** solo añade líneas de salida, sin lógica nueva. Se ha comprobado que los tres parches aplican en orden
+  sobre el commit fijado de Outpace. Se compila en CI.
 - **Código Android:** no se ha compilado aquí ni se ha probado en ningún aparato. Se comprueba en GitHub Actions.
 - Firma, paquete `com.mivisor.tv` y comprobación SHA-256 de WARP: sin cambios.

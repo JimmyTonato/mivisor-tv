@@ -297,6 +297,7 @@ private fun EnginePage(graph: AppGraph, onChange: () -> Unit, toaster: (String) 
             else -> "Te ofrezco probar con Ace Stream"
         }, trailing = when (fallback) { "auto" -> "Automático"; "never" -> "Nunca"; else -> "Preguntar" })
         Spacer(Modifier.height(6.dp))
+        val vias = remember(tick) { EngineDiagnostics.vias }
         MvPanel {
             MvText("ESTADO", MvType.Eyebrow.copy(color = MvColors.Text2), modifier = Modifier.padding(bottom = 8.dp))
             KeyValue("Estado", when (engine.phase) {
@@ -315,10 +316,29 @@ private fun EnginePage(graph: AppGraph, onChange: () -> Unit, toaster: (String) 
                 m.liveDelayMs?.let { KeyValue("Retraso", "$it ms (objetivo ${m.liveTargetMs} ms) · saltos al directo ${m.liveResyncs}") }
             }
             // 3t · Por dónde busca gente el motor (trackers del descriptor y pares por vía).
-            val vias = remember(tick) { EngineDiagnostics.vias }
             if (vias.trackers != null || vias.porTracker != null || vias.porDht != null) {
                 KeyValue("Trackers del canal", vias.trackers ?: "—")
                 KeyValue("Gente encontrada", "trackers ${vias.porTracker ?: "—"} · DHT ${vias.porDht ?: "—"}")
+            }
+        }
+        // 3u · El descriptor del último canal abierto, tal como lo recibió el motor (parche 0003 de Outpace).
+        if (vias.descriptor != null || vias.catalogoFallos.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            MvPanel {
+                MvText("DESCRIPTOR DEL ÚLTIMO CANAL", MvType.Eyebrow.copy(color = MvColors.Text2), modifier = Modifier.padding(bottom = 8.dp))
+                val fields = vias.descriptor?.let { d ->
+                    val t = d.substringAfter("titulo=", "")
+                    d.substringBefore(" titulo=").split(' ').mapNotNull { kv -> kv.split('=', limit = 2).takeIf { it.size == 2 } }
+                        .associate { it[0] to it[1] } + ("titulo" to t)
+                } ?: emptyMap()
+                KeyValue("Nombre", fields["titulo"]?.ifBlank { null } ?: "—")
+                KeyValue("Infohash", fields["infohash"] ?: "—")
+                KeyValue("Firmado", when (fields["firmado"]) { "si" -> "Sí"; "no" -> "No"; else -> "—" } +
+                    (fields["pieza"]?.toLongOrNull()?.let { " · piezas de ${it / 1024} KB" } ?: ""))
+                KeyValue("Lo dio", vias.catalogo?.let { "servidor del catálogo $it" } ?: "—")
+                if (vias.catalogoFallos.isNotEmpty()) KeyValue("Sin descriptor", vias.catalogoFallos.joinToString("\n"))
+                KeyValue("Trackers (${vias.descriptorTrackers.size})",
+                    vias.descriptorTrackers.joinToString("\n").ifEmpty { "Ninguno: el canal no trae trackers, solo se puede buscar gente por DHT/PEX" })
             }
         }
         // 3o · Servidores del catálogo de Ace Stream (rama catalogo de mivisor-datos).

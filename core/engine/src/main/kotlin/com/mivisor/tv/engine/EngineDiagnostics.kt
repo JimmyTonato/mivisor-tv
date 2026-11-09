@@ -82,7 +82,13 @@ object EngineDiagnostics {
      * 3t · Vías por las que el motor busca gente (parche 0002 de Outpace). Se guardan SIEMPRE, aunque el registro
      * detallado esté apagado, para enseñarlas en Ajustes › Motor y en el informe.
      */
-    data class Vias(val trackers: String? = null, val porTracker: String? = null, val porDht: String? = null)
+    data class Vias(
+        val trackers: String? = null, val porTracker: String? = null, val porDht: String? = null,
+        /** 3u · Descriptor (parche 0003): «infohash=… firmado=… pieza=… titulo=…», sus trackers completos y qué
+         *  servidor del catálogo lo dio (o los que fallaron). */
+        val descriptor: String? = null, val descriptorTrackers: List<String> = emptyList(),
+        val catalogo: String? = null, val catalogoFallos: List<String> = emptyList()
+    )
     @Volatile var vias: Vias = Vias()
         private set
 
@@ -95,6 +101,12 @@ object EngineDiagnostics {
             text.startsWith("trackers del descriptor:") -> current.copy(trackers = text.removePrefix("trackers del descriptor:").trim())
             text.startsWith("pares por tracker:") -> current.copy(porTracker = text.removePrefix("pares por tracker:").trim())
             text.startsWith("pares por dht:") -> current.copy(porDht = text.removePrefix("pares por dht:").trim())
+            text.startsWith("descriptor trackers:") -> current.copy(descriptorTrackers =
+                text.removePrefix("descriptor trackers:").trim().split(' ').filter { it.isNotBlank() && it != "ninguno" })
+            text.startsWith("descriptor del catalogo") -> current.copy(
+                catalogo = text.removePrefix("descriptor del catalogo").trim(), catalogoFallos = emptyList())
+            text.startsWith("descriptor:") -> current.copy(descriptor = text.removePrefix("descriptor:").trim())
+            text.startsWith("catalogo ") -> current.copy(catalogoFallos = (current.catalogoFallos + text.removePrefix("catalogo ").trim()).takeLast(6))
             else -> current
         }
     }
@@ -129,6 +141,9 @@ object EngineDiagnostics {
         vias.let { v ->
             appendLine("Trackers del descriptor: ${v.trackers ?: "—"}")
             appendLine("Pares encontrados · trackers: ${v.porTracker ?: "—"} · DHT: ${v.porDht ?: "—"}")
+            appendLine("Descriptor: ${v.descriptor ?: "—"} · del catálogo ${v.catalogo ?: "—"}")
+            appendLine("Trackers completos: ${v.descriptorTrackers.joinToString(" ").ifEmpty { "ninguno" }}")
+            if (v.catalogoFallos.isNotEmpty()) appendLine("Catálogo sin descriptor: ${v.catalogoFallos.joinToString(" · ")}")
         }
         appendLine("Buffer motor: ${m.engineBufferMs} ms · buffer Media3: ${m.playerBufferMs} ms (objetivo ${m.bufferTargetMs} ms)")
         appendLine("Directo (${m.transport}): objetivo ${m.liveTargetMs} ms · retraso ${m.liveDelayMs?.let { "$it ms" + if (m.liveDelayEstimated) " (estimado)" else "" } ?: "—"} · desviación ${m.liveDeviationMs?.let { (if (it >= 0) "+" else "") + it + " ms" } ?: "—"}")
