@@ -16,9 +16,15 @@ commit indicado en Ajustes › Motor, con estas modificaciones de MiVisor TV:
   Escribe en la salida qué servidor del catálogo dio el descriptor (y cuáles no) y, al abrir un canal,
   el descriptor recibido: infohash, si está firmado, tamaño de pieza, título y lista completa de trackers.
 
-0004-trackers-en-una-cadena.patch (crates/ace-wire/src/transport.rs)
-  Algunos descriptores traen todos los trackers en una sola cadena separada por espacios. Outpace la
-  tomaba como una única URL demasiado larga y la descartaba: el canal se quedaba sin trackers. Ahora
-  se separan en URLs individuales (sin repetidas, máx. 64).
+0004-trackers-robustos.patch (crates/ace-wire/src/transport.rs)
+  Lectura robusta de los trackers del descriptor. Fuentes: "trackers", "announce-list" y "announce";
+  cadenas o listas (también listas de listas). Separa URLs por espacios, saltos de línea, comas,
+  punto y coma o "|", y también cuando vienen pegadas. Limpia comillas, pasa el esquema a minúsculas,
+  convierte "host:puerto" en udp://host:puerto/announce, descarta ws(s):// y basura, quita repetidas
+  y deja como mucho 64. También acepta enlaces magnet (tr=), URLs codificadas (%3A%2F%2F), el prefijo
+  "tr=" y quita caracteres invisibles. Escribe en la salida los campos que trae cada descriptor.
+
+0005-conexion-6s.patch (crates/ace-swarm/src/live_session/mod.rs)
+  Tiempo máximo para conectar con cada par: 6 s en vez de 3 s.
 
 El código fuente de las modificaciones está en el repositorio de MiVisor TV, carpeta tools/outpace-patches.

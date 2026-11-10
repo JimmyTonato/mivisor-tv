@@ -87,13 +87,36 @@ object EngineDiagnostics {
         /** 3u · Descriptor (parche 0003): «infohash=… firmado=… pieza=… titulo=…», sus trackers completos y qué
          *  servidor del catálogo lo dio (o los que fallaron). */
         val descriptor: String? = null, val descriptorTrackers: List<String> = emptyList(),
-        val catalogo: String? = null, val catalogoFallos: List<String> = emptyList()
-    )
+        val catalogo: String? = null, val catalogoFallos: List<String> = emptyList(),
+        /** 3x · Campos del descriptor y su tipo («trackers:lista name:texto …»). */
+        val claves: String? = null,
+        /** 3y · Intentos de conexión con la gente encontrada, desde el último descriptor: resultado → veces. */
+        val intentos: Map<String, Int> = emptyMap()
+    ) {
+        /** «2 conectados · 5 no contestan · 1 cuelga al saludar» (en orden fijo, solo los que hay). */
+        fun intentosTexto(): String? {
+            if (intentos.isEmpty()) return null
+            val names = linkedMapOf(
+                "connected" to "conectados", "tcp" to "no contestan", "total_timeout" to "tardan demasiado",
+                "handshake" to "cuelgan al saludar", "window" to "conectan pero no envían"
+            )
+            val parts = names.mapNotNull { (k, label) -> intentos[k]?.let { "$it $label" } } +
+                intentos.filterKeys { it !in names }.map { (k, n) -> "$n $k" }
+            return parts.joinToString(" · ")
+        }
+    }
     @Volatile var vias: Vias = Vias()
         private set
 
     /** Pura: actualiza [Vias] con una línea del motor, si es de las suyas. */
     fun parseVia(current: Vias, raw: String): Vias {
+        // 3y · Intentos de conexión del motor (línea propia de Outpace, no del parche).
+        val a = raw.indexOf("[ace] upstream attempt: result=")
+        if (a >= 0) {
+            val result = raw.substring(a + 31).substringBefore(' ').trim()
+            if (result.isEmpty()) return current
+            return current.copy(intentos = current.intentos + (result to (current.intentos[result] ?: 0) + 1))
+        }
         val i = raw.indexOf("[mivisor] ")
         if (i < 0) return current
         val text = raw.substring(i + 10).trim()
@@ -101,18 +124,19 @@ object EngineDiagnostics {
             text.startsWith("trackers del descriptor:") -> current.copy(trackers = text.removePrefix("trackers del descriptor:").trim())
             text.startsWith("pares por tracker:") -> current.copy(porTracker = text.removePrefix("pares por tracker:").trim())
             text.startsWith("pares por dht:") -> current.copy(porDht = text.removePrefix("pares por dht:").trim())
+            text.startsWith("descriptor claves:") -> current.copy(claves = text.removePrefix("descriptor claves:").trim())
             text.startsWith("descriptor trackers:") -> current.copy(descriptorTrackers =
                 text.removePrefix("descriptor trackers:").trim().split(' ').filter { it.isNotBlank() && it != "ninguno" })
             text.startsWith("descriptor del catalogo") -> current.copy(
                 catalogo = text.removePrefix("descriptor del catalogo").trim(), catalogoFallos = emptyList())
-            text.startsWith("descriptor:") -> current.copy(descriptor = text.removePrefix("descriptor:").trim())
+            text.startsWith("descriptor:") -> current.copy(descriptor = text.removePrefix("descriptor:").trim(), intentos = emptyMap())
             text.startsWith("catalogo ") -> current.copy(catalogoFallos = (current.catalogoFallos + text.removePrefix("catalogo ").trim()).takeLast(6))
             else -> current
         }
     }
 
     fun engineLine(raw: String) {
-        if ("[mivisor] " in raw) vias = parseVia(vias, raw)
+        if ("[mivisor] " in raw || "[ace] upstream attempt:" in raw) vias = parseVia(vias, raw)
         if (!enabled) return
         add("${stamp()} [motor/${classify(raw).label}] ${LogSanitizer.clean(raw).take(MAX_LINE_CHARS)}")
     }
@@ -143,6 +167,8 @@ object EngineDiagnostics {
             appendLine("Pares encontrados · trackers: ${v.porTracker ?: "—"} · DHT: ${v.porDht ?: "—"}")
             appendLine("Descriptor: ${v.descriptor ?: "—"} · del catálogo ${v.catalogo ?: "—"}")
             appendLine("Trackers completos: ${v.descriptorTrackers.joinToString(" ").ifEmpty { "ninguno" }}")
+            appendLine("Campos del descriptor: ${v.claves ?: "—"}")
+            appendLine("Conexiones con la gente: ${v.intentosTexto() ?: "—"}")
             if (v.catalogoFallos.isNotEmpty()) appendLine("Catálogo sin descriptor: ${v.catalogoFallos.joinToString(" · ")}")
         }
         appendLine("Buffer motor: ${m.engineBufferMs} ms · buffer Media3: ${m.playerBufferMs} ms (objetivo ${m.bufferTargetMs} ms)")

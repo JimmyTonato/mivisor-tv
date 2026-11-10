@@ -319,6 +319,7 @@ private fun EnginePage(graph: AppGraph, onChange: () -> Unit, toaster: (String) 
             if (vias.trackers != null || vias.porTracker != null || vias.porDht != null) {
                 KeyValue("Trackers del canal", vias.trackers ?: "—")
                 KeyValue("Gente encontrada", "trackers ${vias.porTracker ?: "—"} · DHT ${vias.porDht ?: "—"}")
+                vias.intentosTexto()?.let { KeyValue("Conexiones", it) }
             }
         }
         // 3u · El descriptor del último canal abierto, tal como lo recibió el motor (parche 0003 de Outpace).
@@ -337,6 +338,7 @@ private fun EnginePage(graph: AppGraph, onChange: () -> Unit, toaster: (String) 
                     (fields["pieza"]?.toLongOrNull()?.let { " · piezas de ${it / 1024} KB" } ?: ""))
                 KeyValue("Lo dio", vias.catalogo?.let { "servidor del catálogo $it" } ?: "—")
                 if (vias.catalogoFallos.isNotEmpty()) KeyValue("Sin descriptor", vias.catalogoFallos.joinToString("\n"))
+                vias.claves?.let { KeyValue("Campos", it) }
                 KeyValue("Trackers (${vias.descriptorTrackers.size})",
                     vias.descriptorTrackers.joinToString("\n").ifEmpty { "Ninguno: el canal no trae trackers, solo se puede buscar gente por DHT/PEX" })
             }

@@ -35,4 +35,21 @@ class ViasTest {
         assertEquals(listOf("udp://t1:6969/announce", "http://t2/announce"), v.descriptorTrackers)
         assertEquals(emptyList<String>(), d.parseVia(v, "outpace: [mivisor] descriptor trackers: ninguno").descriptorTrackers)
     }
+
+    @Test fun leeLosCamposDelDescriptor() {
+        val v = d.parseVia(EngineDiagnostics.Vias(),
+            "12:00:00.000 outpace: [mivisor] descriptor claves: authmethod:texto name:texto trackers:lista")
+        assertEquals("authmethod:texto name:texto trackers:lista", v.claves)
+        assertEquals(null, v.descriptor)                          // «descriptor claves» no pisa «descriptor:»
+    }
+
+    @Test fun cuentaLosIntentosDeConexionYSeReiniciaConOtroCanal() {
+        var v = EngineDiagnostics.Vias()
+        listOf("tcp", "tcp", "handshake", "total_timeout", "connected", "rara").forEach {
+            v = d.parseVia(v, "22:37:34.168 [ace] upstream attempt: result=$it phase=connect connect_ms=3004")
+        }
+        assertEquals("1 conectados · 2 no contestan · 1 tardan demasiado · 1 cuelgan al saludar · 1 rara", v.intentosTexto())
+        v = d.parseVia(v, "outpace: [mivisor] descriptor: infohash=ab firmado=si pieza=1 titulo=Otro")
+        assertEquals(null, v.intentosTexto())
+    }
 }

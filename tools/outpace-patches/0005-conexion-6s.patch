@@ -1,0 +1,15 @@
+diff --git a/crates/ace-swarm/src/live_session/mod.rs b/crates/ace-swarm/src/live_session/mod.rs
+index fc7b52b..e5e0b58 100644
+--- a/crates/ace-swarm/src/live_session/mod.rs
++++ b/crates/ace-swarm/src/live_session/mod.rs
+@@ -51,7 +51,9 @@ use tokio::io::{AsyncRead, AsyncWrite};
+ use tokio::net::TcpStream;
+ use tokio::sync::mpsc;
+ 
+-const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
++// MiVisor (parche 0005): 6 s en vez de 3 s. Con canales de poca gente, a menudo lejos (otro
++// continente, redes móviles) o tras WARP, 3 s cortaba conexiones que sí iban a abrirse.
++const CONNECT_TIMEOUT: Duration = Duration::from_secs(6);
+ /// One total deadline for gossip-only harvesting of a stale connected batch.
+ const STALE_GOSSIP_BUDGET: Duration = Duration::from_millis(750);
+ 

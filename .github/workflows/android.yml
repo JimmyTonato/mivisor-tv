@@ -72,7 +72,8 @@ jobs:
           # 0001: servidores del catálogo de Ace Stream desde OUTPACE_CATALOG_HOSTS (antes solo fijos en el código).
           # 0002: trackers HTTP(S) además de UDP, y líneas de diagnóstico con los pares encontrados por vía.
           # 0003: diagnóstico del descriptor (qué servidor del catálogo lo dio, infohash, título, trackers completos).
-          # 0004: descriptores con todos los trackers en una sola cadena → se separan (antes se perdían todos).
+          # 0004: lectura robusta de trackers del descriptor (cadena única, pegados, niveles, announce/announce-list…).
+          # 0005: 6 s (antes 3 s) para conectar con cada persona encontrada.
           for p in "$GITHUB_WORKSPACE"/tools/outpace-patches/*.patch; do
             git apply --check "$p"
             git apply "$p"

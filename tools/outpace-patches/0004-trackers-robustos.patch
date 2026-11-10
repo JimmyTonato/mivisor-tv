@@ -1,0 +1,347 @@
+diff --git a/crates/ace-wire/src/transport.rs b/crates/ace-wire/src/transport.rs
+index e326903..60e619a 100644
+--- a/crates/ace-wire/src/transport.rs
++++ b/crates/ace-wire/src/transport.rs
+@@ -166,6 +166,23 @@ pub fn decode_transport_with_key(
+     if !matches!(raw, Bencode::Dict(_)) {
+         return Err(WireError::Invalid("descriptor not a dict"));
+     }
++    // MiVisor (parche 0004): qué campos trae el descriptor, para ver en el diagnóstico si aparece
++    // alguno que aún no se use (p. ej. metatrackers) y en qué forma vienen los trackers.
++    if let Bencode::Dict(d) = &raw {
++        let keys: Vec<String> = d
++            .iter()
++            .map(|(k, v)| {
++                let kind = match v {
++                    Bencode::Int(_) => "num",
++                    Bencode::Bytes(_) => "texto",
++                    Bencode::List(_) => "lista",
++                    Bencode::Dict(_) => "dicc",
++                };
++                format!("{}:{kind}", String::from_utf8_lossy(k))
++            })
++            .collect();
++        eprintln!("outpace: [mivisor] descriptor claves: {}", keys.join(" "));
++    }
+ 
+     // 6. Extract fields.
+     let name = raw
+@@ -187,14 +204,8 @@ pub fn decode_transport_with_key(
+         .map(|b| b.to_vec())
+         .unwrap_or_default();
+ 
+-    let trackers: Vec<String> = match raw.get(b"trackers") {
+-        Some(Bencode::List(list)) => list
+-            .iter()
+-            .filter_map(|item| item.as_bytes())
+-            .map(|b| String::from_utf8_lossy(b).into_owned())
+-            .collect(),
+-        _ => Vec::new(),
+-    };
++    // MiVisor (parche 0004): lectura robusta de trackers, venga como venga (ver `normalize_trackers`).
++    let trackers: Vec<String> = normalize_trackers(&raw);
+ 
+     // 7. VOD pieces: concatenated 20-byte SHA-1 hashes; absent on live streams.
+     let pieces: Vec<[u8; 20]> = match raw.get(b"pieces") {
+@@ -239,8 +250,301 @@ pub fn encode_transport_with_key(descriptor: &Bencode, key: &[u8; 16], iv: &[u8;
+     out
+ }
+ 
++/// MiVisor (parche 0004): saca los trackers de un descriptor sea cual sea su forma.
++///
++/// Fuentes, en este orden y sin repetir: `trackers`, `announce-list` y `announce` (estilo torrent).
++/// Cada fuente puede ser una cadena o una lista, con listas dentro de listas (niveles BEP-12).
++/// Dentro de cada cadena se separan las URL:
++/// - por espacios, tabuladores, saltos de línea, comas, punto y coma o `|`;
++/// - y también cuando vienen pegadas sin separador (`udp://a/announceudp://b/announce`).
++///
++/// Cada URL se limpia: comillas y `<>` alrededor fuera, esquema en minúsculas, `host:puerto` sin
++/// esquema → `udp://host:puerto/announce`. Solo se quedan `udp://`, `http://` y `https://`
++/// (los `ws(s)://` son de WebTorrent y Outpace no los habla). Máximo 64, en el orden recibido.
++pub fn normalize_trackers(raw: &Bencode) -> Vec<String> {
++    let mut texts: Vec<String> = Vec::new();
++    for key in [&b"trackers"[..], b"announce-list", b"announce"] {
++        if let Some(v) = raw.get(key) {
++            collect_texts(v, 0, &mut texts);
++        }
++    }
++    let mut out: Vec<String> = Vec::new();
++    for text in texts {
++        for url in split_urls(&text) {
++            if let Some(url) = clean_tracker_url(&url) {
++                let key = url.trim_end_matches('/').to_ascii_lowercase();
++                if out.len() < MAX_DESCRIPTOR_TRACKERS
++                    && !out.iter().any(|u| u.trim_end_matches('/').to_ascii_lowercase() == key)
++                {
++                    out.push(url);
++                }
++            }
++        }
++    }
++    out
++}
++
++const MAX_DESCRIPTOR_TRACKERS: usize = 64;
++const TRACKER_SCHEMES: [&str; 3] = ["udp://", "http://", "https://"];
++
++/// Todas las cadenas de un valor (lista, lista de listas…), con profundidad acotada.
++fn collect_texts(v: &Bencode, depth: usize, out: &mut Vec<String>) {
++    match v {
++        Bencode::Bytes(b) => out.push(String::from_utf8_lossy(b).into_owned()),
++        Bencode::List(items) if depth < 4 => {
++            for item in items {
++                collect_texts(item, depth + 1, out);
++            }
++        }
++        _ => {}
++    }
++}
++
++/// Caracteres invisibles que a veces se cuelan al copiar listas (BOM, espacios de ancho cero).
++fn strip_invisible(s: &str) -> String {
++    s.chars()
++        .filter(|c| !matches!(c, '\u{feff}' | '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{2060}'))
++        .collect()
++}
++
++/// Decodifica `%XX` (y `+` como espacio). Bytes inválidos se dejan tal cual.
++fn percent_decode(s: &str) -> String {
++    let b = s.as_bytes();
++    let mut out = Vec::with_capacity(b.len());
++    let mut i = 0;
++    while i < b.len() {
++        match b[i] {
++            b'%' if i + 2 < b.len() => {
++                let hex = std::str::from_utf8(&b[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok());
++                match hex {
++                    Some(v) => {
++                        out.push(v);
++                        i += 3;
++                    }
++                    None => {
++                        out.push(b'%');
++                        i += 1;
++                    }
++                }
++            }
++            b'+' => {
++                out.push(b' ');
++                i += 1;
++            }
++            c => {
++                out.push(c);
++                i += 1;
++            }
++        }
++    }
++    String::from_utf8_lossy(&out).into_owned()
++}
++
++/// Trackers de un enlace magnet (`tr=`, `tr.1=`…, codificados) — algunas listas los pegan tal cual.
++fn magnet_trackers(magnet: &str) -> Vec<String> {
++    let query = magnet.split_once('?').map(|(_, q)| q).unwrap_or("");
++    query
++        .split('&')
++        .filter_map(|kv| kv.split_once('='))
++        .filter(|(k, _)| {
++            let k = k.to_ascii_lowercase();
++            k == "tr" || k.starts_with("tr.")
++        })
++        .map(|(_, v)| percent_decode(v))
++        .collect()
++}
++
++/// Parte una cadena en posibles URL: por separadores y por cada comienzo de esquema.
++fn split_urls(text: &str) -> Vec<String> {
++    let text = strip_invisible(text);
++    let mut out = Vec::new();
++    for piece in text.split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '|' | '\0')) {
++        if piece.is_empty() {
++            continue;
++        }
++        let lower = piece.to_ascii_lowercase();
++        if lower.starts_with("magnet:") {
++            for tr in magnet_trackers(piece) {
++                out.extend(split_urls(&tr));
++            }
++            continue;
++        }
++        if lower.contains("%3a%2f%2f") {
++            // URL codificada entera («udp%3A%2F%2Fhost%3A80%2Fannounce»).
++            out.extend(split_urls(&percent_decode(piece)));
++            continue;
++        }
++        let piece = piece.strip_prefix("tr=").unwrap_or(piece);
++        // Cortes donde empieza otro esquema dentro de la misma pieza (URL pegadas).
++        let lower = piece.to_ascii_lowercase();
++        let mut cuts: Vec<usize> = Vec::new();
++        for scheme in ["udp://", "http://", "https://", "ws://", "wss://"] {
++            let mut from = 0;
++            while let Some(i) = lower[from..].find(scheme) {
++                let at = from + i;
++                // «https://» contiene «http» pero no «http://» en la misma posición; evita doble corte.
++                if at > 0 && !cuts.contains(&at) {
++                    cuts.push(at);
++                }
++                from = at + scheme.len();
++            }
++        }
++        cuts.sort_unstable();
++        let mut start = 0;
++        for cut in cuts {
++            if cut > start && piece.is_char_boundary(cut) {
++                out.push(piece[start..cut].to_string());
++                start = cut;
++            }
++        }
++        out.push(piece[start..].to_string());
++    }
++    out
++}
++
++/// Limpia una URL de tracker; `None` si no sirve.
++fn clean_tracker_url(raw: &str) -> Option<String> {
++    let s = raw.trim().trim_matches(|c: char| matches!(c, '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']'));
++    if s.is_empty() || s.len() > 256 || s.chars().any(char::is_control) {
++        return None;
++    }
++    let lower = s.to_ascii_lowercase();
++    if let Some(scheme) = TRACKER_SCHEMES.iter().find(|p| lower.starts_with(**p)) {
++        let rest = &s[scheme.len()..];
++        if rest.is_empty() || rest.starts_with('/') {
++            return None;
++        }
++        return Some(format!("{scheme}{rest}"));
++    }
++    if lower.contains("://") {
++        return None; // ws(s)://, magnet:, etc.
++    }
++    // «host:puerto[/ruta]» sin esquema → UDP, que es lo que usa Ace Stream.
++    let host_port = s.split('/').next().unwrap_or(s);
++    let (host, port) = host_port.rsplit_once(':')?;
++    if host.is_empty() || host.contains(' ') || port.parse::<u16>().ok().filter(|p| *p > 0).is_none() {
++        return None;
++    }
++    let path = &s[host_port.len()..];
++    Some(format!("udp://{host_port}{}", if path.is_empty() { "/announce" } else { path }))
++}
++
+ #[cfg(test)]
+ mod tests {
++    fn mivisor_norm(v: crate::bencode::Bencode) -> Vec<String> {
++        super::normalize_trackers(&v)
++    }
++    fn b(s: &str) -> crate::bencode::Bencode {
++        crate::bencode::Bencode::Bytes(s.as_bytes().to_vec())
++    }
++    fn l(v: Vec<crate::bencode::Bencode>) -> crate::bencode::Bencode {
++        crate::bencode::Bencode::List(v)
++    }
++    fn d(kv: Vec<(&str, crate::bencode::Bencode)>) -> crate::bencode::Bencode {
++        crate::bencode::Bencode::Dict(kv.into_iter().map(|(k, v)| (k.as_bytes().to_vec(), v)).collect())
++    }
++
++    #[test]
++    fn mivisor_trackers_lista_normal() {
++        let got = mivisor_norm(d(vec![("trackers", l(vec![b("udp://a:1/announce"), b("http://b:2/announce")]))]));
++        assert_eq!(got, ["udp://a:1/announce", "http://b:2/announce"]);
++    }
++
++    #[test]
++    fn mivisor_trackers_en_una_sola_cadena() {
++        let got = mivisor_norm(d(vec![(
++            "trackers",
++            l(vec![b("udp://a:1/announce udp://b:2/announce\nhttp://c:3/announce,udp://a:1/announce\t;https://e/x|udp://f:6/announce")]),
++        )]));
++        assert_eq!(
++            got,
++            ["udp://a:1/announce", "udp://b:2/announce", "http://c:3/announce", "https://e/x", "udp://f:6/announce"]
++        );
++    }
++
++    #[test]
++    fn mivisor_trackers_cadena_suelta_y_pegados() {
++        let got = mivisor_norm(d(vec![("trackers", b("udp://a:1/announceudp://b:2/announcehttps://c/announce"))]));
++        assert_eq!(got, ["udp://a:1/announce", "udp://b:2/announce", "https://c/announce"]);
++    }
++
++    #[test]
++    fn mivisor_trackers_niveles_y_estilo_torrent() {
++        let got = mivisor_norm(d(vec![
++            ("trackers", l(vec![l(vec![b("udp://a:1/announce")]), l(vec![b("udp://b:2/announce")])])),
++            ("announce-list", l(vec![l(vec![b("http://c:3/announce"), b("udp://a:1/announce/")])])),
++            ("announce", b("udp://d:4/announce")),
++        ]));
++        assert_eq!(got, ["udp://a:1/announce", "udp://b:2/announce", "http://c:3/announce", "udp://d:4/announce"]);
++    }
++
++    #[test]
++    fn mivisor_trackers_limpieza() {
++        let got = mivisor_norm(d(vec![(
++            "trackers",
++            l(vec![
++                b("  \"UDP://Mayus:7/announce\"  "),
++                b("<http://x:8/a>"),
++                b("tracker.sin.esquema:6969"),
++                b("otro:2710/announce"),
++                b("wss://tracker.webtorrent.dev"),
++                b("magnet:?xt=urn:btih:abc"),
++                b("basura"),
++                b("udp://"),
++                b("host:0"),
++                b(""),
++            ]),
++        )]));
++        assert_eq!(
++            got,
++            [
++                "udp://Mayus:7/announce",
++                "http://x:8/a",
++                "udp://tracker.sin.esquema:6969/announce",
++                "udp://otro:2710/announce",
++            ]
++        );
++    }
++
++    #[test]
++    fn mivisor_trackers_magnet_codificados_e_invisibles() {
++        let got = mivisor_norm(d(vec![(
++            "trackers",
++            l(vec![
++                b("magnet:?xt=urn:btih:abc&dn=x&tr=udp%3A%2F%2Fm1%3A80%2Fannounce&tr.1=http%3A%2F%2Fm2%2Fannounce"),
++                b("udp%3A%2F%2Fenc%3A6969%2Fannounce"),
++                b("tr=udp://pref:1/announce"),
++                b("\u{feff}udp://bom:2/announce\u{200b}"),
++            ]),
++        )]));
++        assert_eq!(
++            got,
++            [
++                "udp://m1:80/announce",
++                "http://m2/announce",
++                "udp://enc:6969/announce",
++                "udp://pref:1/announce",
++                "udp://bom:2/announce",
++            ]
++        );
++    }
++
++    #[test]
++    fn mivisor_trackers_ipv6_y_rutas() {
++        let got = mivisor_norm(d(vec![(
++            "trackers",
++            l(vec![b("udp://[2001:db8::1]:6969/announce http://t.x/announce.php?passkey=abc udp://h:80")]),
++        )]));
++        assert_eq!(got, ["udp://[2001:db8::1]:6969/announce", "http://t.x/announce.php?passkey=abc", "udp://h:80"]);
++    }
++
++    #[test]
++    fn mivisor_trackers_sin_trackers_y_tope() {
++        assert!(mivisor_norm(d(vec![("name", b("x"))])).is_empty());
++        let many: String = (0..100).map(|i| format!("udp://t{i}:1/announce ")).collect();
++        assert_eq!(mivisor_norm(d(vec![("trackers", b(&many))])).len(), 64);
++    }
++
+     use super::*;
+ 
+     /// Wrap raw bencode `plaintext` into a transport file under the global key/IV.

@@ -1,33 +1,28 @@
-# MiVisor TV · Entrega 3v: el motor usaba 0 de los 21 trackers del canal
+# MiVisor TV · Entrega 3y: ver por qué no conecta con la gente que encuentra
 
-La 3u está en `docs/entregas/3u.md`. Se mantiene todo.
+La 3x está en `docs/entregas/3x.md`. Se mantiene todo.
 
-## Qué se vio con el panel de la 3u (M+ Golf 1080)
+## Qué se vio (ESPN HD [US])
 
-- El descriptor trae **21 trackers** (18 UDP y 3 HTTP), pero «Trackers del canal» decía **1** y «Gente encontrada»
-  `udp=0 http=0 (de 1 trackers)`.
-- Causa: el descriptor trae **todos los trackers en una sola cadena**, separados por espacios. Outpace la tomaba como
-  una única URL de cientos de caracteres y la descartaba por larga (máx. 256).
-- Resultado: el canal se quedaba **sin ningún tracker**. Solo encontraba gente por DHT (25), que en directo suele ser
-  gente vieja o inalcanzable. Ace Stream oficial sí usa los 21 trackers, y por eso se ve.
+- El descriptor trae 3 trackers oficiales de Ace Stream (`t1/t2/t3.torrentstream.org:2710`) y se usan bien.
+- «Gente encontrada»: 3 por trackers y 1 por DHT. Es decir, **sí encuentra gente, pero no consigue sacar vídeo de
+  nadie**.
+- En el log antiguo pasaba lo mismo: casi todos «no contestan» a los 3 s y los que contestan cuelgan al saludar.
 
 ## Qué cambia
 
-- **Motor:** parche `tools/outpace-patches/0004-trackers-en-una-cadena.patch` (sobre el 0001–0003). Al leer el
-  descriptor separa los trackers por espacios, comas y saltos de línea; sin repetidos, máx. 64. Vale también cuando
-  `trackers` viene como cadena suelta en vez de lista.
-- **CI:** se pasan también las pruebas del parche en `ace-wire` (`cargo test -p ace-wire --lib mivisor_`).
-
-## Cómo comprobarlo
-
-En Ajustes › Motor, con el mismo canal:
-- «Trackers del canal» tiene que decir **21 (udp=18 http=3 …)**;
-- «Gente encontrada» tiene que dar números en `udp=` y/o `http=`.
+- **Ajustes › Motor › Conexiones** (y el informe): cómo acabaron los intentos de conectar con la gente encontrada
+  desde que se abrió el canal. Por ejemplo `0 conectados · 3 no contestan · 1 cuelgan al saludar`.
+  - **no contestan / tardan demasiado:** detrás de un router o ya no están. Lo que ayudaría es el P2P completo, que
+    les permite conectar con nosotros.
+  - **cuelgan al saludar:** contestan pero cierran en cuanto les hablamos; no nos aceptan.
+  - **conectan pero no envían:** aceptan, pero no mandan nada.
+- **Motor, parche `0005-conexion-6s.patch`:** 6 s en vez de 3 s para conectar con cada persona. Con canales de poca
+  gente, lejos (ESPN US) o por redes móviles, 3 s cortaba conexiones que sí iban a abrirse.
 
 ## Compilación
 
-- **Parche 0004:** su prueba (`mivisor_trackers_en_una_sola_cadena`) se ha compilado y pasado aquí con rustc. Se ha
-  comprobado que los cuatro parches aplican en orden sobre el commit fijado. El motor completo se compila en CI.
-- **Pruebas JVM:** siguen pasando las 249.
+- **Pruebas JVM:** pasan las **251** (1 nueva: recuento de intentos).
+- **Parches:** los cinco aplican en orden sobre el commit fijado. El 0005 solo cambia una constante. Se compilan en CI.
 - **Código Android:** no se ha compilado aquí ni se ha probado en ningún aparato. Se comprueba en GitHub Actions.
 - Firma, paquete `com.mivisor.tv` y comprobación SHA-256 de WARP: sin cambios.
