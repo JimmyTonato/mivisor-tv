@@ -1,0 +1,14 @@
+diff --git a/crates/ace-engine/src/http/streams.rs b/crates/ace-engine/src/http/streams.rs
+index e76364a..5766b44 100644
+--- a/crates/ace-engine/src/http/streams.rs
++++ b/crates/ace-engine/src/http/streams.rs
+@@ -99,6 +99,9 @@ pub(super) async fn stream_status(
+                 "livepos": live_position_json(stats.livepos.as_ref()),
+                 "recovery": stats.recovery,
+                 "buffer_ms": stats.buffer_ms,
++                // MiVisor (parche 0009): bytes de vídeo recibidos, para saber si la emisión avanza.
++                "downloaded": stats.downloaded,
++                "download_rate": stats.download_rate,
+                 "uploaded": stats.uploaded,
+                 "peers_served": stats.peers_served,
+                 "metadata": stream_metadata_json(session.metadata()),

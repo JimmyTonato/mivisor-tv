@@ -24,6 +24,7 @@ import com.mivisor.tv.engine.EngineDiagnostics
 import com.mivisor.tv.engine.EngineStatus
 import com.mivisor.tv.engine.EngineSupervisor
 import com.mivisor.tv.engine.LiveDelayController
+import com.mivisor.tv.engine.LoadInsight
 import com.mivisor.tv.outpace.EngineManager
 import com.mivisor.tv.reliability.FailureKind
 import com.mivisor.tv.reliability.SourceCycle
@@ -113,7 +114,11 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         /** 3p · Cuánto tardó en encontrar el canal (descriptor), si ya lo encontró. */
         val resolvedInSecs: Int? = null,
         /** 3p · Cómo acabó la última fuente que falló: dónde se quedó (para explicarlo, no un «sin imagen» genérico). */
-        val lastFailStage: LoadStage? = null
+        val lastFailStage: LoadStage? = null,
+        /** 4d · Con emisores y sin imagen: qué pasa de verdad (llega vídeo, emisión parada, no mandan…). */
+        val insight: LoadInsight.Insight? = null,
+        /** 4d · El [insight] con el que falló la última fuente, para explicar el final. */
+        val lastFailInsight: LoadInsight.Insight? = null
     ) {
         val active: Boolean get() = phase == Phase.STARTING_ENGINE || phase == Phase.TRYING || phase == Phase.PLAYING
     }
@@ -508,7 +513,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             phase = Phase.TRYING, sourceIndex = c.indexOf(cid) + 1, sourceCount = c.order.size, provider = src.providerName,
             quality = src.qualityLabel, peers = 0, message = "Buscando emisores…", cause = null, sources = rows(),
             tracks = emptyList(), paused = false, startMs = null, recovering = null,
-            stage = LoadStage.RESOLVING, stageSecs = 0, resolvedInSecs = null
+            stage = LoadStage.RESOLVING, stageSecs = 0, resolvedInSecs = null, insight = null
         )
         EngineDiagnostics.update { it.copy(sourceIndex = c.indexOf(cid) + 1, sourceCount = c.order.size, sourceId = mask(cid), sourceSwitches = c.triedCount - 1) }
         p.stop()
@@ -533,6 +538,9 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             var maxPeers = 0
             var tick = 0
             var stageSince = 0
+            val insight = LoadInsight()
+            val cutInsight = LoadInsight()
+            var lastInsightKind: LoadInsight.Kind? = null
             while (isActive && gen == generation) {
                 delay(1_000)
                 tick++
@@ -574,9 +582,18 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                             book.log("Fuente", "${mask(src.contentId)}: canal encontrado en ${tick} s")
                         }
                     }
+                    // 4d · Con emisores, decir qué pasa de verdad en vez de un «preparando la imagen» fijo.
+                    val seen = if (stage == LoadStage.BUFFERING) insight.observe(status, status?.peers ?: _ui.value.peers) else null
+                    if (seen != null && seen.kind != lastInsightKind) {
+                        lastInsightKind = seen.kind
+                        if (seen.kind != LoadInsight.Kind.WAITING && seen.kind != LoadInsight.Kind.RECEIVING) {
+                            book.log("Fuente", "${mask(src.contentId)}: ${seen.status} (${tick} s)")
+                        }
+                    }
                     _ui.value = _ui.value.copy(
                         stage = stage, stageSecs = tick - stageSince,
-                        resolvedInSecs = if (stage != LoadStage.RESOLVING) (_ui.value.resolvedInSecs ?: tick) else null
+                        resolvedInSecs = if (stage != LoadStage.RESOLVING) (_ui.value.resolvedInSecs ?: tick) else null,
+                        insight = seen
                     )
                 }
                 when (_ui.value.phase) {
@@ -607,6 +624,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                     Phase.PLAYING -> {
                         controlLiveDelay(status)
                         val now = SystemClock.elapsedRealtime()
+                        if (bufferingSince <= 0) cutInsight.reset()
                         if (bufferingSince > 0) {
                             // 3e: un corte no cambia de fuente a los 26 s. Se salta al directo (8 s), se recarga la
                             // misma fuente (16 s y luego cada 15 s) y solo se pasa SOLA a otra tras el tiempo de
@@ -620,8 +638,14 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                             val step = StartPolicy.recoveryStep(stalled).coerceAtMost(2)
                             if (step > recoverStep) recover(step, base, src)
                             else if (step == 2 && now - lastReloadAt >= RELOAD_EVERY_MS) recover(2, base, src)
+                            // 4d · En un corte, decir también por qué (emisión parada, no nos llega…).
+                            val why = cutInsight.observe(status, status?.peers ?: _ui.value.peers).takeIf {
+                                it.kind == LoadInsight.Kind.STALLED || it.kind == LoadInsight.Kind.NOT_REACHING ||
+                                    it.kind == LoadInsight.Kind.NO_DATA || it.kind == LoadInsight.Kind.SIGNATURE
+                            }
                             _ui.value = _ui.value.copy(
-                                recovering = (if (recoverStep >= 2) "Recargando la fuente" else "Recuperando la imagen") +
+                                recovering = (why?.let { it.status + " · " } ?: "") +
+                                    (if (recoverStep >= 2) "Recargando la fuente" else "Recuperando la imagen") +
                                     " · ${stalled / 1000} s" + if (switchAfter != Long.MAX_VALUE) " (otra fuente a los ${switchAfter / 1000} s)" else ""
                             )
                         } else if (resyncing && now - resyncStartedAt > StartPolicy.NUDGE_MS) {
@@ -643,7 +667,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     private fun failed(kind: String, detail: String) {
         val src = currentSource ?: return
         val req = request ?: return
-        _ui.value = _ui.value.copy(lastFailStage = _ui.value.stage.takeIf { it != LoadStage.NONE })
+        _ui.value = _ui.value.copy(lastFailStage = _ui.value.stage.takeIf { it != LoadStage.NONE }, lastFailInsight = _ui.value.insight)
         monitor?.cancel()
         closeCurrent()
         val gen = ++generation
@@ -822,7 +846,10 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                 LoadStage.PEERS -> "El canal existe, pero no ha llegado ningún emisor (0)." +
                     if (!EngineManager.fullP2p) " Si en Ace Stream u otra app sí se ve, activa «Aceptar conexiones de otros (P2P completo)» en Ajustes › Motor y reintenta."
                     else " Puede que la emisión esté caída, o que con WARP conectado nadie pueda llegar hasta ti: prueba sin WARP, más tarde u otra fuente."
-                LoadStage.BUFFERING -> "Había emisores, pero no llegó imagen a tiempo. Reintentar suele bastar."
+                LoadStage.BUFFERING -> _ui.value.lastFailInsight
+                    ?.takeIf { it.kind != LoadInsight.Kind.WAITING && it.kind != LoadInsight.Kind.RECEIVING }
+                    ?.let { "${it.status}. ${it.hint ?: ""}".trim() }
+                    ?: "Había emisores, pero no llegó imagen a tiempo. Reintentar suele bastar."
                 else -> "Ninguna de las ${cycle?.order?.size ?: 0} fuentes ha dado imagen ahora. Puedes reintentar o elegir una en «Fuentes»."
             }
         )

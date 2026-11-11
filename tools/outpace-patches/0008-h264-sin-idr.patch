@@ -1,5 +1,5 @@
 diff --git a/crates/ace-media/src/mpegts.rs b/crates/ace-media/src/mpegts.rs
-index 6f33c25..52d6866 100644
+index 6f33c25..0ad6545 100644
 --- a/crates/ace-media/src/mpegts.rs
 +++ b/crates/ace-media/src/mpegts.rs
 @@ -712,6 +712,9 @@ fn payload_has_irap(pkt: &[u8], codec: Option<VideoCodec>) -> bool {
@@ -12,17 +12,22 @@ index 6f33c25..52d6866 100644
      elementary.windows(4).any(|w| {
          if w[0] != 0 || w[1] != 0 || w[2] != 1 {
              return false;
-@@ -724,6 +727,67 @@ fn payload_has_irap(pkt: &[u8], codec: Option<VideoCodec>) -> bool {
+@@ -724,6 +727,78 @@ fn payload_has_irap(pkt: &[u8], codec: Option<VideoCodec>) -> bool {
      })
  }
  
-+/// MiVisor (parche 0008): emisiones H.264 de TV (p. ej. 1080i entrelazado) que nunca mandan IDR
-+/// (NAL 5) ni `random_access_indicator`: el punto de entrada es un SPS seguido de un corte I
-+/// normal (NAL 1, `slice_type` 2/7, `first_mb_in_slice` 0). Sin esto el empaquetador HLS no
-+/// encuentra nunca un punto de corte y la imagen no llega. Se exige el SPS en el mismo paquete
-+/// (el decodificador lo necesita para arrancar), así un I suelto a mitad de GOP no abre nada.
++/// MiVisor (parche 0008): emisiones H.264 de TV que nunca mandan IDR (NAL 5) ni
++/// `random_access_indicator`. Sin esto el empaquetador HLS no encuentra dónde empezar y la imagen
++/// no llega. Siempre se exige el SPS en el mismo paquete (el decodificador lo necesita para
++/// arrancar), así un I suelto a mitad de GOP no abre nada. Con SPS delante, es punto de entrada:
++/// - un corte I normal (NAL 1, `slice_type` 2/7, `first_mb_in_slice` 0): TV entrelazada, GOP abierto;
++/// - un SEI de punto de recuperación (tipo 6): refresco intra gradual, sin imágenes I enteras;
++/// - SPS + PPS cuando el corte no cabe en este paquete (SEI largos delante, p. ej. subtítulos):
++///   la cabecera del corte viene en el siguiente y no se puede mirar aquí.
 +fn h264_sps_then_i_slice(elementary: &[u8]) -> bool {
 +    let mut saw_sps = false;
++    let mut saw_pps = false;
++    let mut recovery_point = false;
 +    let mut i = 0;
 +    while i + 3 < elementary.len() {
 +        if elementary[i] != 0 || elementary[i + 1] != 0 || elementary[i + 2] != 1 {
@@ -32,13 +37,19 @@ index 6f33c25..52d6866 100644
 +        let nal = elementary[i + 3] & 0x1F;
 +        match nal {
 +            7 => saw_sps = true,
-+            1 | 5 if saw_sps => return h264_slice_is_first_i(&elementary[i + 4..]),
++            8 => saw_pps = true,
++            // SEI: el primer mensaje dice su tipo (sin bytes 0xFF de extensión: el 6 cabe en uno).
++            6 if elementary.get(i + 4) == Some(&6) => recovery_point = true,
++            1 | 5 if saw_sps => {
++                return recovery_point || h264_slice_is_first_i(&elementary[i + 4..]);
++            }
 +            1 | 5 => return false,
 +            _ => {}
 +        }
 +        i += 3;
 +    }
-+    false
++    // Sin corte visible en este paquete.
++    saw_sps && (saw_pps || recovery_point)
 +}
 +
 +/// `first_mb_in_slice == 0` y `slice_type` I (2 o 7) al principio de una cabecera de corte.
@@ -80,7 +91,7 @@ index 6f33c25..52d6866 100644
  /// Borrow elementary bytes after a complete packet-local video PES header, bounded by
  /// the available packet payload and, when nonzero, the declared PES end.
  /// Split PES headers deliberately remain false negatives: reporting access on their
-@@ -3000,3 +3064,73 @@ mod tests {
+@@ -3000,3 +3075,118 @@ mod tests {
          assert!(packet_count(&out) >= 3, "should emit the recovered packets");
      }
  }
@@ -133,6 +144,51 @@ index 6f33c25..52d6866 100644
 +            0x80,
 +        ];
 +        assert!(payload_has_irap(&pkt(0x100, &es), Some(VideoCodec::H264)));
++    }
++
++    #[test]
++    fn mivisor_h264_punto_de_recuperacion_y_corte_en_el_siguiente_paquete() {
++        // SPS + SEI de punto de recuperación + corte P (refresco intra): sí.
++        let refresh = [
++            0,
++            0,
++            1,
++            0x67,
++            0x64,
++            0,
++            0x28,
++            0,
++            0,
++            1,
++            0x06,
++            0x06,
++            0x01,
++            0x80,
++            0,
++            0,
++            1,
++            0x01,
++            0b1001_1000,
++        ];
++        assert!(payload_has_irap(
++            &pkt(0x100, &refresh),
++            Some(VideoCodec::H264)
++        ));
++        // SPS + PPS y un SEI largo: el corte no cabe en el paquete. Sí.
++        let mut long_sei = vec![
++            0, 0, 1, 0x67, 0x64, 0, 0x28, 0, 0, 1, 0x68, 0xEE, 0, 0, 1, 0x06, 0x04, 0xFF,
++        ];
++        long_sei.resize(170, 0x55);
++        assert!(payload_has_irap(
++            &pkt(0x100, &long_sei),
++            Some(VideoCodec::H264)
++        ));
++        // SPS + SEI normal (no de recuperación) sin corte visible ni PPS: no.
++        let sps_sei = [0, 0, 1, 0x67, 0x64, 0, 0x28, 0, 0, 1, 0x06, 0x04, 0x10];
++        assert!(!payload_has_irap(
++            &pkt(0x100, &sps_sei),
++            Some(VideoCodec::H264)
++        ));
 +    }
 +
 +    #[test]

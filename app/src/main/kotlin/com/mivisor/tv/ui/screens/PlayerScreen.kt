@@ -349,7 +349,7 @@ fun PlayerScreen(
                     ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.PEERS ->
                         "Canal encontrado · buscando emisores…" + if (ui.stageSecs >= 3) " ${ui.stageSecs} s" else ""
                     ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.BUFFERING ->
-                        "Conectado a ${ui.peers} ${if (ui.peers == 1) "emisor" else "emisores"} · preparando la imagen…"
+                        ui.insight?.status ?: "Conectado a ${ui.peers} ${if (ui.peers == 1) "emisor" else "emisores"} · preparando la imagen…"
                     ui.sourceIndex > 1 -> "Probando otra fuente…"
                     else -> "Buscando señal…"
                 },
@@ -365,6 +365,8 @@ fun PlayerScreen(
                             !com.mivisor.tv.outpace.EngineManager.fullP2p -> " Aún sin emisores. Si en Ace Stream sí se ve, activa «Aceptar conexiones de otros» en Ajustes › Motor."
                             else -> " Nadie lo está emitiendo todavía: puede que la emisión esté caída."
                         }
+                    // 4d · Con emisores: qué pasa (emisión parada, no mandan vídeo, firma…).
+                    ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.BUFFERING -> ui.insight?.hint
                     else -> null
                 },
                 detail = listOfNotNull(
