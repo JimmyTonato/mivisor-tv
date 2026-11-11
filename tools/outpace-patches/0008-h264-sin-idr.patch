@@ -1,0 +1,156 @@
+diff --git a/crates/ace-media/src/mpegts.rs b/crates/ace-media/src/mpegts.rs
+index 6f33c25..52d6866 100644
+--- a/crates/ace-media/src/mpegts.rs
++++ b/crates/ace-media/src/mpegts.rs
+@@ -712,6 +712,9 @@ fn payload_has_irap(pkt: &[u8], codec: Option<VideoCodec>) -> bool {
+     if codec == VideoCodec::Mpeg2 {
+         return mpeg2_has_i_picture(elementary);
+     }
++    if codec == VideoCodec::H264 && h264_sps_then_i_slice(elementary) {
++        return true;
++    }
+     elementary.windows(4).any(|w| {
+         if w[0] != 0 || w[1] != 0 || w[2] != 1 {
+             return false;
+@@ -724,6 +727,67 @@ fn payload_has_irap(pkt: &[u8], codec: Option<VideoCodec>) -> bool {
+     })
+ }
+ 
++/// MiVisor (parche 0008): emisiones H.264 de TV (p. ej. 1080i entrelazado) que nunca mandan IDR
++/// (NAL 5) ni `random_access_indicator`: el punto de entrada es un SPS seguido de un corte I
++/// normal (NAL 1, `slice_type` 2/7, `first_mb_in_slice` 0). Sin esto el empaquetador HLS no
++/// encuentra nunca un punto de corte y la imagen no llega. Se exige el SPS en el mismo paquete
++/// (el decodificador lo necesita para arrancar), así un I suelto a mitad de GOP no abre nada.
++fn h264_sps_then_i_slice(elementary: &[u8]) -> bool {
++    let mut saw_sps = false;
++    let mut i = 0;
++    while i + 3 < elementary.len() {
++        if elementary[i] != 0 || elementary[i + 1] != 0 || elementary[i + 2] != 1 {
++            i += 1;
++            continue;
++        }
++        let nal = elementary[i + 3] & 0x1F;
++        match nal {
++            7 => saw_sps = true,
++            1 | 5 if saw_sps => return h264_slice_is_first_i(&elementary[i + 4..]),
++            1 | 5 => return false,
++            _ => {}
++        }
++        i += 3;
++    }
++    false
++}
++
++/// `first_mb_in_slice == 0` y `slice_type` I (2 o 7) al principio de una cabecera de corte.
++fn h264_slice_is_first_i(header: &[u8]) -> bool {
++    // Quita los bytes de prevención de emulación (00 00 03) de los primeros bytes.
++    let mut rbsp = Vec::with_capacity(8);
++    let mut zeros = 0;
++    for &b in header.iter().take(12) {
++        if zeros >= 2 && b == 3 {
++            zeros = 0;
++            continue;
++        }
++        zeros = if b == 0 { zeros + 1 } else { 0 };
++        rbsp.push(b);
++    }
++    let mut bit = 0usize;
++    let mut read_ue = || -> Option<u32> {
++        let get =
++            |pos: usize| -> Option<u8> { rbsp.get(pos / 8).map(|b| (*b >> (7 - pos % 8)) & 1) };
++        let mut lz = 0u32;
++        while get(bit)? == 0 {
++            lz += 1;
++            bit += 1;
++            if lz > 16 {
++                return None;
++            }
++        }
++        bit += 1;
++        let mut v = 0u32;
++        for _ in 0..lz {
++            v = (v << 1) | get(bit)? as u32;
++            bit += 1;
++        }
++        Some((1u32 << lz) - 1 + v)
++    };
++    matches!((read_ue(), read_ue()), (Some(0), Some(2 | 7)))
++}
++
+ /// Borrow elementary bytes after a complete packet-local video PES header, bounded by
+ /// the available packet payload and, when nonzero, the declared PES end.
+ /// Split PES headers deliberately remain false negatives: reporting access on their
+@@ -3000,3 +3064,73 @@ mod tests {
+         assert!(packet_count(&out) >= 3, "should emit the recovered packets");
+     }
+ }
++
++#[cfg(test)]
++mod mivisor_h264_sin_idr {
++    use super::*;
++
++    fn pkt(pid: u16, es: &[u8]) -> Vec<u8> {
++        let mut p = vec![0x47, 0x40 | (pid >> 8) as u8, pid as u8, 0x10];
++        p.extend_from_slice(&[0, 0, 1, 0xE0, 0, 0, 0x80, 0x00, 0x00]);
++        p.extend_from_slice(es);
++        p.resize(TS_PACKET_LEN, 0xFF);
++        p
++    }
++
++    #[test]
++    fn mivisor_h264_sps_y_corte_i_es_punto_de_entrada() {
++        // AUD, SPS, PPS, SEI y corte I no-IDR (first_mb 0 -> '1', slice_type 7 -> '0001000').
++        let es = [
++            0,
++            0,
++            1,
++            0x09,
++            0x10,
++            0,
++            0,
++            1,
++            0x67,
++            0x64,
++            0,
++            0x28,
++            0,
++            0,
++            1,
++            0x68,
++            0xEE,
++            0,
++            0,
++            1,
++            0x06,
++            0x00,
++            0x01,
++            0x80,
++            0,
++            0,
++            1,
++            0x01,
++            0b1000_1000,
++            0x80,
++        ];
++        assert!(payload_has_irap(&pkt(0x100, &es), Some(VideoCodec::H264)));
++    }
++
++    #[test]
++    fn mivisor_h264_corte_p_o_i_sin_sps_no_abre() {
++        // Corte P (slice_type 5 -> '00110') con SPS: no.
++        let p_slice = [0, 0, 1, 0x67, 0x64, 0, 0x28, 0, 0, 1, 0x01, 0b1001_1000];
++        assert!(!payload_has_irap(
++            &pkt(0x100, &p_slice),
++            Some(VideoCodec::H264)
++        ));
++        // Corte I sin SPS delante: no (un I suelto a mitad de GOP).
++        let i_alone = [0, 0, 1, 0x09, 0x10, 0, 0, 1, 0x01, 0b1000_1000, 0x80];
++        assert!(!payload_has_irap(
++            &pkt(0x100, &i_alone),
++            Some(VideoCodec::H264)
++        ));
++        // SPS solo: sigue sin abrir.
++        let sps = [0, 0, 1, 0x67, 0x64, 0, 0x28];
++        assert!(!payload_has_irap(&pkt(0x100, &sps), Some(VideoCodec::H264)));
++    }
++}

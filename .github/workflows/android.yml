@@ -76,6 +76,7 @@ jobs:
           # 0005: 6 s (antes 3 s) para conectar con cada persona encontrada.
           # 0006: pregunta a todos los servidores del catálogo y, si dan emisiones distintas, usa la que tiene gente.
           # 0007: pregunta al catálogo por la emisión ACTUAL del descriptor (/checktorrent), como Ace Stream oficial.
+          # 0008: canales H.264 sin IDR (TV entrelazada): SPS + corte I también es punto de entrada para el HLS.
           for p in "$GITHUB_WORKSPACE"/tools/outpace-patches/*.patch; do
             git apply --check "$p"
             git apply "$p"
@@ -93,6 +94,7 @@ jobs:
         run: |
           cargo test -q -p ace-swarm --lib mivisor_
           cargo test -q -p ace-wire --lib mivisor_
+          cargo test -q -p ace-media --lib mivisor_
 
       - name: Compilar Outpace (ARM64 + ARMv7)
         shell: bash

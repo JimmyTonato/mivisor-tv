@@ -16,7 +16,6 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.mivisor.tv.catalog.AceStreamLink
 import com.mivisor.tv.engine.AdaptiveBuffer
 import com.mivisor.tv.engine.CatchUpController
@@ -450,7 +449,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             .setAllowCrossProtocolRedirects(false)
         return ExoPlayer.Builder(app)
             .setLoadControl(lc)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(http))
+            .setMediaSourceFactory(EngineMediaSource.factory(http))
             .build().also {
                 it.addListener(listener)
                 it.playWhenReady = true

@@ -10,7 +10,7 @@ import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.mivisor.tv.playback.EngineMediaSource
 import com.mivisor.tv.catalog.tv.TvChannel
 import com.mivisor.tv.engine.EngineApi
 import com.mivisor.tv.outpace.EngineManager
@@ -135,7 +135,7 @@ class ChannelPreview(
         val load = DefaultLoadControl.Builder().setBufferDurationsMs(3_000, 10_000, 1_000, 2_000).build()
         return ExoPlayer.Builder(app)
             .setLoadControl(load)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(http))
+            .setMediaSourceFactory(EngineMediaSource.factory(http))
             .build().also {
                 it.volume = 0f
                 it.playWhenReady = true
