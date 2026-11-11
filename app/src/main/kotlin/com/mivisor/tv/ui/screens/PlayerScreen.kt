@@ -349,7 +349,9 @@ fun PlayerScreen(
                     ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.PEERS ->
                         "Canal encontrado · buscando emisores…" + if (ui.stageSecs >= 3) " ${ui.stageSecs} s" else ""
                     ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.BUFFERING ->
-                        ui.insight?.status ?: "Conectado a ${ui.peers} ${if (ui.peers == 1) "emisor" else "emisores"} · preparando la imagen…"
+                        if (ui.direct && ui.insight?.kind.let { it == null || it == com.mivisor.tv.engine.LoadInsight.Kind.WAITING || it == com.mivisor.tv.engine.LoadInsight.Kind.RECEIVING })
+                            "Recibiendo vídeo · probando la entrega directa…"
+                        else ui.insight?.status ?: "Conectado a ${ui.peers} ${if (ui.peers == 1) "emisor" else "emisores"} · preparando la imagen…"
                     ui.sourceIndex > 1 -> "Probando otra fuente…"
                     else -> "Buscando señal…"
                 },
@@ -366,7 +368,10 @@ fun PlayerScreen(
                             else -> " Nadie lo está emitiendo todavía: puede que la emisión esté caída."
                         }
                     // 4d · Con emisores: qué pasa (emisión parada, no mandan vídeo, firma…).
-                    ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.BUFFERING -> ui.insight?.hint
+                    ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.BUFFERING ->
+                        if (ui.direct && ui.insight?.kind.let { it == null || it == com.mivisor.tv.engine.LoadInsight.Kind.WAITING || it == com.mivisor.tv.engine.LoadInsight.Kind.RECEIVING })
+                            "El vídeo llegaba pero no se podía preparar de la forma normal: ahora se reproduce tal cual llega (plan B)."
+                        else ui.insight?.hint
                     else -> null
                 },
                 detail = listOfNotNull(

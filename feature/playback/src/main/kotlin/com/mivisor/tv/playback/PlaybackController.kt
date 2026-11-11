@@ -25,6 +25,7 @@ import com.mivisor.tv.engine.EngineStatus
 import com.mivisor.tv.engine.EngineSupervisor
 import com.mivisor.tv.engine.LiveDelayController
 import com.mivisor.tv.engine.LoadInsight
+import com.mivisor.tv.engine.TsProbe
 import com.mivisor.tv.outpace.EngineManager
 import com.mivisor.tv.reliability.FailureKind
 import com.mivisor.tv.reliability.SourceCycle
@@ -118,7 +119,9 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         /** 4d · Con emisores y sin imagen: qué pasa de verdad (llega vídeo, emisión parada, no mandan…). */
         val insight: LoadInsight.Insight? = null,
         /** 4d · El [insight] con el que falló la última fuente, para explicar el final. */
-        val lastFailInsight: LoadInsight.Insight? = null
+        val lastFailInsight: LoadInsight.Insight? = null,
+        /** 4e · La fuente actual va con el vídeo directo del motor (plan B), no con HLS. */
+        val direct: Boolean = false
     ) {
         val active: Boolean get() = phase == Phase.STARTING_ENGINE || phase == Phase.TRYING || phase == Phase.PLAYING
     }
@@ -159,6 +162,15 @@ class PlaybackController(context: Context, private val book: SourceBook) {
      * se vuelve con el retraso aprendido de los cortes recientes. Crece si los cortes se repiten; 0 = el normal.
      */
     private var cushionMs = 0L
+    /**
+     * 4e · Plan B: fuentes que se están viendo con el vídeo DIRECTO del motor (`.ts`) en vez de HLS, porque llegaba
+     * vídeo y el HLS no daba imagen. [directKnown]: las que ya funcionaron así en esta sesión de la app (arrancan
+     * directamente en plan B la próxima vez, sin esperar).
+     */
+    private val direct = mutableSetOf<String>()
+    private val directKnown = mutableSetOf<String>()
+    /** 4e · Llega vídeo de la fuente que se está probando (lo dice [LoadInsight]). */
+    @Volatile private var receivingVideo = false
     private var recentReloads = ArrayDeque<Long>()
     /** Tras un salto propio dentro de lo descargado, un buffering breve no cuenta como corte. */
     private var jumpGraceUntil = 0L
@@ -201,6 +213,9 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Imagen con la fuente ${_ui.value.sourceIndex}/${_ui.value.sourceCount} (${mask(src.contentId)}) en $elapsed ms", important = true)
             EngineDiagnostics.update { it.copy(firstFrameMs = elapsed) }
             book.onSuccess(req.channelId, src, elapsed)
+            if (src.contentId in direct && directKnown.add(src.contentId)) {
+                book.log("Fuente", "${mask(src.contentId)}: imagen con la entrega directa (plan B); la próxima vez arranca así")
+            }
             _ui.value = _ui.value.copy(phase = Phase.PLAYING, message = null, cause = null, startMs = elapsed, sources = rows())
             // 3i · Ya hay imagen: la siguiente calentada se suelta (si no es esta) para no gastar red ni memoria.
             if (warmedNext != null && warmedNext != currentSource?.contentId) releaseWarmedNext() else warmedNext = null
@@ -258,6 +273,8 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             when {
                 kind == null -> engineFailed(detail)
                 _ui.value.phase == Phase.PLAYING -> stallFromError(detail)
+                // 4e · Llega vídeo pero el HLS da error: antes de reintentar lo mismo, plan B (vídeo directo).
+                receivingVideo && switchToDirect("el reproductor dio error con HLS ($detail)") -> Unit
                 else -> retryStart(kind, detail)
             }
         }
@@ -278,6 +295,8 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         cushionMs = 0L
         recentReloads.clear()
         _live.value = Live()
+        direct.clear()
+        receivingVideo = false
         _ui.value = Ui(Phase.STARTING_ENGINE, req.channelId, req.channelName, sourceCount = req.sources.size, message = "Preparando el motor…")
         EngineDiagnostics.update { it.copy(channel = req.channelName, sourceCount = req.sources.size, sourceSwitches = 0, rebuffers = 0, firstFrameMs = null) }
         job = scope.launch {
@@ -540,6 +559,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             var stageSince = 0
             val insight = LoadInsight()
             val cutInsight = LoadInsight()
+            var sampled = false
             var lastInsightKind: LoadInsight.Kind? = null
             while (isActive && gen == generation) {
                 delay(1_000)
@@ -584,6 +604,16 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                     }
                     // 4d · Con emisores, decir qué pasa de verdad en vez de un «preparando la imagen» fijo.
                     val seen = if (stage == LoadStage.BUFFERING) insight.observe(status, status?.peers ?: _ui.value.peers) else null
+                    receivingVideo = seen?.kind == LoadInsight.Kind.RECEIVING || seen?.kind == LoadInsight.Kind.NO_PICTURE
+                    // 4e · Plan B: llega vídeo y en [DIRECT_AFTER_SECS] no hay imagen → vídeo directo del motor.
+                    // 4e · Caja negra: a los [SAMPLE_AFTER_SECS] llegando vídeo sin imagen, se mira qué trae.
+                    if (receivingVideo && !sampled && stage == LoadStage.BUFFERING && tick - stageSince >= SAMPLE_AFTER_SECS) {
+                        sampled = true
+                        sampleVideo(base, src)
+                    }
+                    if (receivingVideo && stage == LoadStage.BUFFERING && tick - stageSince >= DIRECT_AFTER_SECS) {
+                        switchToDirect("llega vídeo pero el HLS no da imagen en ${tick - stageSince} s")
+                    }
                     if (seen != null && seen.kind != lastInsightKind) {
                         lastInsightKind = seen.kind
                         if (seen.kind != LoadInsight.Kind.WAITING && seen.kind != LoadInsight.Kind.RECEIVING) {
@@ -1002,7 +1032,71 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         return out
     }
 
+    /**
+     * 4e · Caja negra: lee unos segundos del vídeo directo del motor (máx. [SAMPLE_BYTES] u [SAMPLE_MS]) y guarda en el
+     * diagnóstico qué trae: formato, audio y puntos de arranque. Solo el resumen, no el vídeo.
+     */
+    private fun sampleVideo(base: String, src: PlaySource) {
+        scope.launch(Dispatchers.IO) {
+            val buf = java.io.ByteArrayOutputStream()
+            val started = SystemClock.elapsedRealtime()
+            var c: java.net.HttpURLConnection? = null
+            try {
+                c = java.net.URL(EngineApi.streamUrl(base, src.contentId)).openConnection(java.net.Proxy.NO_PROXY) as java.net.HttpURLConnection
+                c.connectTimeout = 3_000
+                c.readTimeout = SAMPLE_MS.toInt()
+                c.inputStream.use { input ->
+                    val chunk = ByteArray(64 * 1024)
+                    while (buf.size() < SAMPLE_BYTES && SystemClock.elapsedRealtime() - started < SAMPLE_MS) {
+                        val n = input.read(chunk)
+                        if (n < 0) break
+                        buf.write(chunk, 0, n)
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                c?.disconnect()
+            }
+            val secs = (SystemClock.elapsedRealtime() - started) / 1000
+            val text = if (buf.size() == 0) "la salida directa no dio vídeo en $secs s (el motor no encontró dónde empezar)"
+                else TsProbe.analyze(buf.toByteArray()).summary()
+            val line = "${mask(src.contentId)}: $text"
+            EngineDiagnostics.update { it.copy(videoSample = line) }
+            EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Caja negra · $line", important = true)
+            withContext(Dispatchers.Main) { book.log("Fuente", "Vídeo · $line") }
+        }
+    }
+
+    /** 4e · Pasa la fuente actual al vídeo directo del motor. false si ya estaba en plan B (o no hay fuente). */
+    private fun switchToDirect(why: String): Boolean {
+        val src = currentSource ?: return false
+        val base = baseUrl ?: return false
+        val p = player ?: return false
+        if (src.contentId in direct || src.contentId in directKnown) return false
+        direct.add(src.contentId)
+        book.log("Fuente", "${mask(src.contentId)}: $why · plan B: vídeo directo del motor")
+        EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Plan B (vídeo directo): $why", important = true)
+        _ui.value = _ui.value.copy(direct = true)
+        p.stop()
+        p.setMediaItem(mediaItemFor(base, src.contentId))
+        p.prepare()
+        p.play()
+        return true
+    }
+
     private fun mediaItemFor(base: String, contentId: String): MediaItem {
+        if (contentId in direct || contentId in directKnown) {
+            direct.add(contentId)
+            EngineDiagnostics.update { it.copy(transport = "TS directo (plan B)") }
+            _ui.value = _ui.value.copy(direct = true)
+            return MediaItem.Builder()
+                .setMediaId(EngineApi.key(contentId))
+                .setUri(Uri.parse(EngineApi.streamUrl(base, contentId)))
+                .setMimeType(MimeTypes.VIDEO_MP2T)
+                .build()
+        }
+        EngineDiagnostics.update { it.copy(transport = "HLS") }
+        if (_ui.value.direct) _ui.value = _ui.value.copy(direct = false)
         // 3p · Tras cortes se arranca con colchón (ver [cushionMs]); la ventana del motor ya guarda esa imagen.
         val target = maxOf(loadControl?.policy?.targetMs ?: 6_000L, cushionMs)
         return MediaItem.Builder()
@@ -1069,5 +1163,11 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         const val RELOAD_EVERY_MS = 15_000L
         /** 3i · Tras este tiempo sin imagen con la primera fuente, se calienta la siguiente. */
         const val NEXT_WARM_AFTER_MS = 5_000L
+        /** 4e · Segundos llegando vídeo sin imagen antes de pasar al plan B (vídeo directo). */
+        const val DIRECT_AFTER_SECS = 15
+        /** 4e · Caja negra: cuándo se mira el vídeo y cuánto (como mucho). */
+        const val SAMPLE_AFTER_SECS = 8
+        const val SAMPLE_BYTES = 3 * 1024 * 1024
+        const val SAMPLE_MS = 8_000L
     }
 }

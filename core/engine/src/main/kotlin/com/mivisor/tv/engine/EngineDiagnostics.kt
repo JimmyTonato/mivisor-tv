@@ -60,7 +60,9 @@ object EngineDiagnostics {
         val liveSpeedUpsDone: Int = 0,
         val liveSpeeding: Boolean = false,
         /** Piezas que el motor lleva de retraso respecto al borde del enjambre (él mismo salta si se aleja). */
-        val enginePiecesBehind: Long? = null
+        val enginePiecesBehind: Long? = null,
+        /** 4e · «Caja negra»: qué traía el vídeo del último canal que tardó (formato y puntos de arranque). */
+        val videoSample: String? = null
     ) {
         val liveDeviationMs: Long? get() = liveDelayMs?.let { it - liveTargetMs }
     }
@@ -235,6 +237,7 @@ object EngineDiagnostics {
         appendLine("Resyncs: ${m.liveResyncs} (${m.liveDiscardedMs / 1000.0} s descartados) · recuperaciones suaves 1.06x: ${m.liveSpeedUpsDone}/${m.liveSpeedUps}" + (if (m.liveSpeeding) " (acelerando ahora)" else "") + " · motor: ${m.enginePiecesBehind?.let { "$it piezas tras el borde" } ?: "—"}")
         appendLine("Recuperaciones: ${m.recoveries} · huecos saltados: ${m.skippedGaps} · cambios de fuente: ${m.sourceSwitches} · cortes: ${m.rebuffers}")
         appendLine("Primera imagen: ${m.firstFrameMs?.let { "$it ms" } ?: "—"} · posición en directo: ${m.livePositionMs?.let { "$it ms" } ?: "—"}")
+        appendLine("Vídeo del último canal que tardó: ${m.videoSample ?: "—"}")
         appendLine("RAM dispositivo: ${m.deviceRamMb} MB (libre ${m.deviceAvailMb} MB) · MiVisor: ${m.appUsedMb} MB · low-RAM: ${if (m.lowRam) "sí" else "no"}")
         appendLine()
         snapshot().forEach { appendLine(it) }

@@ -346,6 +346,8 @@ private fun EnginePage(graph: AppGraph, onChange: () -> Unit, toaster: (String) 
                     KeyValue("Emisiones", vias.emisionesTexto().joinToString("\n"))
                 if (vias.catalogoFallos.isNotEmpty()) KeyValue("Sin descriptor", vias.catalogoFallos.joinToString("\n"))
                 vias.claves?.let { KeyValue("Campos", it) }
+                // 4e · Caja negra: el formato del vídeo y si trae puntos de arranque.
+                EngineDiagnostics.metrics.videoSample?.let { KeyValue("Vídeo", it) }
                 KeyValue("Trackers (${vias.descriptorTrackers.size})",
                     vias.descriptorTrackers.joinToString("\n").ifEmpty { "Ninguno: el canal no trae trackers, solo se puede buscar gente por DHT/PEX" })
             }
