@@ -74,6 +74,7 @@ jobs:
           # 0003: diagnóstico del descriptor (qué servidor del catálogo lo dio, infohash, título, trackers completos).
           # 0004: lectura robusta de trackers del descriptor (cadena única, pegados, niveles, announce/announce-list…).
           # 0005: 6 s (antes 3 s) para conectar con cada persona encontrada.
+          # 0006: pregunta a todos los servidores del catálogo y, si dan emisiones distintas, usa la que tiene gente.
           for p in "$GITHUB_WORKSPACE"/tools/outpace-patches/*.patch; do
             git apply --check "$p"
             git apply "$p"

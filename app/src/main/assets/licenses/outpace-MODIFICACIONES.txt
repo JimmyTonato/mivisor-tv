@@ -27,4 +27,9 @@ commit indicado en Ajustes › Motor, con estas modificaciones de MiVisor TV:
 0005-conexion-6s.patch (crates/ace-swarm/src/live_session/mod.rs)
   Tiempo máximo para conectar con cada par: 6 s en vez de 3 s.
 
+0006-catalogo-elige-emision-viva.patch (crates/ace-swarm/src/resolve.rs, discover.rs)
+  Pregunta a todos los servidores del catálogo a la vez (espera 1,5 s tras el primero). Si dan
+  descriptores de emisiones distintas para el mismo content-id, pregunta a sus trackers cuánta gente
+  tiene cada una y usa la que más tenga. Lo escribe todo en la salida para el diagnóstico.
+
 El código fuente de las modificaciones está en el repositorio de MiVisor TV, carpeta tools/outpace-patches.

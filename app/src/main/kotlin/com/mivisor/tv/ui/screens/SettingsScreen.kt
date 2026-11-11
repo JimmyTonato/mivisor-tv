@@ -320,6 +320,10 @@ private fun EnginePage(graph: AppGraph, onChange: () -> Unit, toaster: (String) 
                 KeyValue("Trackers del canal", vias.trackers ?: "—")
                 KeyValue("Gente encontrada", "trackers ${vias.porTracker ?: "—"} · DHT ${vias.porDht ?: "—"}")
                 vias.intentosTexto()?.let { KeyValue("Conexiones", it) }
+                if (graph.prefs.fullP2p) {
+                    KeyValue("Router", vias.router ?: "esperando respuesta del router…")
+                    KeyValue("Desde fuera", vias.desdeFuera ?: "aún sin comprobar")
+                }
             }
         }
         // 3u · El descriptor del último canal abierto, tal como lo recibió el motor (parche 0003 de Outpace).
@@ -337,6 +341,8 @@ private fun EnginePage(graph: AppGraph, onChange: () -> Unit, toaster: (String) 
                 KeyValue("Firmado", when (fields["firmado"]) { "si" -> "Sí"; "no" -> "No"; else -> "—" } +
                     (fields["pieza"]?.toLongOrNull()?.let { " · piezas de ${it / 1024} KB" } ?: ""))
                 KeyValue("Lo dio", vias.catalogo?.let { "servidor del catálogo $it" } ?: "—")
+                if (vias.emisionPorServidor.size > 1 || vias.emisionPorServidor.values.toSet().size > 1)
+                    KeyValue("Emisiones", vias.emisionesTexto().joinToString("\n"))
                 if (vias.catalogoFallos.isNotEmpty()) KeyValue("Sin descriptor", vias.catalogoFallos.joinToString("\n"))
                 vias.claves?.let { KeyValue("Campos", it) }
                 KeyValue("Trackers (${vias.descriptorTrackers.size})",

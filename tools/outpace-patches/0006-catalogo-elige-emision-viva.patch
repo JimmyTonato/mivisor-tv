@@ -1,0 +1,143 @@
+diff --git a/crates/ace-swarm/src/discover.rs b/crates/ace-swarm/src/discover.rs
+index b72f27a..6b54bee 100644
+--- a/crates/ace-swarm/src/discover.rs
++++ b/crates/ace-swarm/src/discover.rs
+@@ -174,7 +174,7 @@ pub async fn discover_peers_with_options(
+     .await
+ }
+ 
+-async fn discover_tracker_peers(
++pub(crate) async fn discover_tracker_peers(
+     trackers: &[String],
+     infohash: &[u8; 20],
+     peer_id: &[u8; 20],
+diff --git a/crates/ace-swarm/src/resolve.rs b/crates/ace-swarm/src/resolve.rs
+index 5fe8f9b..c184b0a 100644
+--- a/crates/ace-swarm/src/resolve.rs
++++ b/crates/ace-swarm/src/resolve.rs
+@@ -351,22 +351,51 @@ pub async fn catalog_transport_bytes(content_id: &str) -> Result<Vec<u8>, Resolv
+     catalog_transport_bytes_query("pid", content_id).await
+ }
+ 
++/// MiVisor (parche 0006): tras el primer descriptor, espera esto como mucho a los demás servidores.
++const CATALOG_GRACE: Duration = Duration::from_millis(1500);
++/// MiVisor (parche 0006): tiempo para preguntar a los trackers cuánta gente tiene cada emisión.
++const CATALOG_PEER_CHECK: Duration = Duration::from_secs(3);
++
++/// MiVisor (parche 0006): pregunta a TODOS los servidores del catálogo a la vez.
++///
++/// Distintos servidores pueden dar, para el mismo content-id, descriptores de emisiones distintas
++/// (el emisor reinició y algún servidor guarda el antiguo): el antiguo no tiene a nadie y el canal no
++/// arranca, mientras Ace Stream oficial (u otras apps) sí lo ven. Si salen emisiones distintas, se
++/// pregunta a sus trackers cuánta gente tiene cada una y se usa la que más tenga (empate: la del
++/// servidor que va antes en la lista). Todo queda en líneas `[mivisor]` para el diagnóstico.
+ async fn catalog_transport_bytes_query(
+     parameter: &str,
+     value: &str,
+ ) -> Result<Vec<u8>, ResolveError> {
++    let mut jobs = tokio::task::JoinSet::new();
++    for (order, (host, port)) in catalog_hosts().into_iter().enumerate() {
++        let (parameter, value) = (parameter.to_string(), value.to_string());
++        jobs.spawn(async move {
++            let result = tokio::time::timeout(
++                CATALOG_HOST_TIMEOUT,
++                fetch_catalog_transport_query(&host, port, &parameter, &value),
++            )
++            .await;
++            (order, host, port, result)
++        });
++    }
+     let mut last = ResolveError::Catalog("catalog request failed");
+-    for (host, port) in catalog_hosts() {
+-        match tokio::time::timeout(
+-            CATALOG_HOST_TIMEOUT,
+-            fetch_catalog_transport_query(&host, port, parameter, value),
+-        )
+-        .await
+-        {
++    let mut found: Vec<(usize, String, u16, Vec<u8>)> = Vec::new();
++    let mut deadline: Option<tokio::time::Instant> = None;
++    loop {
++        let next = match deadline {
++            Some(d) => match tokio::time::timeout_at(d, jobs.join_next()).await {
++                Ok(next) => next,
++                Err(_) => break,
++            },
++            None => jobs.join_next().await,
++        };
++        let Some(joined) = next else { break };
++        let Ok((order, host, port, result)) = joined else { continue };
++        match result {
+             Ok(Ok(transport)) => {
+-                // MiVisor (parche 0003): qué servidor del catálogo dio el descriptor.
+-                eprintln!("outpace: [mivisor] descriptor del catalogo {host}:{port}");
+-                return Ok(transport);
++                found.push((order, host, port, transport));
++                deadline.get_or_insert_with(|| tokio::time::Instant::now() + CATALOG_GRACE);
+             }
+             Ok(Err(e)) => {
+                 eprintln!("outpace: [mivisor] catalogo {host}:{port} sin descriptor: {e:?}");
+@@ -378,7 +407,62 @@ async fn catalog_transport_bytes_query(
+             }
+         }
+     }
+-    Err(last)
++    jobs.abort_all();
++    if found.is_empty() {
++        return Err(last);
++    }
++    found.sort_by_key(|f| f.0);
++
++    // Emisiones distintas (por infohash), en el orden de la lista de servidores.
++    let mut candidates: Vec<(usize, [u8; 20], Vec<String>)> = Vec::new();
++    for (i, (_, host, port, bytes)) in found.iter().enumerate() {
++        match stream_info_from_transport(bytes) {
++            Ok(info) => {
++                eprintln!(
++                    "outpace: [mivisor] catalogo {host}:{port} da emision {}",
++                    hex::encode(info.infohash)
++                );
++                if !candidates.iter().any(|c| c.1 == info.infohash) {
++                    candidates.push((i, info.infohash, info.trackers.clone()));
++                }
++            }
++            Err(e) => eprintln!("outpace: [mivisor] catalogo {host}:{port} descriptor ilegible: {e:?}"),
++        }
++    }
++
++    let mut chosen = 0usize;
++    if candidates.len() > 1 {
++        let peer_id = random_peer_id();
++        let mut best: Option<(usize, usize)> = None; // (gente, índice en `found`)
++        for (i, infohash, trackers) in &candidates {
++            let people = tokio::time::timeout(
++                CATALOG_PEER_CHECK,
++                crate::discover::discover_tracker_peers(
++                    trackers,
++                    infohash,
++                    &peer_id,
++                    0,
++                    ace_tracker::codec::AnnounceEvent::None,
++                    u64::MAX,
++                ),
++            )
++            .await
++            .map(|peers| peers.len())
++            .unwrap_or(0);
++            eprintln!(
++                "outpace: [mivisor] emision {} tiene {people} personas en sus trackers",
++                hex::encode(infohash)
++            );
++            if best.map_or(true, |(n, _)| people > n) {
++                best = Some((people, *i));
++            }
++        }
++        chosen = best.map(|(_, i)| i).unwrap_or(0);
++    }
++    let (_, host, port, bytes) = found.swap_remove(chosen);
++    // MiVisor (parche 0003): qué servidor del catálogo dio el descriptor.
++    eprintln!("outpace: [mivisor] descriptor del catalogo {host}:{port}");
++    Ok(bytes)
+ }
+ 
+ #[cfg(test)]

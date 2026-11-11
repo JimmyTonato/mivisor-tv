@@ -91,8 +91,19 @@ object EngineDiagnostics {
         /** 3x · Campos del descriptor y su tipo («trackers:lista name:texto …»). */
         val claves: String? = null,
         /** 3y · Intentos de conexión con la gente encontrada, desde el último descriptor: resultado → veces. */
-        val intentos: Map<String, Int> = emptyMap()
+        val intentos: Map<String, Int> = emptyMap(),
+        /** 3z · Si el router abrió el puerto (P2P completo) y si nos llegan conexiones de fuera. */
+        val router: String? = null, val desdeFuera: String? = null,
+        /** 4a · Qué emisión (infohash) dio cada servidor del catálogo y cuánta gente tiene cada una. */
+        val emisionPorServidor: Map<String, String> = emptyMap(), val gentePorEmision: Map<String, Int> = emptyMap(),
+        /** 4a · El último «descriptor:» cierra una resolución: la siguiente línea del catálogo empieza otra. */
+        val resolucionCerrada: Boolean = false
     ) {
+        /** «5.252.161.191:8081 → fe6ba458 (3 personas)», una por servidor que respondió. */
+        fun emisionesTexto(): List<String> = emisionPorServidor.map { (host, ih) ->
+            "$host → ${ih.take(8)}" + (gentePorEmision[ih]?.let { " ($it personas)" } ?: "")
+        }
+
         /** «2 conectados · 5 no contestan · 1 cuelga al saludar» (en orden fijo, solo los que hay). */
         fun intentosTexto(): String? {
             if (intentos.isEmpty()) return null
@@ -117,6 +128,25 @@ object EngineDiagnostics {
             if (result.isEmpty()) return current
             return current.copy(intentos = current.intentos + (result to (current.intentos[result] ?: 0) + 1))
         }
+        // 3z · Apertura de puerto (UPnP/NAT-PMP) y alcanzabilidad, líneas propias de Outpace.
+        raw.indexOf("[portmap] ").takeIf { it >= 0 }?.let { p ->
+            val t = raw.substring(p + 10).trim()
+            return when {
+                t.startsWith("mapped external ") -> {
+                    val ext = t.removePrefix("mapped external ").substringBefore(' ')
+                    current.copy(router = "abrió el puerto ($ext, ${t.substringAfter(" via ", "").substringBefore(' ')})")
+                }
+                t.startsWith("no backend could map") -> current.copy(router = "no abrió el puerto (UPnP/NAT-PMP desactivado o no disponible)")
+                t.contains("expired") -> current.copy(router = "el puerto abierto caducó")
+                else -> current
+            }
+        }
+        raw.indexOf("[reachability] externally reachable: ").takeIf { it >= 0 }?.let { p ->
+            val t = raw.substring(p + 37).trim()
+            val yes = t.startsWith("yes")
+            val inbound = Regex("""\((\d+) inbound""").find(t)?.groupValues?.get(1) ?: "0"
+            return current.copy(desdeFuera = (if (yes) "sí" else "no") + " · $inbound conexiones entrantes")
+        }
         val i = raw.indexOf("[mivisor] ")
         if (i < 0) return current
         val text = raw.substring(i + 10).trim()
@@ -127,16 +157,30 @@ object EngineDiagnostics {
             text.startsWith("descriptor claves:") -> current.copy(claves = text.removePrefix("descriptor claves:").trim())
             text.startsWith("descriptor trackers:") -> current.copy(descriptorTrackers =
                 text.removePrefix("descriptor trackers:").trim().split(' ').filter { it.isNotBlank() && it != "ninguno" })
-            text.startsWith("descriptor del catalogo") -> current.copy(
-                catalogo = text.removePrefix("descriptor del catalogo").trim(), catalogoFallos = emptyList())
-            text.startsWith("descriptor:") -> current.copy(descriptor = text.removePrefix("descriptor:").trim(), intentos = emptyMap())
-            text.startsWith("catalogo ") -> current.copy(catalogoFallos = (current.catalogoFallos + text.removePrefix("catalogo ").trim()).takeLast(6))
+            text.startsWith("descriptor del catalogo") -> current.copy(catalogo = text.removePrefix("descriptor del catalogo").trim())
+            text.startsWith("descriptor:") -> current.copy(descriptor = text.removePrefix("descriptor:").trim(), intentos = emptyMap(),
+                resolucionCerrada = true)
+            text.startsWith("catalogo ") -> {
+                // Una resolución nueva empieza: se olvida lo de la anterior.
+                val base = if (current.resolucionCerrada) current.copy(catalogoFallos = emptyList(),
+                    emisionPorServidor = emptyMap(), gentePorEmision = emptyMap(), resolucionCerrada = false) else current
+                val rest = text.removePrefix("catalogo ").trim()
+                if (" da emision " in rest) base.copy(emisionPorServidor = base.emisionPorServidor +
+                    (rest.substringBefore(" da emision ") to rest.substringAfter(" da emision ").trim()))
+                else base.copy(catalogoFallos = (base.catalogoFallos + rest).takeLast(6))
+            }
+            text.startsWith("emision ") && " tiene " in text -> {
+                val ih = text.removePrefix("emision ").substringBefore(' ')
+                val n = text.substringAfter(" tiene ").substringBefore(' ').toIntOrNull() ?: 0
+                current.copy(gentePorEmision = current.gentePorEmision + (ih to n))
+            }
             else -> current
         }
     }
 
     fun engineLine(raw: String) {
-        if ("[mivisor] " in raw || "[ace] upstream attempt:" in raw) vias = parseVia(vias, raw)
+        if ("[mivisor] " in raw || "[ace] upstream attempt:" in raw || "[portmap] " in raw || "[reachability] " in raw)
+            vias = parseVia(vias, raw)
         if (!enabled) return
         add("${stamp()} [motor/${classify(raw).label}] ${LogSanitizer.clean(raw).take(MAX_LINE_CHARS)}")
     }
@@ -169,7 +213,9 @@ object EngineDiagnostics {
             appendLine("Trackers completos: ${v.descriptorTrackers.joinToString(" ").ifEmpty { "ninguno" }}")
             appendLine("Campos del descriptor: ${v.claves ?: "—"}")
             appendLine("Conexiones con la gente: ${v.intentosTexto() ?: "—"}")
+            appendLine("Router: ${v.router ?: "—"} · Desde fuera: ${v.desdeFuera ?: "—"}")
             if (v.catalogoFallos.isNotEmpty()) appendLine("Catálogo sin descriptor: ${v.catalogoFallos.joinToString(" · ")}")
+            if (v.emisionPorServidor.isNotEmpty()) appendLine("Emisiones por servidor: ${v.emisionesTexto().joinToString(" · ")}")
         }
         appendLine("Buffer motor: ${m.engineBufferMs} ms · buffer Media3: ${m.playerBufferMs} ms (objetivo ${m.bufferTargetMs} ms)")
         appendLine("Directo (${m.transport}): objetivo ${m.liveTargetMs} ms · retraso ${m.liveDelayMs?.let { "$it ms" + if (m.liveDelayEstimated) " (estimado)" else "" } ?: "—"} · desviación ${m.liveDeviationMs?.let { (if (it >= 0) "+" else "") + it + " ms" } ?: "—"}")

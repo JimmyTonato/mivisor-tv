@@ -1,28 +1,43 @@
-# MiVisor TV · Entrega 3y: ver por qué no conecta con la gente que encuentra
+# MiVisor TV · Entrega 4a: con el mismo ID, usar la emisión que tiene gente
 
-La 3x está en `docs/entregas/3x.md`. Se mantiene todo.
+La 3z está en `docs/entregas/3z.md`. Se mantiene todo.
 
-## Qué se vio (ESPN HD [US])
+## Qué se vio (mismo ID de ESPN en CanalPeer y en MiVisor)
 
-- El descriptor trae 3 trackers oficiales de Ace Stream (`t1/t2/t3.torrentstream.org:2710`) y se usan bien.
-- «Gente encontrada»: 3 por trackers y 1 por DHT. Es decir, **sí encuentra gente, pero no consigue sacar vídeo de
-  nadie**.
-- En el log antiguo pasaba lo mismo: casi todos «no contestan» a los 3 s y los que contestan cuelgan al saludar.
+| | CanalPeer | MiVisor |
+| --- | --- | --- |
+| De dónde saca el descriptor | Su propio servidor | Servidor del catálogo `5.252.161.191:8081` |
+| Emisión (infohash) | `0dca83a7…` | `fe6ba458…` |
+| Gente en el tracker | 11 (4 contestan) | 3–4 (ninguna contesta) |
+
+Con el **mismo content-id**, el descriptor que nos dio ese servidor del catálogo es de **otra emisión**: seguramente la
+anterior, de antes de que el emisor reiniciara, con gente que ya no está. La red, el motor y el saludo están bien; el
+problema era qué emisión nos daban.
 
 ## Qué cambia
 
-- **Ajustes › Motor › Conexiones** (y el informe): cómo acabaron los intentos de conectar con la gente encontrada
-  desde que se abrió el canal. Por ejemplo `0 conectados · 3 no contestan · 1 cuelgan al saludar`.
-  - **no contestan / tardan demasiado:** detrás de un router o ya no están. Lo que ayudaría es el P2P completo, que
-    les permite conectar con nosotros.
-  - **cuelgan al saludar:** contestan pero cierran en cuanto les hablamos; no nos aceptan.
-  - **conectan pero no envían:** aceptan, pero no mandan nada.
-- **Motor, parche `0005-conexion-6s.patch`:** 6 s en vez de 3 s para conectar con cada persona. Con canales de poca
-  gente, lejos (ESPN US) o por redes móviles, 3 s cortaba conexiones que sí iban a abrirse.
+**Motor, parche `0006-catalogo-elige-emision-viva.patch`:**
+- Pregunta a **todos** los servidores del catálogo **a la vez**. Tras el primer descriptor, espera 1,5 s más a los
+  demás.
+- Si dan **emisiones distintas**, pregunta a los trackers de cada una cuánta gente tiene (3 s como mucho) y usa la que
+  más tenga. Si empatan, la del servidor que va antes en la lista.
+- Lo escribe todo en el diagnóstico.
+
+**App · Ajustes › Motor › Descriptor del último canal:**
+- **Emisiones:** qué emisión dio cada servidor y con cuánta gente, por ejemplo
+  `5.252.161.191:8081 → fe6ba458 (3 personas)` y `51.158.152.5:8081 → 0dca83a7 (10 personas)`.
+- **Sin descriptor:** los servidores que fallaron. Ya no se borran cuando otro acierta.
+
+## Si ningún servidor del catálogo tiene la emisión nueva
+
+Saldrá en «Emisiones» con todos dando la misma. Entonces la emisión viva solo la tiene el servidor propio de CanalPeer.
+No se usa, y lo práctico sería añadir el ID de la emisión nueva a la lista de fuentes.
 
 ## Compilación
 
-- **Pruebas JVM:** pasan las **251** (1 nueva: recuento de intentos).
-- **Parches:** los cinco aplican en orden sobre el commit fijado. El 0005 solo cambia una constante. Se compilan en CI.
+- **Pruebas JVM:** pasan las **253** (1 nueva: emisiones por servidor; 1 ajustada: los fallos ya no se borran).
+- **Parche 0006:** aplica en orden tras el 0001–0005. **No se ha podido compilar aquí** (sin acceso a crates.io): lo
+  compila CI. Usa solo funciones que ya existen en Outpace (consulta al catálogo, lectura del descriptor y anuncio a
+  trackers).
 - **Código Android:** no se ha compilado aquí ni se ha probado en ningún aparato. Se comprueba en GitHub Actions.
 - Firma, paquete `com.mivisor.tv` y comprobación SHA-256 de WARP: sin cambios.
