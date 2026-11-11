@@ -341,6 +341,7 @@ private fun EnginePage(graph: AppGraph, onChange: () -> Unit, toaster: (String) 
                 KeyValue("Firmado", when (fields["firmado"]) { "si" -> "Sí"; "no" -> "No"; else -> "—" } +
                     (fields["pieza"]?.toLongOrNull()?.let { " · piezas de ${it / 1024} KB" } ?: ""))
                 KeyValue("Lo dio", vias.catalogo?.let { "servidor del catálogo $it" } ?: "—")
+                vias.emisionActual?.let { KeyValue("Emisión actual", it) }
                 if (vias.emisionPorServidor.size > 1 || vias.emisionPorServidor.values.toSet().size > 1)
                     KeyValue("Emisiones", vias.emisionesTexto().joinToString("\n"))
                 if (vias.catalogoFallos.isNotEmpty()) KeyValue("Sin descriptor", vias.catalogoFallos.joinToString("\n"))

@@ -32,4 +32,10 @@ commit indicado en Ajustes › Motor, con estas modificaciones de MiVisor TV:
   descriptores de emisiones distintas para el mismo content-id, pregunta a sus trackers cuánta gente
   tiene cada una y usa la que más tenga. Lo escribe todo en la salida para el diagnóstico.
 
+0007-checktorrent-emision-actual.patch (crates/ace-swarm/src/resolve.rs)
+  Tras obtener el descriptor de un content-id, pregunta al catálogo (/checktorrent, mismo esquema
+  de firma de petición y de respuesta que /gettorrent) cuál es la emisión actual de ese descriptor y
+  usa su infohash. En emisiones permanentes, el infohash calculado del descriptor es el de la
+  primera emisión y ya no tiene gente. Si el catálogo no responde, se usa el calculado.
+
 El código fuente de las modificaciones está en el repositorio de MiVisor TV, carpeta tools/outpace-patches.

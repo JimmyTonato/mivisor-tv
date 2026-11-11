@@ -1,0 +1,213 @@
+diff --git a/crates/ace-swarm/src/resolve.rs b/crates/ace-swarm/src/resolve.rs
+index c184b0a..aa52ef8 100644
+--- a/crates/ace-swarm/src/resolve.rs
++++ b/crates/ace-swarm/src/resolve.rs
+@@ -331,7 +331,185 @@ pub async fn transport_bytes_via_peer<S: AsyncRead + AsyncWrite + Unpin>(
+ /// nonce and checksum checks precede transport decoding. The embedded shared key matches
+ /// engine verification but does not establish server-only authenticity; see protocol note 62.
+ pub async fn resolve_via_catalog(content_id: &str) -> Result<StreamInfo, ResolveError> {
+-    stream_info_from_transport(&catalog_transport_bytes(content_id).await?)
++    let bytes = catalog_transport_bytes(content_id).await?;
++    let mut info = stream_info_from_transport(&bytes)?;
++    // MiVisor (parche 0007): emisiones «permanentes». El descriptor sigue siendo el mismo aunque el
++    // emisor reinicie, pero cada reinicio es una emisión nueva con otro infohash: el calculado del
++    // descriptor apunta a la primera (vacía) y el canal no arranca. Ace Stream oficial pregunta al
++    // catálogo por la emisión ACTUAL de ese descriptor (`/checktorrent?checksum=…`) y usa esa.
++    match catalog_current_infohash(&bytes).await {
++        Some(current) if current != info.infohash => {
++            eprintln!(
++                "outpace: [mivisor] checktorrent: emision actual {} (el descriptor daba {})",
++                hex::encode(current),
++                hex::encode(info.infohash)
++            );
++            info.infohash = current;
++        }
++        Some(_) => eprintln!("outpace: [mivisor] checktorrent: la emision del descriptor es la actual"),
++        None => eprintln!("outpace: [mivisor] checktorrent: sin respuesta valida; se usa la del descriptor"),
++    }
++    Ok(info)
++}
++
++/// MiVisor (parche 0007): tiempo por servidor para `/checktorrent`.
++const CHECKTORRENT_TIMEOUT: Duration = Duration::from_secs(3);
++
++/// MiVisor (parche 0007): infohash de la emisión actual de un descriptor, según el catálogo.
++/// Prueba los servidores en orden y se queda con la primera respuesta auténtica (misma firma de
++/// respuesta que `gettorrent`). `None` si ninguno responde bien: entonces vale el calculado.
++async fn catalog_current_infohash(transport: &[u8]) -> Option<[u8; 20]> {
++    let checksum = hex::encode(transport_file_hash(transport));
++    for (host, port) in catalog_hosts() {
++        let random = {
++            let mut rng = rand::rng();
++            rng.random_range(1..=i64::MAX as u64)
++        };
++        let params: Vec<(&str, String)> = vec![
++            ("_n", "3.2.11".to_string()),
++            ("_p", "linux".to_string()),
++            ("_r", random.to_string()),
++            ("_v", "3021100".to_string()),
++            ("a", "0".to_string()),
++            ("checksum", checksum.clone()),
++            ("d", "0".to_string()),
++            ("z", "0".to_string()),
++        ];
++        let fetched = tokio::time::timeout(
++            CHECKTORRENT_TIMEOUT,
++            fetch_catalog_xml(&host, port, "/checktorrent", &params),
++        )
++        .await;
++        match fetched {
++            Ok(Ok(body)) => match catalog_response_infohash(&body, random) {
++                Ok(infohash) => {
++                    eprintln!("outpace: [mivisor] checktorrent {host}:{port} responde");
++                    return Some(infohash);
++                }
++                Err(e) => eprintln!("outpace: [mivisor] checktorrent {host}:{port} no valida: {e:?}"),
++            },
++            Ok(Err(e)) => eprintln!("outpace: [mivisor] checktorrent {host}:{port} fallo: {e:?}"),
++            Err(_) => eprintln!("outpace: [mivisor] checktorrent {host}:{port} sin respuesta"),
++        }
++    }
++    None
++}
++
++/// MiVisor (parche 0007): firma de una consulta al catálogo con parámetros arbitrarios. Mismo
++/// esquema que [`catalog_query_signature`]: `clave=valor` ordenados por clave y unidos por `#`
++/// (valores sin codificar), más el secreto. Con `_n,_p,_r,_v,<param>` da exactamente lo mismo.
++fn catalog_params_signature(params: &[(&str, String)]) -> String {
++    let mut sorted: Vec<&(&str, String)> = params.iter().collect();
++    sorted.sort_by(|a, b| a.0.cmp(b.0));
++    let signed = sorted
++        .iter()
++        .map(|p| format!("{}={}", p.0, p.1))
++        .collect::<Vec<_>>()
++        .join("#");
++    let mut hasher = Sha1::new();
++    hasher.update(signed.as_bytes());
++    hasher.update(CATALOG_SIGNING_SECRET);
++    hex::encode(hasher.finalize())
++}
++
++/// MiVisor (parche 0007): GET firmado a un servidor del catálogo; devuelve el cuerpo.
++async fn fetch_catalog_xml(
++    host: &str,
++    port: u16,
++    path: &str,
++    params: &[(&str, String)],
++) -> Result<Vec<u8>, ResolveError> {
++    let signature = catalog_params_signature(params);
++    let mut url = reqwest::Url::parse("http://catalog.example.invalid/")
++        .expect("constant catalog URL");
++    url.set_path(path);
++    {
++        let mut query = url.query_pairs_mut();
++        for (k, v) in params {
++            query.append_pair(k, v);
++        }
++        query.append_pair("_s", &signature);
++    }
++    let target = format!("{}?{}", url.path(), url.query().expect("catalog query"));
++    let request = format!(
++        "GET {target} HTTP/1.1\r\nHost: {host}:{port}\r\nUser-Agent: outpace/0.1\r\nAccept: */*\r\nConnection: close\r\n\r\n"
++    );
++    let mut stream = TcpStream::connect((host, port))
++        .await
++        .map_err(|_| ResolveError::Catalog("catalog connect failed"))?;
++    stream
++        .write_all(request.as_bytes())
++        .await
++        .map_err(|_| ResolveError::Catalog("catalog write failed"))?;
++    let mut response = Vec::new();
++    let mut buf = [0u8; 4096];
++    loop {
++        let n = stream
++            .read(&mut buf)
++            .await
++            .map_err(|_| ResolveError::Catalog("catalog read failed"))?;
++        if n == 0 {
++            break;
++        }
++        if response.len() + n > 64 * 1024 {
++            return Err(ResolveError::Catalog("catalog response too large"));
++        }
++        response.extend_from_slice(&buf[..n]);
++    }
++    http_response_body(&response)
++}
++
++/// MiVisor (parche 0007): valida una respuesta `<response sig r><infohash>base64</infohash>`
++/// con la misma comprobación de firma y de `r` que `gettorrent`.
++fn catalog_response_infohash(body: &[u8], request_random: u64) -> Result<[u8; 20], ResolveError> {
++    let xml = std::str::from_utf8(body).map_err(|_| ResolveError::Catalog("bad catalog utf-8"))?;
++    let document = roxmltree::Document::parse_with_options(
++        xml,
++        roxmltree::ParsingOptions {
++            allow_dtd: false,
++            nodes_limit: 256,
++            ..Default::default()
++        },
++    )
++    .map_err(|_| ResolveError::Catalog("bad catalog xml"))?;
++    let root = document.root_element();
++    if !root.has_tag_name("response") {
++        return Err(ResolveError::Catalog("bad catalog response root"));
++    }
++    let signature = root
++        .attribute_node("sig")
++        .ok_or(ResolveError::Catalog("missing catalog signature"))?;
++    let expected_signature = signature.value();
++    let attribute = format!(" sig=\"{expected_signature}\"");
++    let range = signature.range();
++    if expected_signature.len() != 40
++        || range.start == 0
++        || xml.get(range.start - 1..range.end) != Some(attribute.as_str())
++    {
++        return Err(ResolveError::Catalog("bad catalog signature attribute"));
++    }
++    let unsigned = xml.replace(&attribute, "");
++    let mut hasher = Sha1::new();
++    hasher.update(unsigned.as_bytes());
++    hasher.update(CATALOG_RESPONSE_KEY);
++    if hex::encode(hasher.finalize()) != expected_signature {
++        return Err(ResolveError::Catalog("catalog signature mismatch"));
++    }
++    let response_random = root
++        .attribute("r")
++        .and_then(|value| value.parse::<u64>().ok())
++        .ok_or(ResolveError::Catalog("bad catalog random"))?;
++    if response_random != request_random {
++        return Err(ResolveError::Catalog("catalog random mismatch"));
++    }
++    let text = root
++        .children()
++        .find(|child| child.has_tag_name("infohash"))
++        .and_then(|node| node.text())
++        .ok_or(ResolveError::Catalog("missing catalog infohash"))?;
++    let bytes = Base64::decode_vec(text.trim())
++        .map_err(|_| ResolveError::Catalog("bad catalog infohash base64"))?;
++    <[u8; 20]>::try_from(bytes.as_slice()).map_err(|_| ResolveError::Catalog("bad catalog infohash length"))
+ }
+ 
+ /// Resolve a swarm infohash using the engine's signed, padded-Base64 catalog query.
+@@ -941,6 +1119,21 @@ pub async fn transport_bytes_from_url(url: &str) -> Result<Vec<u8>, ResolveError
+ 
+ #[cfg(test)]
+ mod tests {
++    #[test]
++    fn mivisor_checktorrent_firma_generica_igual_que_gettorrent() {
++        let params = vec![
++            ("pid", "4b4907de51ec11087d4bed5876f2a0c68264f442".to_string()),
++            ("_v", "3021100".to_string()),
++            ("_n", "3.2.11".to_string()),
++            ("_r", "12345".to_string()),
++            ("_p", "linux".to_string()),
++        ];
++        assert_eq!(
++            catalog_params_signature(&params),
++            catalog_query_signature("pid", "4b4907de51ec11087d4bed5876f2a0c68264f442", 12345)
++        );
++    }
++
+     #[test]
+     fn mivisor_parse_catalog_hosts() {
+         assert_eq!(

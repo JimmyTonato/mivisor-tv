@@ -83,4 +83,12 @@ class ViasTest {
         assertEquals(listOf("5.252.161.191:8081 → aaaa"), v.emisionesTexto())
         assertEquals(emptyList<String>(), v.catalogoFallos)
     }
+
+    @Test fun leeLaEmisionActualDelCatalogo() {
+        var v = d.parseVia(EngineDiagnostics.Vias(),
+            "outpace: [mivisor] checktorrent: emision actual 0dca83a7cc9184893ff96ee2355874342fc8fd45 (el descriptor daba fe6ba45818b7b142ea6cf67c605dc676168687fb)")
+        assertEquals("0dca83a7… (el descriptor daba fe6ba458…, emisión antigua)", v.emisionActual)
+        v = d.parseVia(v, "outpace: [mivisor] checktorrent: la emision del descriptor es la actual")
+        assertEquals("la del descriptor (al día)", v.emisionActual)
+    }
 }

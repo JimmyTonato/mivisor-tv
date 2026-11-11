@@ -1,43 +1,37 @@
-# MiVisor TV · Entrega 4a: con el mismo ID, usar la emisión que tiene gente
+# MiVisor TV · Entrega 4b: usar la emisión ACTUAL del canal (como Ace Stream oficial)
 
-La 3z está en `docs/entregas/3z.md`. Se mantiene todo.
+La 4a está en `docs/entregas/4a.md`. Se mantiene todo.
 
-## Qué se vio (mismo ID de ESPN en CanalPeer y en MiVisor)
+## Qué se vio (captura de Ace Stream oficial con el mismo ID de ESPN)
 
-| | CanalPeer | MiVisor |
-| --- | --- | --- |
-| De dónde saca el descriptor | Su propio servidor | Servidor del catálogo `5.252.161.191:8081` |
-| Emisión (infohash) | `0dca83a7…` | `fe6ba458…` |
-| Gente en el tracker | 11 (4 contestan) | 3–4 (ninguna contesta) |
+1. Ace Stream oficial **no pide la ficha del canal** (`/gettorrent`): ya la tenía guardada.
+2. Pregunta al servidor del catálogo `5.252.161.191:8081` (el mismo que nos da a nosotros la ficha):
+   `GET /checktorrent?…&checksum=<huella de la ficha>&…`.
+3. El servidor responde (respuesta firmada): para esa ficha, la emisión **actual** es `0dca83a7…`.
+4. Usa `0dca83a7…`: 11 personas, 4 contestan y se ve.
 
-Con el **mismo content-id**, el descriptor que nos dio ese servidor del catálogo es de **otra emisión**: seguramente la
-anterior, de antes de que el emisor reiniciara, con gente que ya no está. La red, el motor y el saludo están bien; el
-problema era qué emisión nos daban.
+Nuestro motor calculaba la emisión a partir de la ficha (`fe6ba458…`). En los canales **permanentes** (la ficha trae
+el campo `permanent`), cada vez que el emisor reinicia sale una emisión nueva con la misma ficha. La calculada es la
+primera, ya vacía. Ace Stream oficial y CanalPeer usan la actual; nosotros no.
 
 ## Qué cambia
 
-**Motor, parche `0006-catalogo-elige-emision-viva.patch`:**
-- Pregunta a **todos** los servidores del catálogo **a la vez**. Tras el primer descriptor, espera 1,5 s más a los
-  demás.
-- Si dan **emisiones distintas**, pregunta a los trackers de cada una cuánta gente tiene (3 s como mucho) y usa la que
-  más tenga. Si empatan, la del servidor que va antes en la lista.
-- Lo escribe todo en el diagnóstico.
-
-**App · Ajustes › Motor › Descriptor del último canal:**
-- **Emisiones:** qué emisión dio cada servidor y con cuánta gente, por ejemplo
-  `5.252.161.191:8081 → fe6ba458 (3 personas)` y `51.158.152.5:8081 → 0dca83a7 (10 personas)`.
-- **Sin descriptor:** los servidores que fallaron. Ya no se borran cuando otro acierta.
-
-## Si ningún servidor del catálogo tiene la emisión nueva
-
-Saldrá en «Emisiones» con todos dando la misma. Entonces la emisión viva solo la tiene el servidor propio de CanalPeer.
-No se usa, y lo práctico sería añadir el ID de la emisión nueva a la lista de fuentes.
+- **Motor, parche `0007-checktorrent-emision-actual.patch`:** tras obtener la ficha, pregunta a los servidores del
+  catálogo por la emisión **actual** (`/checktorrent`) y usa su infohash.
+  - Se comprueba la firma de la respuesta y que el número aleatorio coincida, igual que con `/gettorrent`.
+  - Si ningún servidor responde bien, se usa la calculada, como antes.
+- **El esquema de firma se ha comprobado con la captura real de Ace Stream oficial:** la firma de su petición y la de
+  la respuesta del servidor salen idénticas con el mismo cálculo. La firma genérica nueva da lo mismo que la de
+  `/gettorrent` (prueba `mivisor_checktorrent_firma_generica_igual_que_gettorrent`).
+- **App · Ajustes › Motor › Descriptor del último canal › Emisión actual:**
+  - `0dca83a7… (el descriptor daba fe6ba458…, emisión antigua)`;
+  - o `la del descriptor (al día)`;
+  - o `el catálogo no contestó`.
 
 ## Compilación
 
-- **Pruebas JVM:** pasan las **253** (1 nueva: emisiones por servidor; 1 ajustada: los fallos ya no se borran).
-- **Parche 0006:** aplica en orden tras el 0001–0005. **No se ha podido compilar aquí** (sin acceso a crates.io): lo
-  compila CI. Usa solo funciones que ya existen en Outpace (consulta al catálogo, lectura del descriptor y anuncio a
-  trackers).
+- **Pruebas JVM:** pasan las **254** (1 nueva: emisión actual).
+- **Parche 0007:** comprobado con `rustfmt` que la sintaxis es válida, y que los 7 parches aplican en orden. **No se ha
+  podido compilar aquí** (sin acceso a crates.io): lo compila CI.
 - **Código Android:** no se ha compilado aquí ni se ha probado en ningún aparato. Se comprueba en GitHub Actions.
 - Firma, paquete `com.mivisor.tv` y comprobación SHA-256 de WARP: sin cambios.

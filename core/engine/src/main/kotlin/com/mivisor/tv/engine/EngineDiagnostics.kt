@@ -96,6 +96,8 @@ object EngineDiagnostics {
         val router: String? = null, val desdeFuera: String? = null,
         /** 4a · Qué emisión (infohash) dio cada servidor del catálogo y cuánta gente tiene cada una. */
         val emisionPorServidor: Map<String, String> = emptyMap(), val gentePorEmision: Map<String, Int> = emptyMap(),
+        /** 4b · Qué dijo el catálogo de la emisión ACTUAL del descriptor (/checktorrent). */
+        val emisionActual: String? = null,
         /** 4a · El último «descriptor:» cierra una resolución: la siguiente línea del catálogo empieza otra. */
         val resolucionCerrada: Boolean = false
     ) {
@@ -163,12 +165,22 @@ object EngineDiagnostics {
             text.startsWith("catalogo ") -> {
                 // Una resolución nueva empieza: se olvida lo de la anterior.
                 val base = if (current.resolucionCerrada) current.copy(catalogoFallos = emptyList(),
-                    emisionPorServidor = emptyMap(), gentePorEmision = emptyMap(), resolucionCerrada = false) else current
+                    emisionPorServidor = emptyMap(), gentePorEmision = emptyMap(), emisionActual = null,
+                    resolucionCerrada = false) else current
                 val rest = text.removePrefix("catalogo ").trim()
                 if (" da emision " in rest) base.copy(emisionPorServidor = base.emisionPorServidor +
                     (rest.substringBefore(" da emision ") to rest.substringAfter(" da emision ").trim()))
                 else base.copy(catalogoFallos = (base.catalogoFallos + rest).takeLast(6))
             }
+            text.startsWith("checktorrent: emision actual ") -> {
+                val now = text.removePrefix("checktorrent: emision actual ").substringBefore(' ')
+                val old = text.substringAfter("daba ", "").substringBefore(')')
+                current.copy(emisionActual = "${now.take(8)}… (el descriptor daba ${old.take(8)}…, emisión antigua)")
+            }
+            text.startsWith("checktorrent: la emision del descriptor es la actual") ->
+                current.copy(emisionActual = "la del descriptor (al día)")
+            text.startsWith("checktorrent: sin respuesta valida") ->
+                current.copy(emisionActual = "el catálogo no contestó; se usa la del descriptor")
             text.startsWith("emision ") && " tiene " in text -> {
                 val ih = text.removePrefix("emision ").substringBefore(' ')
                 val n = text.substringAfter(" tiene ").substringBefore(' ').toIntOrNull() ?: 0
@@ -216,6 +228,7 @@ object EngineDiagnostics {
             appendLine("Router: ${v.router ?: "—"} · Desde fuera: ${v.desdeFuera ?: "—"}")
             if (v.catalogoFallos.isNotEmpty()) appendLine("Catálogo sin descriptor: ${v.catalogoFallos.joinToString(" · ")}")
             if (v.emisionPorServidor.isNotEmpty()) appendLine("Emisiones por servidor: ${v.emisionesTexto().joinToString(" · ")}")
+            appendLine("Emisión actual (checktorrent): ${v.emisionActual ?: "—"}")
         }
         appendLine("Buffer motor: ${m.engineBufferMs} ms · buffer Media3: ${m.playerBufferMs} ms (objetivo ${m.bufferTargetMs} ms)")
         appendLine("Directo (${m.transport}): objetivo ${m.liveTargetMs} ms · retraso ${m.liveDelayMs?.let { "$it ms" + if (m.liveDelayEstimated) " (estimado)" else "" } ?: "—"} · desviación ${m.liveDeviationMs?.let { (if (it >= 0) "+" else "") + it + " ms" } ?: "—"}")
