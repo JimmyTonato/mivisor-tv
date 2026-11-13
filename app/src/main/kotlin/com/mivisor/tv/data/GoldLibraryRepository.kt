@@ -34,7 +34,11 @@ import java.io.IOException
  *
  *  - La contraseña la escribe el usuario en Ajustes › Biblioteca y se guarda cifrada con el Keystore.
  *  - Al abrir la app se enseña la copia guardada al momento; luego se mira el manifest y se baja solo lo que cambió.
- *  - Con la app abierta se vuelve a mirar cada [CHECK_EVERY_MS] (nunca en bucle; nada con la app cerrada).
+ *  - 4l · Con la app abierta, un «ping» al manifest cada [CHECK_EVERY_MS] (3 min). Va con ETag: si no cambió, GitHub
+ *    responde 304 sin cuerpo y no se baja nada. Si cambió la revisión, se bajan solo los cambios (cambios.enc) y se
+ *    tocan solo los canales afectados. Nada con la app cerrada.
+ *  - 4l · Si falla un ID de la Biblioteca al reproducir, se mira al momento si hay revisión nueva (Gold puede haber
+ *    cambiado ya esa fuente).
  *  - Si algo falla (red, contraseña, caché de GitHub), se sigue con la copia guardada sin tocarla.
  *  - La app NO ordena ni filtra: lo que llega ya viene ordenado y verificado por Gold.
  */
@@ -70,6 +74,8 @@ class GoldLibraryRepository(
     @Volatile private var current: Biblioteca? = null
     @Volatile private var shown: TvLibrary? = null
     @Volatile private var builtWith: ChannelLogoResolver? = null
+    /** 4l · ETag del último manifest leído (para el «ping» con 304). Solo en memoria. */
+    @Volatile private var manifestEtag: String? = null
     private var ticker: Job? = null
 
     /** Al abrir la app: la copia guardada a la pantalla YA; después, el manifest. */
@@ -143,6 +149,16 @@ class GoldLibraryRepository(
         scope.launch { onDone(check(force = true)) }
     }
 
+    /**
+     * 4l · Ha fallado un ID de la Biblioteca: puede que Gold ya lo haya cambiado. Se mira el manifest al momento (como
+     * mucho una vez cada [FAILURE_CHECK_MS], para no machacar a GitHub si fallan varios seguidos).
+     */
+    fun onSourceFailed() {
+        if (!passwords.isSet) return
+        if (System.currentTimeMillis() - _state.value.checkedAt < FAILURE_CHECK_MS) return
+        scope.launch { check(force = true) }
+    }
+
     /** Mira el manifest y aplica lo que haga falta. Devuelve una frase para enseñar. */
     private suspend fun check(force: Boolean): String = lock.withLock {
         if (!force && System.currentTimeMillis() - _state.value.checkedAt < CHECK_EVERY_MS / 2) return@withLock _state.value.note
@@ -152,9 +168,28 @@ class GoldLibraryRepository(
             _state.value = _state.value.copy(configured = passwords.isSet, note = msg)
             return@withLock msg
         }
+        // 4l · «Ping»: el manifest con su ETag. Sin cambios → 304, nada más que hacer.
+        val cur = current
+        var manifestBytes: ByteArray? = null
+        // El ETag solo se guarda si la revisión se aplicó bien: si GitHub aún sirve el .enc viejo, el siguiente ping
+        // tiene que volver a bajar el manifest (si no, respondería 304 y nunca se reintentaría).
+        var newEtag: String? = null
+        if (cur != null && !cur.isEmpty) {
+            val ping = withContext(Dispatchers.IO) { runCatching { HttpFetch.get(sync.manifestUrl(), manifestEtag, 64 * 1024) }.getOrNull() }
+            if (ping != null && ping.status == 304) {
+                password.fill(' ')
+                _state.value = _state.value.copy(checkedAt = System.currentTimeMillis(), wrongPassword = false, error = null,
+                    note = "Al día (revisión ${cur.revision})")
+                return@withLock _state.value.note
+            }
+            if (ping?.status == 200 && ping.body != null) {
+                manifestBytes = ping.body
+                newEtag = ping.etag
+            }
+        }
         _state.value = _state.value.copy(busy = true)
         val outcome = try {
-            withContext(Dispatchers.IO) { sync.sync(current, password) }
+            withContext(Dispatchers.IO) { sync.sync(current, password, manifestBytes) }
         } catch (e: CancellationException) {
             throw e
         } finally {
@@ -164,6 +199,7 @@ class GoldLibraryRepository(
         val s = _state.value.copy(busy = false, checkedAt = now, configured = true)
         val msg = when (outcome) {
             is BibliotecaSync.Outcome.Unchanged -> {
+                if (newEtag != null) manifestEtag = newEtag
                 _state.value = s.copy(wrongPassword = false, error = null, published = outcome.manifest.publicado, note = "Al día (revisión ${outcome.manifest.revision})")
                 _state.value.note
             }
@@ -176,6 +212,7 @@ class GoldLibraryRepository(
                 }
                 val old = current
                 current = lib
+                if (newEtag != null) manifestEtag = newEtag
                 val (touched, touchedCats) = if (old == null) null to emptySet() else diff(old, lib)
                 publish(lib, touched, touchedCats)
                 val what = if (outcome.full) "completa" else "${outcome.result.canales.size} canales cambiados"
@@ -239,8 +276,13 @@ class GoldLibraryRepository(
     }
 
     companion object {
-        /** Cada cuánto se mira el manifest con la app abierta (el contrato pide 30–60 min). */
-        const val CHECK_EVERY_MS = 45 * 60_000L
+        /**
+         * 4l · Cada cuánto se mira el manifest con la app abierta. Gold publica cambios al menos cada 30 min; con
+         * ETag, mirar cada 3 min cuesta una petición de unos cientos de bytes (o un 304 vacío).
+         */
+        const val CHECK_EVERY_MS = 3 * 60_000L
+        /** 4l · Tras un fallo de un ID de la Biblioteca, como mucho una comprobación cada 30 s. */
+        const val FAILURE_CHECK_MS = 30_000L
         private const val MAX_FILE = 32 * 1024 * 1024
     }
 }

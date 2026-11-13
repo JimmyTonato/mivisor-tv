@@ -674,7 +674,7 @@ private fun LibraryPage(graph: AppGraph, toaster: Toaster, onChange: () -> Unit)
                 g.published?.let { KeyValue("Publicada por Gold", it.replace('T', ' ').removeSuffix("Z") + " (UTC)") }
                 if (g.channels > 0) KeyValue("Contenido", "${g.channels} canales · ${g.ids} IDs · ${g.categories} categorías")
                 KeyValue("Última comprobación", if (g.checkedAt > 0) com.mivisor.tv.ui.ago(g.checkedAt) else "todavía no")
-                KeyValue("Se comprueba", "al abrir la app y cada 45 min mientras está abierta")
+                KeyValue("Se comprueba", "al abrir la app y cada 3 min mientras está abierta (y al fallar un canal)")
                 KeyValue("En pantalla", if (graph.providers.showingGold) "la Biblioteca, más lo nuevo de tus proveedores" else "los canales de tus proveedores")
             }
             MvRow("Comprobar ahora", { graph.gold.checkNow { toaster.show(it); onChange() } }, subtitle = "Mira si Gold ha publicado algo nuevo y baja solo lo que cambió", icon = MvIcons.Refresh)

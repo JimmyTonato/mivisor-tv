@@ -95,7 +95,11 @@ class SourceBookImpl(
         scope.launch(io) { runCatching { db.rememberSource(channelId, source.contentId) } }
     }
 
+    /** 4l · Se avisa cuando falla un ID de la Biblioteca de Gold (para mirar al momento si Gold ya lo cambió). */
+    @Volatile var onGoldSourceFailed: (() -> Unit)? = null
+
     override fun onFailure(channelId: String, source: PlaySource, kind: String): String {
+        if (source.fixedOrder) onGoldSourceFailed?.invoke()
         val ctx = context(source)
         val verdict = synchronized(lock) { store.failure(source.contentId, now(), kind, ctx, channelId) }
         persist(source.contentId)

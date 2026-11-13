@@ -71,7 +71,7 @@ class AppGraph(context: Context) {
     val reminders = RemindersRepository(app, db, log, scope)
     val mylist = MyListRepository(db, scope)
     val warp = WarpController(app, scope)
-    val sources = SourceBookImpl(app, db, warp, providers, mylist, log, prefs, scope)
+    val sources = SourceBookImpl(app, db, warp, providers, mylist, log, prefs, scope).also { it.onGoldSourceFailed = { gold.onSourceFailed() } }
     val player = PlaybackController(app, sources)
 
     /** 3i · Precarga del canal enfocado (1,5 s con el foco encima): el motor empieza antes a buscar emisores. */

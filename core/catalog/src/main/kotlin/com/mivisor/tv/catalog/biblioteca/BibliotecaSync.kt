@@ -28,9 +28,12 @@ class BibliotecaSync(
         class Failed(val why: String) : Outcome()
     }
 
-    fun sync(current: Biblioteca?, password: CharArray): Outcome {
+    /**
+     * [manifestBytes] · 4l: el manifest ya bajado en el «ping» (si lo hay), para no pedirlo dos veces.
+     */
+    fun sync(current: Biblioteca?, password: CharArray, manifestBytes: ByteArray? = null): Outcome {
         val manifest = try {
-            Manifest.parse(String(fetch(url("manifest.json")), Charsets.UTF_8))
+            Manifest.parse(String(manifestBytes ?: fetch(url("manifest.json")), Charsets.UTF_8))
                 ?: return Outcome.Failed("manifest.json no es del formato ${Manifest.FORMATO}")
         } catch (e: Exception) {
             return Outcome.Failed("no se pudo leer manifest.json (${e.message ?: e.javaClass.simpleName})")
@@ -63,6 +66,9 @@ class BibliotecaSync(
         }
         return Outcome.Updated(Aplicado(lib, lib.canales.keys, lib.categorias.keys), manifest, full = true)
     }
+
+    /** 4l · URL del manifest (para el «ping» con ETag). */
+    fun manifestUrl(): String = url("manifest.json")
 
     /** La caché de raw.githubusercontent dura unos minutos: un parámetro por minuto la evita sin machacar a GitHub. */
     private fun url(file: String) = "${baseUrl().trimEnd('/')}/$file?t=${clock() / 60_000}"
