@@ -112,13 +112,16 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
     val library = lib.library
     val first = remember { FocusRequester() }
 
+    val goldOn = graph.gold.state.collectAsState().value.configured
     if (library.isEmpty && library.links.isEmpty()) {
         EmptyState(
-            if (lib.loading) "Leyendo tus proveedores…" else "Aún no hay canales",
-            if (lib.providers.isEmpty()) "Añade un proveedor para ver aquí sus canales." else "Tus proveedores no han devuelto canales reproducibles. Prueba a actualizarlos.",
+            if (goldOn && lib.providers.isEmpty()) "Cargando la Biblioteca…" else if (lib.loading) "Leyendo tus proveedores…" else "Aún no hay canales",
+            if (goldOn && lib.providers.isEmpty()) "Si tarda, compruébala en Ajustes › Biblioteca."
+            else if (lib.providers.isEmpty()) "Añade un proveedor para ver aquí sus canales." else "Tus proveedores no han devuelto canales reproducibles. Prueba a actualizarlos.",
             icon = MvIcons.Tv
         ) {
-            if (lib.providers.isEmpty()) MvButton("Añadir proveedor", { nav.go(Route.AddProvider()) }, icon = MvIcons.Add, primary = true, focusRequester = first)
+            if (goldOn && lib.providers.isEmpty()) MvButton("Ir a la Biblioteca", { openLibrarySettings(nav) }, icon = MvIcons.Settings, primary = true, focusRequester = first)
+            else if (lib.providers.isEmpty()) MvButton("Añadir proveedor", { nav.go(Route.AddProvider()) }, icon = MvIcons.Add, primary = true, focusRequester = first)
             else MvButton("Actualizar proveedores", { graph.providers.refresh() }, icon = MvIcons.Refresh, primary = true, focusRequester = first)
         }
         InitialFocus(first)

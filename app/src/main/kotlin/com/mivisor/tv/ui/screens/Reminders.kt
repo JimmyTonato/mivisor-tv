@@ -63,7 +63,7 @@ fun ReminderNotice(graph: AppGraph, nav: Nav, onPlaying: () -> Unit) {
             Spacer(Modifier.height(10.dp))
             MvText(r.title, MvType.Heading, maxLines = 2)
             MvText(
-                channel?.let { "En ${it.name} · Outpace ya está preparado" } ?: "Ninguno de tus proveedores tiene un canal de este evento",
+                channel?.let { "En ${it.name} · Outpace ya está preparado" } ?: "Ninguno de tus canales emite este evento",
                 MvType.Small, maxLines = 2
             )
             Spacer(Modifier.height(16.dp))

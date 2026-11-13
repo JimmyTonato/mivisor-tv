@@ -49,7 +49,7 @@ fun ChannelScreen(graph: AppGraph, nav: Nav, route: Route.Channel, toaster: Toas
     var refresh by remember { mutableIntStateOf(0) }
     val ch = lib.library.channel(route.id)
     if (ch == null) {
-        EmptyState("Canal no disponible", "Este canal ya no está en tus proveedores (puede que lo hayan quitado o renombrado).") {
+        EmptyState("Canal no disponible", "Este canal ya no está en tus canales (puede que lo hayan quitado o renombrado).") {
             MvButton("Volver", { nav.back() }, focusRequester = play)
         }
         InitialFocus(play)

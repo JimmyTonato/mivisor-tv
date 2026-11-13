@@ -17,6 +17,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -207,7 +210,7 @@ fun EventCard(event: AgendaEvent, now: Long, available: Int, onClick: () -> Unit
             MvText(event.title, MvType.BodyStrong, maxLines = 2)
             Spacer(Modifier.height(8.dp))
             MvText(
-                if (available > 0) "$available canal(es) en tus proveedores" else event.channels.joinToString(" · ") { it.name }.ifEmpty { "Sin canales anunciados" },
+                if (available > 0) if (available == 1) "1 canal para verlo" else "$available canales para verlo" else event.channels.joinToString(" · ") { it.name }.ifEmpty { "Sin canales anunciados" },
                 MvType.Caption, color = if (available > 0) MvColors.Accent2 else MvColors.Text3, maxLines = 1
             )
         }
@@ -229,27 +232,28 @@ fun Banner(text: String, color: androidx.compose.ui.graphics.Color = MvColors.So
 
 
 /**
- * 3l · El «VS» de los partidos: una placa champán inclinada con brillo, en vez de un «vs» suelto. [size] = altura
- * aproximada de la placa.
+ * 4j · El «VS» de los partidos, más sobrio: un disco oscuro translúcido con un filo champán fino y «VS» recto, sin
+ * inclinación, brillo ni degradado (el de 3l no gustaba). [size] sigue siendo la referencia de antes: el disco mide
+ * ~1,5 veces eso, así las llamadas existentes no cambian.
  */
 @Composable
 fun VsBadge(size: Dp = 24.dp, modifier: Modifier = Modifier) {
-    val shape = androidx.compose.foundation.shape.RoundedCornerShape(size * 0.24f)
+    val d = size * 1.5f
     Box(
         modifier
-            .graphicsLayer { rotationZ = -9f }
-            .shadow(size * 0.45f, shape, ambientColor = MvColors.Accent, spotColor = MvColors.Accent)
-            .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(MvColors.Accent2, MvColors.Accent, Color(0xFFC9A16E))), shape)
-            .padding(horizontal = size * 0.34f, vertical = size * 0.06f),
+            .size(d)
+            .shadow(d * 0.18f, CircleShape, ambientColor = Color.Black, spotColor = Color.Black)
+            .background(MvColors.Bg.copy(alpha = 0.6f), CircleShape)
+            .border(if (d >= 40.dp) 1.5.dp else 1.dp, MvColors.Accent.copy(alpha = 0.55f), CircleShape),
         contentAlignment = Alignment.Center
     ) {
         MvText(
             "VS",
             MvType.Heading.copy(
-                fontSize = (size.value * 0.62f).sp, lineHeight = (size.value * 0.8f).sp, color = MvColors.Bg,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Black, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-                letterSpacing = 0.5.sp
-            )
+                fontSize = (d.value * 0.31f).sp, lineHeight = (d.value * 0.36f).sp, color = MvColors.Text,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, letterSpacing = (d.value * 0.028f).sp
+            ),
+            modifier = Modifier.padding(start = d * 0.025f)
         )
     }
 }

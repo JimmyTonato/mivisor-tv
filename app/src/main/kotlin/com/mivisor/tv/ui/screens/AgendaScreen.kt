@@ -302,8 +302,8 @@ private fun EventLines(ev: AgendaEvent, mine: List<com.mivisor.tv.catalog.tv.TvC
             val line = if (best != null) {
                 val start = graph.sources.typicalStart(best.sources.map { it.contentId })
                 listOfNotNull(best.name, if (start != null) "recomendado, arranca en ~$start s" else "recomendado",
-                    if (mine.size > 1) "${mine.size} canales en tus proveedores" else null).joinToString(" · ")
-            } else ev.channels.joinToString(" · ") { it.name }.let { if (it.isEmpty()) "Sin canal anunciado: la ficha lo busca" else "No está en tus proveedores · $it" }
+                    if (mine.size > 1) "${mine.size} canales para verlo" else null).joinToString(" · ")
+            } else ev.channels.joinToString(" · ") { it.name }.let { if (it.isEmpty()) "Sin canal anunciado: la ficha lo busca" else "No está en tus canales · $it" }
             MvText(line, MvType.Body, color = if (best != null) MvColors.Text2 else MvColors.Soon, maxLines = 1)
             MvText("OK: dónde verlo · Mantén OK: verlo ya", MvType.Caption, color = MvColors.Text3)
 }
@@ -332,7 +332,7 @@ private fun AgendaCard(
             }
             MvText(if (ev.isMatch) "${ev.home} – ${ev.away}" else ev.title, MvType.BodyStrong, maxLines = 1)
             MvText(
-                channel ?: if (ev.channels.isEmpty()) "Sin canal anunciado" else "No está en tus proveedores",
+                channel ?: if (ev.channels.isEmpty()) "Sin canal anunciado" else "No está en tus canales",
                 MvType.Caption, color = if (channel != null) MvColors.Ok else if (ev.channels.isEmpty()) MvColors.Text3 else MvColors.Soon, maxLines = 1
             )
         }

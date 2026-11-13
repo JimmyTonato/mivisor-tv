@@ -186,6 +186,7 @@ class Diagnostics(private val graph: AppGraph) {
             val lib = graph.providers.state.value
             val bad = lib.providers.filter { it.error != null }
             when {
+                lib.providers.isEmpty() && lib.library.gold -> CheckResult("Proveedores", "Ninguno · se usa la Biblioteca (${lib.library.channels.size} canales)", CheckResult.Level.OK)
                 lib.providers.isEmpty() -> CheckResult("Proveedores", "Ninguno configurado", CheckResult.Level.WARN)
                 bad.isNotEmpty() -> CheckResult("Proveedores", "${bad.size} sin actualizar: ${bad.joinToString { it.name }}", CheckResult.Level.WARN)
                 else -> CheckResult("Proveedores", "${lib.providers.size} leídos · ${lib.library.channels.size} canales", CheckResult.Level.OK)

@@ -96,6 +96,12 @@ private object SettingsMemory {
     var page: Page = Page.PROVIDERS
 }
 
+/** 4j · Abrir Ajustes directamente en la Biblioteca (desde Inicio o Canales cuando aún no hay canales). */
+fun openLibrarySettings(nav: Nav) {
+    SettingsMemory.page = Page.LIBRARY
+    nav.tab(Route.Settings)
+}
+
 @Composable
 fun SettingsScreen(graph: AppGraph, nav: Nav, toaster: Toaster, onLook: () -> Unit) {
     val startPage = remember { SettingsMemory.page }

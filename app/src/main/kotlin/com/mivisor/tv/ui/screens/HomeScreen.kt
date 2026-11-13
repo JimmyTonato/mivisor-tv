@@ -93,8 +93,11 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
     val reminders by graph.reminders.list.collectAsState()
     val first = remember { FocusRequester() }
     val form = com.mivisor.tv.ui.design.LocalUiForm.current
+    // 4j · Con la Biblioteca de MiVisor Gold no hacen falta proveedores: Inicio no pide añadir uno.
+    val goldState by graph.gold.state.collectAsState()
+    val withLibrary = lib.library.gold || goldState.configured
 
-    if (lib.loadedOnce && lib.providers.isEmpty()) {
+    if (lib.loadedOnce && lib.providers.isEmpty() && !withLibrary) {
         LaunchedEffect(Unit) { backdrop.colors = null }
         EmptyState(
             "Añade tu primer proveedor",
@@ -106,12 +109,27 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
         InitialFocus(first)
         return
     }
-    if (!lib.loadedOnce || (lib.library.isEmpty && lib.loading)) {
+    // 4j · Biblioteca puesta pero aún sin canales (primer arranque o sin copia): se espera a la Biblioteca.
+    val waitingLibrary = withLibrary && lib.library.isEmpty && lib.providers.isEmpty() &&
+        (goldState.busy || goldState.checkedAt == 0L) && goldState.error == null
+    if (!lib.loadedOnce || (lib.library.isEmpty && lib.loading) || waitingLibrary) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Spinner()
             Spacer(Modifier.height(16.dp))
-            MvText("Leyendo tus proveedores…", MvType.Body)
+            MvText(if (withLibrary) "Cargando la Biblioteca…" else "Leyendo tus proveedores…", MvType.Body)
         }
+        return
+    }
+    if (withLibrary && lib.library.isEmpty && lib.providers.isEmpty()) {
+        LaunchedEffect(Unit) { backdrop.colors = null }
+        EmptyState(
+            if (goldState.wrongPassword) "Contraseña de la Biblioteca incorrecta" else "La Biblioteca aún no tiene canales",
+            goldState.error ?: goldState.note.ifBlank { "Prueba a comprobarla en Ajustes › Biblioteca." },
+            icon = MvIcons.Tv
+        ) {
+            MvButton("Ir a la Biblioteca", { openLibrarySettings(nav) }, icon = MvIcons.Settings, primary = true, focusRequester = first)
+        }
+        InitialFocus(first)
         return
     }
 
@@ -176,6 +194,11 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
         if (lib.offline) Column(Modifier.fillMaxWidth()) {
             MvNotice("Sin conexión a Internet.", "Ves la agenda y los canales guardados. Los canales no se pueden abrir hasta que vuelva la red.",
                 Modifier.padding(pad).padding(bottom = 12.dp), MvColors.Soon)
+        }
+        goldState.error?.takeIf { withLibrary }?.let { why ->
+            Column(Modifier.fillMaxWidth()) {
+                MvNotice("Biblioteca:", why, Modifier.padding(pad).padding(bottom = 12.dp), MvColors.Soon)
+            }
         }
         lib.providers.filter { it.error != null }.takeIf { it.isNotEmpty() }?.let { bad ->
             Column(Modifier.fillMaxWidth()) {
@@ -613,7 +636,7 @@ fun EventTile(ev: AgendaEvent, chs: List<TvChannel>, now: Long, onClick: () -> U
             Spacer(Modifier.width(6.dp))
             MvText(
                 when (chs.size) {
-                    0 -> ev.channels.firstOrNull()?.name?.let { "$it · no está en tus proveedores" } ?: "Sin canal anunciado"
+                    0 -> ev.channels.firstOrNull()?.name?.let { "$it · no está en tus canales" } ?: "Sin canal anunciado"
                     1 -> chs.first().name
                     else -> "${chs.first().name} · ${chs.size} opciones"
                 }, MvType.Caption, maxLines = 1

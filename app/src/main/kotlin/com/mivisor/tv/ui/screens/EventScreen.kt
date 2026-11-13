@@ -194,7 +194,7 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
                     Spacer(Modifier.width(12.dp))
                     MvText(
                         if (mine.isEmpty()) "ordenados por fiabilidad"
-                        else "${mine.size} ${if (mine.size == 1) "canal" else "canales"} en tus proveedores · ordenados por fiabilidad", MvType.Small
+                        else "${mine.size} ${if (mine.size == 1) "canal" else "canales"} para verlo", MvType.Small
                     )
                 }
             }
@@ -318,7 +318,7 @@ private fun WatchRow(opt: WatchOption, graph: AppGraph, onPlay: (TvChannel) -> U
                 MvText(a.name, MvType.BodyStrong, maxLines = 1)
                 if (detail.isNotEmpty()) MvText(detail, MvType.Caption, maxLines = 1)
             }
-            if (!opt.available) MvTag("No está en tus proveedores", MvColors.Text3)
+            if (!opt.available) MvTag("No está en tus canales", MvColors.Text3)
         }
         opt.yours.forEach { ch ->
             Spacer(Modifier.height(8.dp))
@@ -391,7 +391,7 @@ private fun MissingCard(opt: WatchOption) {
         Column(Modifier.weight(1f)) {
             MvText(a.name, MvType.BodyStrong, maxLines = 1)
             Spacer(Modifier.height(3.dp))
-            MvText("Anunciado · no está en tus proveedores", MvType.Caption.copy(color = MvColors.Soon), maxLines = 1)
+            MvText("Anunciado · no está en tus canales", MvType.Caption.copy(color = MvColors.Soon), maxLines = 1)
         }
     }
 }

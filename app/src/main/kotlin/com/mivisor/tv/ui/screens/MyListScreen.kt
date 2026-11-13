@@ -153,7 +153,7 @@ fun MyListScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
                             Column(Modifier.weight(1f)) {
                                 MvText(h.name, MvType.BodyStrong, color = fg, maxLines = 1)
                                 MvText(
-                                    "${dayAt(h.playedAt)} · ${duration(h.seconds)}" + if (ch == null) " · ya no está en tus proveedores" else "",
+                                    "${dayAt(h.playedAt)} · ${duration(h.seconds)}" + if (ch == null) " · ya no está en tus canales" else "",
                                     MvType.Small, color = if (focused) MvColors.Bg.copy(alpha = 0.7f) else MvColors.Text2, maxLines = 1
                                 )
                             }

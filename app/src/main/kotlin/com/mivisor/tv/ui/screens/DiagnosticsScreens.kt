@@ -513,7 +513,7 @@ fun QuarantineScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
             val i = ch.sources.indexOfFirst { it.contentId == cid }
             if (i >= 0) return "${ch.name} · Fuente ${i + 1}"
         }
-        return "Fuente que ya no está en tus proveedores"
+        return "Fuente que ya no está en tus canales"
     }
 
     LazyColumn(

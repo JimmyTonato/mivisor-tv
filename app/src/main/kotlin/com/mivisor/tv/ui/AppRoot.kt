@@ -120,7 +120,9 @@ fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
         val t0 = System.currentTimeMillis()
         while (booting) {
             val s = graph.providers.state.value
-            val ready = !s.library.isEmpty || s.providers.isEmpty() || !s.loading
+            // 4j · Con Biblioteca y sin proveedores, se espera a la Biblioteca (con el tope de 6 s de abajo).
+            val g = graph.gold.state.value
+            val ready = !s.library.isEmpty || (s.providers.isEmpty() && (!g.configured || g.checkedAt > 0)) || (s.providers.isNotEmpty() && !s.loading)
             if ((ready && System.currentTimeMillis() - t0 > 250) || System.currentTimeMillis() - t0 > 6_000) booting = false
             else delay(100)
         }

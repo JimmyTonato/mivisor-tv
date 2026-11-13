@@ -335,13 +335,13 @@ fun PlayerScreen(
                 .pointerInput(Unit) { detectTapGestures(onTap = { controls = true; touch++ }) }
         )
 
-        if (channel == null && (lib.loading || lib.library.channels.isEmpty()) && lib.providers.isNotEmpty()) {
+        if (channel == null && (lib.loading || lib.library.channels.isEmpty()) && (lib.providers.isNotEmpty() || graph.gold.state.value.configured)) {
             // Al abrir la app directamente en el último canal: espera a que se lean los proveedores.
             Loading(null, null, 0, 0, "Cargando tus canales…", null)
             return@Box
         }
         if (channel == null) {
-            PlayerDialog("Canal no disponible", "Este canal ya no está en tus proveedores.") {
+            PlayerDialog("Canal no disponible", "Este canal ya no está en tus canales.") {
                 MvButton("Volver", onBack, primary = true, focusRequester = dialogFocus)
             }
             InitialFocus(dialogFocus)
