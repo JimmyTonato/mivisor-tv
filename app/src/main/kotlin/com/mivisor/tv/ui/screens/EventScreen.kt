@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import com.mivisor.tv.ui.BannerBackground
 import com.mivisor.tv.ui.rememberBanner
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -132,23 +133,17 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
         val banner = rememberBanner(event.sport, event.competition, screenPx)
         val heroBox = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
         if (!BannerBackground(banner, heroBox)) Box(
-            heroBox.background(Brush.horizontalGradient(listOf(Color.Transparent, h1.copy(alpha = 0.22f), a1.copy(alpha = 0.55f))))
+            heroBox.background(Brush.horizontalGradient(listOf(MatchGlow.Home.copy(alpha = 0.22f), Color.Transparent, MatchGlow.Away.copy(alpha = 0.30f))))
         )
         Box(heroBox.background(Brush.verticalGradient(0.5f to Color.Transparent, 0.82f to MvColors.Bg.copy(alpha = 0.85f), 1f to MvColors.Bg)))
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = MvDims.SafeX, end = MvDims.SafeX, bottom = 48.dp)) {
             item {
-                Row(Modifier.fillMaxWidth().height(250.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        // 3i · Diseño de la ficha: escudos a la izquierda y los dos nombres uno encima del otro.
+                Column(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 22.dp)) {
+                    // 4k · Partido: el marcador del diseño (escudos en sus aros, VS en el centro, nombres debajo).
+                    if (event.away != null) MatchBoard(event, status, best?.name, mine.size)
+                    else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            when (status) {
-                                EventStatus.LIVE -> MvTag("● EN DIRECTO", MvColors.Live, filled = true)
-                                EventStatus.UPCOMING -> MvTag(
-                                    if (event.timeTbd) "${dayLabel(event.startMillis)} · hora por confirmar".uppercase()
-                                    else "${dayLabel(event.startMillis)} · ${hhmm(event.startMillis)}".uppercase(), MvColors.Soon, filled = true
-                                )
-                                EventStatus.FINISHED -> MvTag("TERMINADO", MvColors.Text3, filled = true)
-                            }
+                            StatusTag(event, status)
                             Spacer(Modifier.width(10.dp))
                             event.competitionLogo?.let {
                                 LogoPlate(Modifier.size(20.dp)) { RemoteImage(it, 20.dp, Modifier.fillMaxSize()) {} }
@@ -157,34 +152,24 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
                             MvText((event.competition ?: sportName(event.sport)).uppercase(), MvType.Eyebrow.copy(color = MvColors.Text2, letterSpacing = 2.sp), maxLines = 1)
                         }
                         Spacer(Modifier.height(10.dp))
-                        if (event.away != null) Row(verticalAlignment = Alignment.CenterVertically) {
-                            Visual(home, event.homeVisual, h1, 84.dp, event.isPersonVsPerson)
-                            VsBadge(26.dp, Modifier.padding(horizontal = 14.dp))
-                            Visual(event.away ?: "", event.awayVisual, a1, 84.dp, event.isPersonVsPerson)
-                            Spacer(Modifier.width(28.dp))
-                            Column {
-                                MvText(home, MvType.Display.copy(fontSize = 36.sp, lineHeight = 40.sp, fontWeight = FontWeight.Black), maxLines = 1)
-                                MvText(event.away ?: "", MvType.Display.copy(fontSize = 36.sp, lineHeight = 40.sp, fontWeight = FontWeight.Black, color = MvColors.Text2), maxLines = 1)
-                            }
-                        }
-                        else MvText(event.title, MvType.Display.copy(fontWeight = FontWeight.Black), maxLines = 2)
-                        Spacer(Modifier.height(18.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            if (best != null) MvButton("Ver en ${best.name}", { nav.go(Route.Player(best.id)) }, icon = MvIcons.Play, primary = true, focusRequester = first)
-                            if (status != EventStatus.FINISHED) MvButton(
-                                if (reminded) "Recordatorio puesto" else "Recordarme",
-                                {
-                                    val on = graph.reminders.toggle(event)
-                                    toaster.show(if (on) "Te avisaré 5 minutos antes (con MiVisor TV abierta)" else "Recordatorio quitado")
-                                },
-                                icon = MvIcons.Clock, focusRequester = if (best == null) first else null
-                            )
-                            MvButton(competitionLabel(event), { nav.go(Route.Competition(competitionRoute(event))) }, icon = MvIcons.Trophy)
-                        }
-                        if (reminded) {
-                            Spacer(Modifier.height(8.dp))
-                            MvText("El aviso sale con MiVisor TV abierta. Si está cerrada a esa hora, te avisará al abrirla.", MvType.Caption)
-                        }
+                        MvText(event.title, MvType.Display.copy(fontWeight = FontWeight.Black), maxLines = 2)
+                    }
+                    Spacer(Modifier.height(18.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (best != null) MvButton("Ver en ${best.name}", { nav.go(Route.Player(best.id)) }, icon = MvIcons.Play, primary = true, focusRequester = first)
+                        if (status != EventStatus.FINISHED) MvButton(
+                            if (reminded) "Recordatorio puesto" else "Recordarme",
+                            {
+                                val on = graph.reminders.toggle(event)
+                                toaster.show(if (on) "Te avisaré 5 minutos antes (con MiVisor TV abierta)" else "Recordatorio quitado")
+                            },
+                            icon = MvIcons.Clock, focusRequester = if (best == null) first else null
+                        )
+                        MvButton(competitionLabel(event), { nav.go(Route.Competition(competitionRoute(event))) }, icon = MvIcons.Trophy)
+                    }
+                    if (reminded) {
+                        Spacer(Modifier.height(8.dp))
+                        MvText("El aviso sale con MiVisor TV abierta. Si está cerrada a esa hora, te avisará al abrirla.", MvType.Caption)
                     }
                 }
             }
@@ -234,6 +219,118 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
     InitialFocus(first, event.id)
 }
 
+/** Etiqueta de estado: EN DIRECTO, día y hora, o terminado. */
+@Composable
+private fun StatusTag(event: AgendaEvent, status: EventStatus) {
+    when (status) {
+        EventStatus.LIVE -> MvTag("● EN DIRECTO", MvColors.Live, filled = true)
+        EventStatus.UPCOMING -> MvTag(
+            if (event.timeTbd) "${dayLabel(event.startMillis)} · hora por confirmar".uppercase()
+            else "${dayLabel(event.startMillis)} · ${hhmm(event.startMillis)}".uppercase(), MvColors.Soon, filled = true
+        )
+        EventStatus.FINISHED -> MvTag("TERMINADO", MvColors.Text3, filled = true)
+    }
+}
+
+/**
+ * 4k · Marcador del partido (según el diseño que pasó el usuario): tarjeta con el carmesí del local a la izquierda y el
+ * azul del visitante a la derecha; arriba la competición entre líneas doradas y el estado; en el centro los escudos en
+ * sus aros con el VS entre ellos; los nombres en mayúsculas con un subrayado dorado; abajo una cápsula con la
+ * competición, el canal y la fecha.
+ */
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+@Composable
+private fun MatchBoard(event: AgendaEvent, status: EventStatus, channel: String?, channels: Int) {
+    val home = event.home ?: event.title
+    val away = event.away ?: ""
+    val shape = RoundedCornerShape(26.dp)
+    val phone = com.mivisor.tv.ui.design.LocalUiForm.current == com.mivisor.tv.ui.design.UiForm.PHONE
+    val ring = if (phone) 92.dp else 128.dp
+    Box(
+        Modifier.fillMaxWidth().height(if (phone) 300.dp else 340.dp).clip(shape)
+            .background(Brush.horizontalGradient(listOf(MatchGlow.Home.copy(alpha = 0.30f), MvColors.Bg.copy(alpha = 0.86f), MatchGlow.Away.copy(alpha = 0.30f))))
+            .background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to MvColors.Bg.copy(alpha = 0.55f)))
+            .border(1.dp, Brush.horizontalGradient(listOf(MatchGlow.Home.copy(alpha = 0.7f), Color(0x10FFFFFF), Color(0x10FFFFFF), MatchGlow.Away.copy(alpha = 0.7f))), shape)
+    ) {
+        // Arriba: competición entre líneas doradas y, debajo, el estado.
+        Column(Modifier.align(Alignment.TopCenter).padding(top = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                GoldLine(70.dp, toRight = false, thickness = 1.dp)
+                Spacer(Modifier.width(12.dp))
+                event.competitionLogo?.let {
+                    RemoteImage(it, 22.dp, Modifier.size(22.dp)) {}
+                    Spacer(Modifier.width(10.dp))
+                }
+                MvText((event.competition ?: sportName(event.sport)).uppercase(), MvType.Eyebrow.copy(color = MvColors.Text, fontSize = 13.sp, letterSpacing = 3.sp), maxLines = 1)
+                Spacer(Modifier.width(12.dp))
+                GoldLine(70.dp, toRight = true, thickness = 1.dp)
+            }
+            Spacer(Modifier.height(8.dp))
+            when (status) {
+                EventStatus.LIVE -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    com.mivisor.tv.ui.design.LiveDot(MvColors.Live, 8.dp)
+                    Spacer(Modifier.width(8.dp))
+                    MvText("EN DIRECTO", MvType.Eyebrow.copy(color = MvColors.Live, letterSpacing = 4.sp))
+                }
+                EventStatus.UPCOMING -> MvText(
+                    (if (event.timeTbd) "${dayLabel(event.startMillis)} · hora por confirmar" else "${dayLabel(event.startMillis)} · ${hhmm(event.startMillis)}").uppercase(),
+                    MvType.Eyebrow.copy(color = MvColors.Accent, letterSpacing = 4.sp), maxLines = 1
+                )
+                EventStatus.FINISHED -> MvText("TERMINADO", MvType.Eyebrow.copy(color = MvColors.Text3, letterSpacing = 4.sp))
+            }
+        }
+        // Centro: local · VS · visitante.
+        Row(Modifier.fillMaxWidth().align(Alignment.TopCenter).padding(top = if (phone) 66.dp else 76.dp), verticalAlignment = Alignment.Top) {
+            BoardTeam(home, event.homeVisual, MatchGlow.Home, ring, event.isPersonVsPerson, phone, Modifier.weight(1f))
+            Box(Modifier.height(ring), contentAlignment = Alignment.Center) {
+                VsBadge(if (phone) 26.dp else 38.dp, lines = if (phone) 22.dp else 44.dp)
+            }
+            BoardTeam(away, event.awayVisual, MatchGlow.Away, ring, event.isPersonVsPerson, phone, Modifier.weight(1f))
+        }
+        // Abajo: cápsula con competición, canal y fecha.
+        Row(
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp).height(38.dp)
+                .background(MvColors.Bg.copy(alpha = 0.55f), RoundedCornerShape(19.dp))
+                .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(19.dp))
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val parts = listOfNotNull(
+                MvIcons.Trophy to (event.competition ?: sportName(event.sport)),
+                channel?.let { MvIcons.Play to (if (channels > 1) "$it · $channels canales" else it) },
+                if (phone) null else MvIcons.Calendar to (if (event.timeTbd) dayLabel(event.startMillis) else "${dayLabel(event.startMillis)} · ${hhmm(event.startMillis)}")
+            )
+            parts.forEachIndexed { i, (icon, text) ->
+                if (i > 0) Box(Modifier.padding(horizontal = 16.dp).width(1.dp).height(16.dp).background(Color(0x24FFFFFF)))
+                com.mivisor.tv.ui.design.MvIcon(icon, size = 15.dp, tint = MvColors.Accent)
+                Spacer(Modifier.width(8.dp))
+                MvText(text.uppercase(), MvType.Caption.copy(color = Color(0xFFDDE3E8), letterSpacing = 1.sp), maxLines = 1)
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+@Composable
+private fun BoardTeam(name: String, image: String?, glow: Color, ring: Dp, person: Boolean, phone: Boolean, modifier: Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        CrestRing(name, image, glow, ring, person)
+        Spacer(Modifier.height(14.dp))
+        val fs = if (phone) 18.sp else 24.sp
+        MvText(
+            name.uppercase(),
+            MvType.Display.copy(
+                fontSize = fs, lineHeight = fs * 1.15f, fontWeight = FontWeight.Black, letterSpacing = 0.5.sp,
+                brush = Brush.verticalGradient(listOf(Color.White, Color(0xFFC9D1DA))),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            ),
+            maxLines = 1, modifier = Modifier.padding(horizontal = 8.dp)
+        )
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.width(56.dp).height(2.dp).background(Brush.horizontalGradient(listOf(Color.Transparent, MvColors.Accent, Color.Transparent))))
+    }
+}
+
 /** Cabecera del evento: competición, escudos o retratos, título, hora o EN DIRECTO. */
 @Composable
 fun EventHeader(event: AgendaEvent, now: Long) {
@@ -256,9 +353,9 @@ fun EventHeader(event: AgendaEvent, now: Long) {
         Spacer(Modifier.height(18.dp))
         if (away != null) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                Participant(home, event.homeVisual, h1, event.isPersonVsPerson)
-                VsBadge(26.dp)
-                Participant(away, event.awayVisual, a1, event.isPersonVsPerson)
+                Participant(home, event.homeVisual, MatchGlow.Home, event.isPersonVsPerson)
+                VsBadge(26.dp, lines = 28.dp)
+                Participant(away, event.awayVisual, MatchGlow.Away, event.isPersonVsPerson)
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -275,8 +372,8 @@ fun EventHeader(event: AgendaEvent, now: Long) {
 @Composable
 private fun Participant(name: String, image: String?, color: Color, person: Boolean) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(150.dp)) {
-        Visual(name, image, color, 84.dp, person)
-        Spacer(Modifier.height(8.dp))
+        CrestRing(name, image, color, 100.dp, person)
+        Spacer(Modifier.height(10.dp))
         MvText(name, MvType.SmallStrong, maxLines = 2)
     }
 }

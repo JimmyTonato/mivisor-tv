@@ -159,7 +159,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
     val heroKey = featured.firstOrNull()?.first?.id ?: hero?.first?.id
     LaunchedEffect(heroKey) {
         val top = featured.firstOrNull() ?: hero
-        backdrop.colors = top?.let { (ev, _) -> MvPalette.pair(ev.home ?: ev.title).first to MvPalette.pair(ev.away ?: ev.sport).first }
+        backdrop.colors = top?.let { (ev, _) -> if (ev.away != null) MatchGlow.Home to MatchGlow.Away else MvPalette.pair(ev.title).first to MvPalette.pair(ev.sport).first }
     }
     val reminded = reminders.map { it.eventId }.toSet()
     val shownIds = (events + featured).map { it.first.id }.toSet()
@@ -304,8 +304,6 @@ private fun Hero(
 ) {
     val home = ev.home ?: ev.title
     val away = ev.away
-    val (h1, _) = MvPalette.pair(home)
-    val (a1, _) = MvPalette.pair(away ?: ev.sport)
     val live = ev.status(now) == EventStatus.LIVE
     val main = chs.first()
     val start = graph.sources.typicalStart(main.sources.map { it.contentId })
@@ -317,16 +315,17 @@ private fun Hero(
         val withBanner = BannerBackground(banner)
         val showCrests = away != null && maxWidth >= 720.dp
         // 3k · Con banner, los escudos van hacia el centro (zona libre del diseño) y no tapan el logo de la derecha.
-        val crestSize = if (withBanner) 104.dp else 130.dp
+        val crestSize = if (withBanner) 124.dp else 150.dp
         if (showCrests) Row(
             // Centrados en la zona libre del banner (el logo de la competición queda a la derecha).
             if (withBanner) Modifier.align(Alignment.Center).padding(start = maxWidth * 0.12f, bottom = 20.dp)
             else Modifier.align(Alignment.CenterEnd).padding(end = MvDims.SafeX * 1.5f, bottom = 20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Visual(home, ev.homeVisual, h1, crestSize, ev.isPersonVsPerson)
-            VsBadge(30.dp, Modifier.padding(horizontal = 18.dp))
-            Visual(away!!, ev.awayVisual, a1, crestSize, ev.isPersonVsPerson)
+            // 4k · Escudos en sus aros (local carmesí, visitante azul) y el VS con sus líneas doradas.
+            CrestRing(home, ev.homeVisual, MatchGlow.Home, crestSize, ev.isPersonVsPerson)
+            VsBadge(30.dp, Modifier.padding(horizontal = 10.dp), lines = 34.dp)
+            CrestRing(away!!, ev.awayVisual, MatchGlow.Away, crestSize, ev.isPersonVsPerson)
         }
         Column(Modifier.padding(start = MvDims.SafeX, top = 18.dp, end = MvDims.SafeX).widthIn(max = if (!showCrests) 900.dp else if (withBanner) maxWidth * 0.36f else 540.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -406,7 +405,7 @@ private fun FeaturedMatch(
         // 3j · Banner de la competición; si no hay, el fondo de los colores de los equipos.
         val banner = rememberBanner(ev.sport, ev.competition, 960)
         if (!BannerBackground(banner, Modifier.fillMaxSize().clip(shape)))
-            Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(h1.copy(alpha = 0.32f), Color.Transparent, a1.copy(alpha = 0.32f))), shape))
+            Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(MatchGlow.Home.copy(alpha = 0.30f), Color.Transparent, MatchGlow.Away.copy(alpha = 0.30f))), shape))
         Column(Modifier.fillMaxSize().padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (live) MvTag("● EN DIRECTO", MvColors.Live, filled = true)
@@ -419,10 +418,10 @@ private fun FeaturedMatch(
             // libre para el logo de la competición del banner (antes el escudo visitante se le ponía encima).
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (away != null) {
-                    val crest = if (phone) 40.dp else 50.dp
-                    Visual(home, ev.homeVisual, h1, crest, ev.isPersonVsPerson)
-                    VsBadge(if (phone) 16.dp else 18.dp, Modifier.padding(horizontal = 6.dp))
-                    Visual(away, ev.awayVisual, a1, crest, ev.isPersonVsPerson)
+                    val crest = if (phone) 52.dp else 64.dp
+                    CrestRing(home, ev.homeVisual, MatchGlow.Home, crest, ev.isPersonVsPerson)
+                    VsBadge(if (phone) 15.dp else 17.dp, Modifier.padding(horizontal = 8.dp))
+                    CrestRing(away, ev.awayVisual, MatchGlow.Away, crest, ev.isPersonVsPerson)
                     Spacer(Modifier.width(14.dp))
                 }
                 Column(Modifier.weight(1f).padding(end = if (phone) 0.dp else 120.dp)) {
@@ -604,11 +603,11 @@ fun EventTile(ev: AgendaEvent, chs: List<TvChannel>, now: Long, onClick: () -> U
         TvClickable(
             onClick = onClick, focusRequester = focusRequester, onFocus = { prewarm(chs.firstOrNull()) },
             modifier = Modifier.fillMaxWidth().height(180.dp), shape = RoundedCornerShape(MvDims.Radius),
-            color = h2, focusedColor = h2
+            color = MvColors.Surface1, focusedColor = MvColors.Surface1
         ) { _ ->
             // 3j · La tarjetita con el banner de la competición detrás (si no hay, los colores de los equipos).
             val banner = rememberBanner(ev.sport, ev.competition, 640)
-            if (!BannerBackground(banner, scrim = false)) Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(h1, h2, a2, a1))))
+            if (!BannerBackground(banner, scrim = false)) Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(MatchGlow.Home.copy(alpha = 0.55f), MvColors.Bg, MatchGlow.Away.copy(alpha = 0.55f)))))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x99000000)))))
             Box(Modifier.align(Alignment.TopStart).padding(12.dp)) {
                 if (live) MvTag("● EN DIRECTO", MvColors.Live, filled = true)
@@ -616,9 +615,9 @@ fun EventTile(ev: AgendaEvent, chs: List<TvChannel>, now: Long, onClick: () -> U
             }
             // 3l · Escudos más a la izquierda: el logo de la competición del banner (a la derecha) queda a la vista.
             if (away != null) Row(Modifier.align(Alignment.CenterStart).padding(start = 18.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Visual(home, ev.homeVisual, h1, 62.dp, ev.isPersonVsPerson)
-                VsBadge(20.dp, Modifier.padding(horizontal = 10.dp))
-                Visual(away, ev.awayVisual, a1, 64.dp, ev.isPersonVsPerson)
+                CrestRing(home, ev.homeVisual, MatchGlow.Home, 76.dp, ev.isPersonVsPerson)
+                VsBadge(18.dp, Modifier.padding(horizontal = 10.dp))
+                CrestRing(away, ev.awayVisual, MatchGlow.Away, 76.dp, ev.isPersonVsPerson)
             }
             Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 MvText(ev.competition ?: sportName(ev.sport), MvType.SmallStrong, maxLines = 1, modifier = Modifier.weight(1f))

@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -231,29 +233,83 @@ fun Banner(text: String, color: androidx.compose.ui.graphics.Color = MvColors.So
 }
 
 
+/** 4k · Colores de los partidos: local a la izquierda (carmesí), visitante a la derecha (azul), como en el diseño. */
+object MatchGlow {
+    val Home = Color(0xFFD23A4A)
+    val Away = Color(0xFF3B6FE0)
+}
+
 /**
- * 4j · El «VS» de los partidos, más sobrio: un disco oscuro translúcido con un filo champán fino y «VS» recto, sin
- * inclinación, brillo ni degradado (el de 3l no gustaba). [size] sigue siendo la referencia de antes: el disco mide
- * ~1,5 veces eso, así las llamadas existentes no cambian.
+ * 4k · El «VS» de los partidos (diseño del usuario): disco oscuro con un aro champán que brilla, «VS» en cursiva con
+ * degradado plateado y, si [lines] > 0, una línea dorada a cada lado que se funde. [size] es la referencia de siempre:
+ * el disco mide ~1,5 veces eso, así las llamadas existentes no cambian.
+ */
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+@Composable
+fun VsBadge(size: Dp = 24.dp, modifier: Modifier = Modifier, lines: Dp = 0.dp) {
+    val d = size * 1.5f
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        if (lines > 0.dp) GoldLine(lines, toRight = false)
+        Box(
+            Modifier
+                .padding(horizontal = if (lines > 0.dp) 6.dp else 0.dp)
+                .size(d)
+                // Brillo dorado alrededor (dibujado fuera del disco, sin ocupar sitio).
+                .drawBehind {
+                    val r = this.size.minDimension / 2f
+                    drawCircle(
+                        Brush.radialGradient(
+                            0.55f to MvColors.Accent.copy(alpha = 0.32f), 1f to Color.Transparent,
+                            center = center, radius = r * 1.75f
+                        ), radius = r * 1.75f
+                    )
+                }
+                .background(Brush.radialGradient(listOf(Color(0xFF1E2834), Color(0xFF0A1018))), CircleShape)
+                .border(
+                    if (d >= 40.dp) 1.5.dp else 1.dp,
+                    Brush.linearGradient(listOf(MvColors.Accent2, MvColors.Accent.copy(alpha = 0.45f), MvColors.Accent2)),
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            MvText(
+                "VS",
+                MvType.Heading.copy(
+                    fontSize = (d.value * 0.34f).sp, lineHeight = (d.value * 0.4f).sp,
+                    brush = Brush.verticalGradient(listOf(Color.White, Color(0xFFAEB8C4))),
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, letterSpacing = 0.5.sp
+                )
+            )
+        }
+        if (lines > 0.dp) GoldLine(lines, toRight = true)
+    }
+}
+
+/** 4k · Línea dorada fina que se funde por un extremo (cabeceras y VS). */
+@Composable
+fun GoldLine(width: Dp, toRight: Boolean, modifier: Modifier = Modifier, thickness: Dp = 1.5.dp) {
+    val colors = if (toRight) listOf(MvColors.Accent, Color.Transparent) else listOf(Color.Transparent, MvColors.Accent)
+    Box(modifier.width(width).height(thickness).background(Brush.horizontalGradient(colors)))
+}
+
+/**
+ * 4k · Escudo (o retrato) dentro de un aro del color de su lado, con un halo suave: local carmesí, visitante azul.
+ * [size] es el diámetro del aro; el escudo ocupa ~70 %.
  */
 @Composable
-fun VsBadge(size: Dp = 24.dp, modifier: Modifier = Modifier) {
-    val d = size * 1.5f
+fun CrestRing(name: String, image: String?, glow: Color, size: Dp, person: Boolean, modifier: Modifier = Modifier) {
     Box(
         modifier
-            .size(d)
-            .shadow(d * 0.18f, CircleShape, ambientColor = Color.Black, spotColor = Color.Black)
-            .background(MvColors.Bg.copy(alpha = 0.6f), CircleShape)
-            .border(if (d >= 40.dp) 1.5.dp else 1.dp, MvColors.Accent.copy(alpha = 0.55f), CircleShape),
+            .size(size)
+            .drawBehind {
+                val r = this.size.minDimension / 2f
+                drawCircle(Brush.radialGradient(0.7f to glow.copy(alpha = 0.38f), 1f to Color.Transparent, center = center, radius = r * 1.3f), radius = r * 1.3f)
+            }
+            .background(Brush.radialGradient(0f to glow.copy(alpha = 0.22f), 0.75f to Color(0xD90A1018)), CircleShape)
+            .border(if (size >= 80.dp) 1.5.dp else 1.dp, glow.copy(alpha = 0.8f), CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        MvText(
-            "VS",
-            MvType.Heading.copy(
-                fontSize = (d.value * 0.31f).sp, lineHeight = (d.value * 0.36f).sp, color = MvColors.Text,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, letterSpacing = (d.value * 0.028f).sp
-            ),
-            modifier = Modifier.padding(start = d * 0.025f)
-        )
+        Visual(name, image, glow, size * 0.7f, person)
     }
 }
