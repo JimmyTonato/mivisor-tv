@@ -26,6 +26,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -87,15 +88,17 @@ class ProvidersRepository(
     private var snapshotJob: Job? = null
     private val _state = MutableStateFlow(LibraryState())
     /**
-     * 4f · Biblioteca de MiVisor Gold: si está, es la que ve TODA la app (Inicio, Canales, Agenda, reproductor), ya
-     * ordenada y verificada por Gold. Los proveedores siguen leyéndose (sus enlaces externos, su estado), pero sus
-     * canales no se enseñan mientras haya Biblioteca. Sin Biblioteca (sin contraseña o vacía), todo como siempre.
+     * 4f · Biblioteca de MiVisor Gold: si está, es la fuente PRINCIPAL de toda la app (Inicio, Canales, Agenda,
+     * reproductor), ya ordenada y verificada por Gold. 4i · Los proveedores se siguen usando: los IDs que Gold no
+     * tiene se añaden (detrás de los de Gold en el mismo canal, o en «De tus proveedores» si el canal es nuevo).
+     * Sin Biblioteca (sin contraseña o vacía), todo como siempre.
      */
     private val _gold = MutableStateFlow<TvLibrary?>(null)
+    private val mergeCache = com.mivisor.tv.catalog.tv.GoldLibrary.MergeCache()
     val state: StateFlow<LibraryState> = kotlinx.coroutines.flow.combine(_state, _gold) { s, g ->
         if (g == null || g.isEmpty) s
-        else s.copy(library = TvLibrary(g.channels, g.sections, g.providerCount, s.library.links, gold = true), loadedOnce = true, loading = false)
-    }.stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, LibraryState())
+        else s.copy(library = com.mivisor.tv.catalog.tv.GoldLibrary.merge(g, s.library, mergeCache), loadedOnce = true, loading = false)
+    }.flowOn(Dispatchers.Default).stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, LibraryState())
 
     /** 4f · La pone (o la quita, con null) el repositorio de la Biblioteca de MiVisor Gold. */
     fun setGoldLibrary(lib: TvLibrary?) { _gold.value = lib }

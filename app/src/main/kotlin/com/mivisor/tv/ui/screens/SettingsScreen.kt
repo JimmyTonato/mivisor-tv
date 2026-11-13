@@ -75,7 +75,7 @@ import kotlinx.coroutines.withContext
 /** Menú de Ajustes del diseño (con su icono y el valor actual a la derecha). */
 private enum class Page(val title: String, val icon: Int, val intro: String?) {
     PROVIDERS("Proveedores", MvIcons.Box, null),
-    LIBRARY("Biblioteca", MvIcons.Tv, "La Biblioteca de canales de MiVisor Gold: canales ya agrupados, verificados y ordenados. Mientras esté puesta, es lo que ves en Canales (los proveedores quedan de reserva)."),
+    LIBRARY("Biblioteca", MvIcons.Tv, "La Biblioteca de canales de MiVisor Gold: canales ya agrupados, verificados y ordenados. Es la fuente principal; tus proveedores solo añaden los IDs y canales que la Biblioteca no tiene."),
     OPEN_ID("Abrir un ID", MvIcons.Play, "Para ver un ID o enlace de Ace Stream que te han pasado y que no está en tus canales. Pégalo aquí o mándalo desde el móvil con el QR."),
     ENGINE("Motor", MvIcons.Chip, "Outpace va dentro de MiVisor TV y es el que se usa siempre que funciona. Ace Stream es una app aparte que puedes elegir como alternativa."),
     WARP("WARP", MvIcons.Shield, null),
@@ -669,7 +669,7 @@ private fun LibraryPage(graph: AppGraph, toaster: Toaster, onChange: () -> Unit)
                 if (g.channels > 0) KeyValue("Contenido", "${g.channels} canales · ${g.ids} IDs · ${g.categories} categorías")
                 KeyValue("Última comprobación", if (g.checkedAt > 0) com.mivisor.tv.ui.ago(g.checkedAt) else "todavía no")
                 KeyValue("Se comprueba", "al abrir la app y cada 45 min mientras está abierta")
-                KeyValue("En pantalla", if (graph.providers.showingGold) "la Biblioteca (los proveedores, de reserva)" else "los canales de tus proveedores")
+                KeyValue("En pantalla", if (graph.providers.showingGold) "la Biblioteca, más lo nuevo de tus proveedores" else "los canales de tus proveedores")
             }
             MvRow("Comprobar ahora", { graph.gold.checkNow { toaster.show(it); onChange() } }, subtitle = "Mira si Gold ha publicado algo nuevo y baja solo lo que cambió", icon = MvIcons.Refresh)
             if (!editing) MvRow(
@@ -689,7 +689,7 @@ private fun LibraryPage(graph: AppGraph, toaster: Toaster, onChange: () -> Unit)
                     if (!confirmForget) confirmForget = true
                     else { graph.gold.forget(); confirmForget = false; editing = true; toaster.show("Biblioteca quitada: se vuelven a ver tus proveedores"); onChange() }
                 },
-                subtitle = "Borra la contraseña y la copia guardada. Vuelven los canales de tus proveedores", icon = MvIcons.Delete
+                subtitle = "Borra la contraseña y la copia guardada. Se quedan solo los canales de tus proveedores", icon = MvIcons.Delete
             )
         }
     }
@@ -828,9 +828,11 @@ private fun VerifierPage(graph: AppGraph, onChange: () -> Unit) {
     var progress by remember { mutableStateOf<String?>(null) }
     var last by remember { mutableStateOf(graph.prefs.verifierLast) }
     var byProvider by remember { mutableStateOf(graph.prefs.verifierByProvider) }
+    var enabled by remember { mutableStateOf(graph.prefs.verifier) }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { cancel = true } }
     fun start(providerId: String?) {
         if (running != null) { cancel = true; return }
+        if (!enabled) return
         running = providerId ?: ""; cancel = false; progress = "Arrancando Outpace…"
         graph.player.stop()
         scope.launch {
@@ -846,11 +848,18 @@ private fun VerifierPage(graph: AppGraph, onChange: () -> Unit) {
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // 4i · Es una elección del usuario. Con la Biblioteca, solo hace falta para los IDs nuevos de tus proveedores.
+        MvRow("Verificador activado", {
+            enabled = !enabled; graph.prefs.verifier = enabled
+            if (!enabled) cancel = true
+            onChange()
+        }, subtitle = if (lib.library.gold) "La Biblioteca ya viene verificada: solo comprueba los IDs de tus proveedores que la Biblioteca no tiene"
+            else "Apagado, no se comprueba ninguna fuente") { MvSwitch(enabled) }
         MvRow(if (running == "") "Comprobando… (OK para parar)" else "Comprobar todo ahora", { start(null) },
-            subtitle = if (running == "") progress else if (last.isNotBlank()) "Última: $last" else "Una pasada ahora, con la app abierta",
-            icon = MvIcons.Check, enabled = running == null || running == "")
+            subtitle = if (!enabled) "Activa el verificador para usarlo" else if (running == "") progress else if (last.isNotBlank()) "Última: $last" else "Una pasada ahora, con la app abierta",
+            icon = MvIcons.Check, enabled = enabled && (running == null || running == ""))
         MvRow("Solo mis favoritos", { favsOnly = !favsOnly; graph.prefs.verifierFavoritesOnly = favsOnly },
-            subtitle = "Para «Comprobar todo». Si no tienes favoritos, se prueban todos los canales") { MvSwitch(favsOnly) }
+            subtitle = "Para «Comprobar todo». Si no tienes favoritos, se prueban todos los canales", enabled = enabled) { MvSwitch(favsOnly) }
         // 3k · Por proveedor, por fases: solo las fuentes de ese proveedor (como mucho 80), primero favoritos y lo visto.
         if (lib.providers.isNotEmpty()) MvText("POR PROVEEDOR", MvType.Eyebrow.copy(color = MvColors.Text2), modifier = Modifier.padding(top = 6.dp))
         lib.providers.forEach { p ->
@@ -861,7 +870,7 @@ private fun VerifierPage(graph: AppGraph, onChange: () -> Unit) {
                 subtitle = if (mine) progress else byProvider[p.id]?.let { "Última: $it" } ?: "Sin comprobar · ${p.channels} canales",
                 icon = MvIcons.Layers,
                 trailing = if (mine) null else "Comprobar",
-                enabled = running == null || mine
+                enabled = enabled && (running == null || mine)
             )
         }
         MvText("Cada fuente que da imagen suma a su nota y apunta cuánto tardó en arrancar; la que no responde baja un poco (sin pausas ni cuarentena). " +

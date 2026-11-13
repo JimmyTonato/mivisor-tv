@@ -21,7 +21,7 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("lite", false)
         set(v) = sp.edit().putBoolean("lite", v).apply()
 
-    /** Verificador automático de fuentes: DESACTIVADO por defecto (y sin implementar en 3a). */
+    /** 4i · Verificador de fuentes: lo activa el usuario (desactivado por defecto). Apagado, no se comprueba nada. */
     var verifier: Boolean
         get() = sp.getBoolean("verifier", false)
         set(v) = sp.edit().putBoolean("verifier", v).apply()

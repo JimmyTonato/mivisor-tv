@@ -71,6 +71,62 @@ object GoldLibrary {
         )
     }
 
+    const val EXTRA_SECTION = "mis-proveedores"
+
+    /** Caché de canales mezclados: si no cambian ni el canal de Gold ni sus fuentes extra, el mismo objeto. */
+    class MergeCache {
+        internal val map = HashMap<String, Triple<TvChannel, List<String>, TvChannel>>()
+    }
+
+    /**
+     * 4i · La Biblioteca de Gold es la fuente principal, pero los proveedores se siguen pudiendo usar: sus IDs que NO
+     * están en la Biblioteca se añaden.
+     *  - Si el canal ya existe en la Biblioteca (mismo nombre), sus IDs nuevos van DETRÁS de los de Gold (que mantienen
+     *    su orden fijo; los nuevos los ordena la fiabilidad de la app).
+     *  - Si es un canal que Gold no tiene, aparece en la sección «De tus proveedores», detrás de los de Gold.
+     * Los IDs que Gold ya tiene se ignoran del proveedor: la información buena es la de Gold.
+     */
+    fun merge(gold: TvLibrary, providers: TvLibrary, cache: MergeCache? = null): TvLibrary {
+        if (providers.isEmpty) return gold
+        val goldIds = HashSet<String>()
+        gold.channels.forEach { c -> c.sources.forEach { goldIds += it.contentId } }
+        val byKey = HashMap<String, TvChannel>()
+        gold.channels.forEach { c -> byKey.putIfAbsent(nameKey(c.name), c) }
+        val extras = LinkedHashMap<String, MutableList<TvSource>>()   // id del canal de Gold → fuentes nuevas
+        val newChannels = ArrayList<TvChannel>()
+        var next = (gold.channels.maxOfOrNull { it.orden ?: 0 } ?: 0) + 1
+        for (pc in TvLibrary.sorted(providers.channels)) {
+            val fresh = pc.sources.filter { it.contentId !in goldIds }
+            if (fresh.isEmpty()) continue
+            fresh.forEach { goldIds += it.contentId }
+            val target = byKey[nameKey(pc.name)]
+            if (target != null) extras.getOrPut(target.id) { ArrayList() } += fresh
+            else {
+                val id = if (gold.channel(pc.id) != null) "prov:" + pc.id else pc.id
+                newChannels += TvChannel(id, pc.name, pc.brandKey, pc.brandName, fresh, pc.initials, pc.logo, pc.category, next++)
+            }
+        }
+        if (extras.isEmpty() && newChannels.isEmpty()) return gold
+        val replaced = HashMap<String, TvChannel>()
+        for ((id, add) in extras) {
+            val g = gold.channel(id) ?: continue
+            val cids = add.map { it.contentId }
+            val hit = cache?.map?.get(id)?.takeIf { it.first === g && it.second == cids }?.third
+            val merged = hit ?: TvChannel(g.id, g.name, g.brandKey, g.brandName, g.sources + add, g.initials, g.logo, g.category, g.orden)
+            cache?.map?.put(id, Triple(g, cids, merged))
+            replaced[id] = merged
+        }
+        fun swap(c: TvChannel) = replaced[c.id] ?: c
+        val channels = gold.channels.map(::swap) + newChannels
+        val sections = gold.sections.map { s -> if (s.channels.none { it.id in replaced }) s else TvSection(s.key, s.name, s.channels.map(::swap), s.logo) } +
+            listOfNotNull(newChannels.takeIf { it.isNotEmpty() }?.let { TvSection(EXTRA_SECTION, "De tus proveedores", it) })
+        return TvLibrary(channels, sections, providers.providerCount, providers.links, gold = true)
+    }
+
+    /** Clave para decir que dos nombres son el mismo canal («M+ LaLiga» = «Movistar LaLiga»). */
+    private fun nameKey(name: String): String =
+        com.mivisor.tv.catalog.ChannelCanon.parse(name).variantKey.ifEmpty { name.trim().lowercase() }
+
     /** SHA-1 (hex) de los bytes del descriptor; null si el base64 no vale. */
     fun sha1Of(base64: String): String? {
         val bytes = com.mivisor.tv.catalog.Base64Lite.decode(base64) ?: return null

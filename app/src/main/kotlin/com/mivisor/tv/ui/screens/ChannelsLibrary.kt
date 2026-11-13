@@ -145,7 +145,11 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
         while (true) {
             value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                 // 4f · Biblioteca de MiVisor Gold: «en línea» = algún ID en banda verde según Gold (la app no puntúa).
-                if (library.gold) library.channels.filter { ch -> ch.sources.any { it.gold?.band == "verde" } }.map { it.id }.toSet()
+                // 4i · Y los IDs nuevos de tus proveedores, por lo que la app ha aprendido de ellos.
+                if (library.gold) library.channels.filter { ch ->
+                    ch.sources.any { it.gold?.band == "verde" } ||
+                        ch.sources.filter { it.gold == null }.map { it.contentId }.let { it.isNotEmpty() && graph.sources.online(it) }
+                }.map { it.id }.toSet()
                 else library.channels.filter { ch -> graph.sources.online(ch.sources.map { it.contentId }) }.map { it.id }.toSet()
             }
             delay(60_000)

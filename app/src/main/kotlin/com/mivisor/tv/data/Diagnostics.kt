@@ -277,6 +277,8 @@ class Diagnostics(private val graph: AppGraph) {
         /** 3k · Solo las fuentes de este proveedor (null = todos). */
         providerId: String? = null
     ): String {
+        // 4i · Es una elección del usuario: con el verificador apagado no se comprueba nada.
+        if (!graph.prefs.verifier) return "El verificador está desactivado (Ajustes › Verificador)"
         val lib = graph.providers.state.value.library
         // Sin favoritos, «Solo mis favoritos» no dejaría nada que comprobar: se usan todos los canales.
         val favs = graph.mylist.state.value.favorites.mapNotNull { lib.channel(it.first) }
@@ -285,17 +287,19 @@ class Diagnostics(private val graph: AppGraph) {
         val channels = if (providerId == null && graph.prefs.verifierFavoritesOnly && favs.isNotEmpty()) favs
         else (favs + seen + lib.channels).distinctBy { it.id }
         // Cada fuente con el canal al que pertenece (para decir cuáles arrancan antes).
-        val pairs = channels.flatMap { ch -> ch.sources.filter { providerId == null || it.providerId == providerId }.map { ch to it } }
+        // 4i · Lo que viene de la Biblioteca de MiVisor Gold ya está verificado allí: solo se comprueban los IDs de tus
+        // proveedores que Gold no tiene.
+        val pairs = channels.flatMap { ch -> ch.sources.filter { it.gold == null && (providerId == null || it.providerId == providerId) }.map { ch to it } }
             .distinctBy { it.second.contentId }.take(VERIFY_MAX)
         val sources = pairs.map { it.second }
-        if (sources.isEmpty()) return "No hay fuentes que comprobar"
+        if (sources.isEmpty()) return if (lib.gold) "No hay IDs nuevos de tus proveedores: todo lo demás ya lo verifica la Biblioteca" else "No hay fuentes que comprobar"
         val times = ArrayList<Pair<String, Long>>()
         val engine = EngineManager.ensureStarted(app)
         val base = engine.baseUrl ?: return "Outpace no arrancó: ${engine.message ?: "sin detalle"}"
         var ok = 0
         var bad = 0
         sources.forEachIndexed { i, s ->
-            if (isCancelled()) return "Comprobación cancelada · $ok de $i con imagen"
+            if (isCancelled() || !graph.prefs.verifier) return "Comprobación cancelada · $ok de $i con imagen"
             val t0 = SystemClock.elapsedRealtime()
             val good = withContext(Dispatchers.IO) { probe(EngineApi.hlsUrl(base, s.contentId)) }
             if (good) {
