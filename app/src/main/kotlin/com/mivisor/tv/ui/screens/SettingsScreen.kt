@@ -75,6 +75,7 @@ import kotlinx.coroutines.withContext
 /** Menú de Ajustes del diseño (con su icono y el valor actual a la derecha). */
 private enum class Page(val title: String, val icon: Int, val intro: String?) {
     PROVIDERS("Proveedores", MvIcons.Box, null),
+    LIBRARY("Biblioteca", MvIcons.Tv, "La Biblioteca de canales de MiVisor Gold: canales ya agrupados, verificados y ordenados. Mientras esté puesta, es lo que ves en Canales (los proveedores quedan de reserva)."),
     OPEN_ID("Abrir un ID", MvIcons.Play, "Para ver un ID o enlace de Ace Stream que te han pasado y que no está en tus canales. Pégalo aquí o mándalo desde el móvil con el QR."),
     ENGINE("Motor", MvIcons.Chip, "Outpace va dentro de MiVisor TV y es el que se usa siempre que funciona. Ace Stream es una app aparte que puedes elegir como alternativa."),
     WARP("WARP", MvIcons.Shield, null),
@@ -90,9 +91,16 @@ private enum class Page(val title: String, val icon: Int, val intro: String?) {
     ABOUT("Acerca de", MvIcons.Info, null)
 }
 
+/** 4h · Última sección de Ajustes abierta: al volver a Ajustes se sigue donde estabas (mientras la app esté abierta). */
+private object SettingsMemory {
+    var page: Page = Page.PROVIDERS
+}
+
 @Composable
 fun SettingsScreen(graph: AppGraph, nav: Nav, toaster: Toaster, onLook: () -> Unit) {
-    var page by remember { mutableStateOf(Page.PROVIDERS) }
+    val startPage = remember { SettingsMemory.page }
+    var page by remember { mutableStateOf(startPage) }
+    LaunchedEffect(page) { SettingsMemory.page = page }
     var editing by remember { mutableStateOf<ProviderInfo?>(null) }
     var deleting by remember { mutableStateOf<ProviderInfo?>(null) }
     var forgetting by remember { mutableStateOf(false) }
@@ -103,6 +111,7 @@ fun SettingsScreen(graph: AppGraph, nav: Nav, toaster: Toaster, onLook: () -> Un
     val warp by graph.warp.state.collectAsState()
     fun valueOf(p: Page): String? = when (p) {
         Page.PROVIDERS -> lib.providers.size.toString()
+        Page.LIBRARY -> graph.gold.state.value.let { g -> if (!g.configured) "No" else if (g.revision > 0) "Rev. ${g.revision}" else "Sí" }
         Page.ENGINE -> if (graph.prefs.engine == "ace") "Ace Stream" else "Outpace"
         Page.WARP -> when (warp.phase) {
             WarpPhase.CONNECTED -> "Conectada"
@@ -118,13 +127,14 @@ fun SettingsScreen(graph: AppGraph, nav: Nav, toaster: Toaster, onLook: () -> Un
         Row(Modifier.fillMaxSize().padding(start = MvDims.SafeX, end = MvDims.SafeX)) {
             Column(Modifier.width(300.dp).fillMaxHeight()) {
                 MvText("Ajustes", MvType.Title, modifier = Modifier.padding(bottom = 14.dp))
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 48.dp)) {
-                    itemsIndexed(Page.values().toList()) { i, p ->
+                val menuState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, startPage.ordinal - 3))
+                LazyColumn(state = menuState, verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 48.dp)) {
+                    itemsIndexed(Page.values().toList()) { _, p ->
                         val v = remember(values, lib, warp) { valueOf(p) }
                         TvClickable(
                             onClick = { page = p }, onFocus = { page = p }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
                             focusedScale = 1.02f, color = if (p == page) MvColors.Surface2 else MvColors.Bg, focusedColor = MvColors.Text,
-                            ringColor = MvColors.Accent2, focusRequester = if (i == 0) first else null
+                            ringColor = MvColors.Accent2, focusRequester = if (p == startPage) first else null
                         ) { focused ->
                             val fg = if (focused) MvColors.Bg else if (p == page) MvColors.Text else MvColors.Text2
                             Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -144,6 +154,7 @@ fun SettingsScreen(graph: AppGraph, nav: Nav, toaster: Toaster, onLook: () -> Un
                 page.intro?.let { MvText(it, MvType.Body.copy(color = MvColors.Text2), modifier = Modifier.padding(bottom = 16.dp)) }
                 when (page) {
                     Page.PROVIDERS -> ProvidersPage(graph, nav, toaster, onEdit = { editing = it })
+                    Page.LIBRARY -> LibraryPage(graph, toaster, onChange = { values++ })
                     Page.ENGINE -> EnginePage(graph, onChange = { values++ }, toaster = { toaster.show(it) })
                     Page.WARP -> WarpPage(graph, nav)
                     Page.AUDIO -> AudioPage(graph)
@@ -619,6 +630,67 @@ private fun OpenIdPage(graph: AppGraph, nav: Nav, toaster: Toaster) {
                     }
                 )
             }
+        }
+    }
+}
+
+// ------------------------------------------------------------------ Biblioteca de MiVisor Gold (4f)
+
+@Composable
+private fun LibraryPage(graph: AppGraph, toaster: Toaster, onChange: () -> Unit) {
+    val g by graph.gold.state.collectAsState()
+    var editing by remember { mutableStateOf(!g.configured) }
+    var text by remember { mutableStateOf("") }
+    var confirmForget by remember { mutableStateOf(false) }
+    LaunchedEffect(g.configured) { if (!g.configured) editing = true }
+
+    fun save() {
+        if (text.isBlank()) { toaster.show("Escribe la contraseña de la Biblioteca"); return }
+        val pw = text.toCharArray()
+        text = ""
+        editing = false
+        toaster.show("Comprobando la Biblioteca…")
+        graph.gold.setPassword(pw) { msg -> toaster.show(msg); onChange() }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (g.configured) {
+            MvPanel {
+                MvText("ESTADO", MvType.Eyebrow.copy(color = MvColors.Text2))
+                Spacer(Modifier.height(6.dp))
+                KeyValue("Estado", when {
+                    g.busy -> "Comprobando…"
+                    g.error != null -> g.error!!
+                    g.note.isNotBlank() -> g.note
+                    else -> "Lista"
+                })
+                if (g.revision > 0) KeyValue("Revisión", g.revision.toString())
+                g.published?.let { KeyValue("Publicada por Gold", it.replace('T', ' ').removeSuffix("Z") + " (UTC)") }
+                if (g.channels > 0) KeyValue("Contenido", "${g.channels} canales · ${g.ids} IDs · ${g.categories} categorías")
+                KeyValue("Última comprobación", if (g.checkedAt > 0) com.mivisor.tv.ui.ago(g.checkedAt) else "todavía no")
+                KeyValue("Se comprueba", "al abrir la app y cada 45 min mientras está abierta")
+                KeyValue("En pantalla", if (graph.providers.showingGold) "la Biblioteca (los proveedores, de reserva)" else "los canales de tus proveedores")
+            }
+            MvRow("Comprobar ahora", { graph.gold.checkNow { toaster.show(it); onChange() } }, subtitle = "Mira si Gold ha publicado algo nuevo y baja solo lo que cambió", icon = MvIcons.Refresh)
+            if (!editing) MvRow(
+                if (g.wrongPassword) "Escribir la contraseña otra vez" else "Cambiar la contraseña", { editing = true },
+                subtitle = "Se guarda cifrada en este aparato", icon = MvIcons.Edit
+            )
+        }
+        if (editing) {
+            MvTextField(text, { text = it }, "Contraseña de la Biblioteca", placeholder = "La que te ha dado el administrador de MiVisor Gold",
+                password = true, onDone = { save() })
+            MvRow("Guardar y comprobar", { save() }, subtitle = "Se guarda cifrada en este aparato. Nunca se muestra ni se escribe en el registro", icon = MvIcons.Check)
+        }
+        if (g.configured) {
+            MvRow(
+                if (confirmForget) "Pulsa otra vez para quitarla" else "Quitar la Biblioteca",
+                {
+                    if (!confirmForget) confirmForget = true
+                    else { graph.gold.forget(); confirmForget = false; editing = true; toaster.show("Biblioteca quitada: se vuelven a ver tus proveedores"); onChange() }
+                },
+                subtitle = "Borra la contraseña y la copia guardada. Vuelven los canales de tus proveedores", icon = MvIcons.Delete
+            )
         }
     }
 }

@@ -26,6 +26,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
@@ -85,7 +86,26 @@ class ProvidersRepository(
     @Volatile private var snapshotPrint = 0L
     private var snapshotJob: Job? = null
     private val _state = MutableStateFlow(LibraryState())
-    val state: StateFlow<LibraryState> = _state.asStateFlow()
+    /**
+     * 4f · Biblioteca de MiVisor Gold: si está, es la que ve TODA la app (Inicio, Canales, Agenda, reproductor), ya
+     * ordenada y verificada por Gold. Los proveedores siguen leyéndose (sus enlaces externos, su estado), pero sus
+     * canales no se enseñan mientras haya Biblioteca. Sin Biblioteca (sin contraseña o vacía), todo como siempre.
+     */
+    private val _gold = MutableStateFlow<TvLibrary?>(null)
+    val state: StateFlow<LibraryState> = kotlinx.coroutines.flow.combine(_state, _gold) { s, g ->
+        if (g == null || g.isEmpty) s
+        else s.copy(library = TvLibrary(g.channels, g.sections, g.providerCount, s.library.links, gold = true), loadedOnce = true, loading = false)
+    }.stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, LibraryState())
+
+    /** 4f · La pone (o la quita, con null) el repositorio de la Biblioteca de MiVisor Gold. */
+    fun setGoldLibrary(lib: TvLibrary?) { _gold.value = lib }
+
+    /** 4f · ¿Se está enseñando la Biblioteca de MiVisor Gold en vez de los canales de los proveedores? */
+    val showingGold: Boolean get() = _gold.value?.isEmpty == false
+
+    /** 4f · Logos: el resolvedor actual y cada vez que cambia (la Biblioteca de Gold vuelve a poner sus logos). */
+    private val _logos = MutableStateFlow<ChannelLogoResolver?>(null)
+    val logoResolver: StateFlow<ChannelLogoResolver?> = _logos.asStateFlow()
     private var loadJob: Job? = null
     /** Últimos catálogos leídos: para volver a montar la biblioteca cuando llegan logos nuevos sin releer nada. */
     @Volatile private var lastCatalogs: List<ProviderCatalog> = emptyList()
@@ -177,7 +197,7 @@ class ProvidersRepository(
         // 3f · Los logos NUNCA retrasan los canales: se usa lo que hay en disco y, si toca descargar el catálogo o la
         // lista de picons, se hace después y la biblioteca se vuelve a montar al llegar (ver [refreshLogos]).
         val logoResolver = resolver
-            ?: runCatching { logos.cached() }.getOrNull()?.also { resolver = it }
+            ?: runCatching { logos.cached() }.getOrNull()?.also { resolver = it; _logos.value = it }
             ?: ChannelLogoResolver(LogoCatalog.EMPTY)
         lastCatalogs = catalogs
         // 3g · Si lo leído es igual que lo que ya está montado (lo normal al abrir la app), no se vuelve a montar.
@@ -216,6 +236,7 @@ class ProvidersRepository(
             if (!needed) return@launch
             val r = withContext(Dispatchers.IO) { runCatching { logos.load(logoUrl()) }.getOrNull() } ?: return@launch
             resolver = r
+            _logos.value = r
             relogo(r)
         }
     }
@@ -273,6 +294,7 @@ class ProvidersRepository(
             if (!changed || lastCatalogs.isEmpty()) return@launch
             val r = withContext(Dispatchers.IO) { runCatching { logos.load(logoUrl()) }.getOrNull() } ?: return@launch
             resolver = r
+            _logos.value = r
             relogo(r)
         }
     }

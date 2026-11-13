@@ -127,7 +127,25 @@ fun PlayerScreen(
     val lib by graph.providers.state.collectAsState()
     val mine by graph.mylist.state.collectAsState()
     // 3n · Un ID abierto a mano (Ajustes › Abrir un ID) no está en la biblioteca: canal suelto con esa única fuente.
-    val channel = lib.library.channel(route.channelId) ?: remember(route.channelId) { directChannel(graph, route.channelId) }
+    // 4h · Al abrir un ID suelto, su nombre se saca del descriptor (cuando el motor lo recibe) y se apunta en el historial.
+    var directNamed by remember(route.channelId) { mutableIntStateOf(0) }
+    val channel = lib.library.channel(route.channelId) ?: remember(route.channelId, directNamed) { directChannel(graph, route.channelId) }
+    val directCid = remember(route.channelId) { com.mivisor.tv.catalog.datos.DirectStream.contentIdOf(route.channelId) }
+    if (directCid != null) {
+        LaunchedEffect(directCid, ui.stage, ui.phase) {
+            // Solo cuando el motor ya resolvió ESTE intento (si no, la línea del descriptor podría ser de otro canal).
+            val resolved = ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.PEERS ||
+                ui.stage == com.mivisor.tv.playback.PlaybackController.LoadStage.BUFFERING || ui.phase == Phase.PLAYING
+            if (!resolved) return@LaunchedEffect
+            val title = com.mivisor.tv.catalog.datos.DirectStream.titleOfDescriptorLine(com.mivisor.tv.engine.EngineDiagnostics.vias.descriptor)
+                ?: return@LaunchedEffect
+            com.mivisor.tv.catalog.datos.DirectStream.nameRecent(graph.prefs.directRecent, directCid, title)?.let {
+                graph.prefs.directRecent = it
+                graph.log.add("Abrir un ID", "${com.mivisor.tv.catalog.datos.DirectStream.short(directCid)}: nombre del canal según su descriptor: «$title»")
+                directNamed++
+            }
+        }
+    }
     var controls by remember { mutableStateOf(false) }
     val form = com.mivisor.tv.ui.design.LocalUiForm.current
     var shownOnce by remember(route) { mutableStateOf(false) }
@@ -376,7 +394,8 @@ fun PlayerScreen(
                 },
                 detail = listOfNotNull(
                     sourceTag?.let { "Fuente ${ui.sourceIndex} de ${ui.sourceCount}" },
-                    ui.provider,
+                    // 4f · Biblioteca de Gold: en qué calidad se va a ver (medida por Gold en el vídeo real).
+                    if (channel.sources.any { it.gold != null }) ui.quality ?: ui.provider else ui.provider,
                     graph.sources.typicalStart(channel.sources.map { it.contentId })?.let { "suele tardar ~$it s" }
                 ).joinToString(" · ").ifEmpty { null }
             ) {
@@ -470,10 +489,14 @@ fun PlayerScreen(
                     Panel.INFO -> InfoTab(channel, ui, liveEvent, delayMs)
                     Panel.SOURCES -> {
                         ui.sources.forEachIndexed { i, r ->
-                            val (label, color) = stateLabel(r.state)
+                            // 4f · Biblioteca de MiVisor Gold: el color es su banda (la app no puntúa esas fuentes).
+                            val (label, color) = r.band?.let { goldBandLabel(it) } ?: stateLabel(r.state)
                             PanelRow(
                                 title = "Fuente ${r.index}" + (if (r.current) " · viendo ahora" else ""),
-                                subtitle = listOfNotNull(r.provider, r.quality, if (r.tried && !r.current) "probada en este intento" else null).joinToString(" · "),
+                                subtitle = listOfNotNull(
+                                    r.provider, r.quality, if (r.onTrial) "a prueba: acaba de volver" else null,
+                                    if (r.tried && !r.current) "probada en este intento" else null
+                                ).joinToString(" · "),
                                 trailing = label, trailingColor = color, selected = r.current,
                                 focusRequester = if (i == 0) panelFocus else null,
                                 onLongClick = if (aceInstalled) ({
@@ -1031,6 +1054,16 @@ private fun InfoTab(channel: TvChannel, ui: com.mivisor.tv.playback.PlaybackCont
     event?.let { kv("Ahora", it.title + (it.competition?.let { c -> " · $c" } ?: "")) }
     kv("Fuente", if (ui.sourceCount > 0) "${ui.sourceIndex} de ${ui.sourceCount}" + (ui.provider?.let { " · $it" } ?: "") else "—")
     ui.quality?.let { kv("Calidad", it) }
+    // 4f · Lo que MiVisor Gold midió de esta fuente (no lo que dice el nombre del canal).
+    val gold = ui.sources.firstOrNull { it.current }?.contentId?.let { cid -> channel.sources.firstOrNull { it.contentId == cid }?.gold }
+    gold?.let { g ->
+        if (g.audios.isNotEmpty()) kv("Audio (Gold)", g.audios.joinToString(" · "))
+        g.declaredVsReal?.let { kv("Declarada", it) }
+        val nota = listOfNotNull(g.band?.let { goldBandLabel(it).first }, g.nota?.let { "$it %" }, g.checked?.let { "comprobada $it" })
+        if (nota.isNotEmpty()) kv("Gold", nota.joinToString(" · "))
+        val notes = (g.avisos + g.info).map { it.replace('_', ' ') }
+        if (notes.isNotEmpty()) kv("Avisos", notes.joinToString(" · "))
+    }
     if (ui.peers > 0) kv("Emisores", "${ui.peers}")
     delayMs?.let { kv("Retraso", "${"%.1f".format(it / 1000.0)} s respecto al directo") }
     ui.startMs?.let { kv("Arranque", "imagen en ${"%.1f".format(it / 1000.0)} s") }

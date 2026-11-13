@@ -124,11 +124,16 @@ object ChannelSeriesGrouping {
     }
 
     /** Series de una lista, en orden natural; dentro de cada una, los canales en orden natural (2 antes que 10). */
-    fun group(list: List<TvChannel>): List<ChannelSeries> =
-        list.groupBy { key(it.name) }.map { (k, chs) ->
-            val sorted = chs.sortedWith(compareBy(NaturalOrder) { it.name })
+    fun group(list: List<TvChannel>): List<ChannelSeries> {
+        // 4f · Canales de MiVisor Gold: su «orden» manda (dentro de la serie y entre series, por el primero de cada una).
+        val ordered = list.isNotEmpty() && list.all { it.orden != null }
+        val series = list.groupBy { key(it.name) }.map { (k, chs) ->
+            val sorted = TvLibrary.sorted(chs)
             // Nombre: el más corto sin número de la serie (prefiere «M+ LaLiga» a «Movistar LaLiga»).
             val name = sorted.map { baseName(it.name) }.minByOrNull { it.length } ?: k
             ChannelSeries(k, name, sorted)
-        }.sortedWith(compareBy(NaturalOrder) { it.name })
+        }
+        return if (ordered) series.sortedBy { s -> s.channels.minOf { it.orden ?: Int.MAX_VALUE } }
+        else series.sortedWith(compareBy(NaturalOrder) { it.name })
+    }
 }

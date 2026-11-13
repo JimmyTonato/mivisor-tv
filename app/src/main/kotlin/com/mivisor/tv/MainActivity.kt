@@ -11,6 +11,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.mivisor.tv.catalog.Codes
+import com.mivisor.tv.catalog.datos.DirectStream
 import com.mivisor.tv.data.NetState
 import com.mivisor.tv.outpace.EngineManager
 import com.mivisor.tv.ui.AppRoot
@@ -28,9 +29,12 @@ class MainActivity : ComponentActivity() {
         enterImmersiveMode()
         pendingCode = codeFrom(intent)
         if (savedInstanceState == null) graph.start()
+        // 4h · Abierta desde un enlace acestream:// (otra app o el navegador): directa al reproductor.
+        val direct = if (savedInstanceState == null) directFrom(intent) else null
         setContent {
             val start = when {
                 pendingCode != null -> Route.AddProvider(pendingCode)
+                direct != null -> direct
                 !graph.prefs.wizardDone -> Route.Wizard
                 // Ajustes › Pantalla › «Al abrir MiVisor» (3d).
                 graph.prefs.startScreen == "agenda" -> Route.Agenda
@@ -54,6 +58,7 @@ class MainActivity : ComponentActivity() {
         EngineManager.cancelBackgroundStop()
         NetState.start(this)
         graph.reminders.startTicker()
+        graph.gold.startTicker()
         graph.warp.startListening()
         lifecycleScope.launch { runCatching { graph.warp.refresh() } }
     }
@@ -67,6 +72,7 @@ class MainActivity : ComponentActivity() {
         if (nav?.current is Route.Player) nav?.back()
         graph.warp.stopListening()
         graph.reminders.stopTicker()
+        graph.gold.stopTicker()
         NetState.stop(this)
         EngineManager.onBackground(this)
         super.onStop()
@@ -81,6 +87,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         codeFrom(intent)?.let { nav?.go(Route.AddProvider(it)) }
+        directFrom(intent)?.let { nav?.go(it) }
     }
 
     /**
@@ -129,6 +136,21 @@ class MainActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.systemBars())
         }
+    }
+
+    /**
+     * 4h · acestream://<ID> (o cualquier enlace de ese tipo con el ID dentro): se apunta en el historial de «Abrir un
+     * ID» (el nombre llega luego del descriptor) y se abre en el reproductor con el motor de MiVisor TV.
+     */
+    private fun directFrom(intent: Intent?): Route.Player? {
+        val data = intent?.data ?: return null
+        if (!data.scheme.equals("acestream", ignoreCase = true)) return null
+        val cid = DirectStream.parse(data.toString()) ?: return null
+        graph.prefs.directRecent = graph.prefs.directRecent.firstOrNull { it.substringBefore('\t') == cid }.let { old ->
+            listOf(old ?: (cid + "\t")) + graph.prefs.directRecent.filter { it.substringBefore('\t') != cid }
+        }
+        graph.log.add("Abrir un ID", "Se abre " + DirectStream.short(cid) + " desde un enlace acestream:// de otra app")
+        return Route.Player(DirectStream.channelId(cid))
     }
 
     private fun codeFrom(intent: Intent?): String? {

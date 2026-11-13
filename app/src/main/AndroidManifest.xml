@@ -62,6 +62,14 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="mivisor" />
             </intent-filter>
+            <!-- 4h · Enlaces de Ace Stream (acestream://ID): MiVisor TV sale en la lista de «Abrir con», junto a Ace
+                 Stream y otros reproductores, y abre el ID con su motor (como Ajustes › Abrir un ID). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="acestream" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>

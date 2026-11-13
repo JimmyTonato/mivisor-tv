@@ -116,7 +116,13 @@ class Diagnostics(private val graph: AppGraph) {
             ace = if (ExternalApps.aceInstalled(app)) "instalada" else "no instalada",
             warp = warpText(),
             providers = "${lib.providers.size} · ${lib.library.channels.size} canales · códigos ocultos" +
-                lib.providers.count { it.error != null }.let { if (it > 0) " · $it con error" else "" },
+                lib.providers.count { it.error != null }.let { if (it > 0) " · $it con error" else "" } +
+                // 4f · Biblioteca de MiVisor Gold (nunca la contraseña).
+                graph.gold.state.value.let { g ->
+                    if (!g.configured) " · Biblioteca Gold: no"
+                    else " · Biblioteca Gold: rev. ${g.revision}, ${g.channels} canales, ${g.ids} IDs" +
+                        (if (lib.library.gold) " (en pantalla)" else "") + (g.error?.let { " · $it" } ?: "")
+                },
             agenda = agenda.agenda?.let { "generada ${hm.format(Date(it.generatedAt))} · descargada ${hm.format(Date(agenda.fetchedAt))}" + if (agenda.offline) " · copia guardada" else "" }
                 ?: (agenda.error ?: "sin agenda"),
             quarantined = graph.sources.resting().size,

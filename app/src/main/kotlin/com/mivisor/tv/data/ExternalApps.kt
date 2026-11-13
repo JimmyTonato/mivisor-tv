@@ -28,8 +28,15 @@ object ExternalApps {
 
     /** Abre el Content ID en Ace Stream. Devuelve null si va bien o el motivo. */
     fun openInAce(context: Context, contentId: String): String? = try {
-        context.startActivity(aceIntent(contentId))
-        null
+        // 4h · MiVisor TV también abre acestream:// (sale en «Abrir con»): el intent va dirigido a la app de Ace
+        // Stream (o la primera otra que lo abra), nunca de vuelta a MiVisor TV.
+        val handlers = aceHandlers(context)
+        val pkg = handlers.firstOrNull { it.startsWith("org.acestream") } ?: handlers.firstOrNull()
+        if (pkg == null) "Ace Stream no está instalada en esta tele"
+        else {
+            context.startActivity(aceIntent(contentId).setPackage(pkg))
+            null
+        }
     } catch (e: ActivityNotFoundException) {
         "Ace Stream no está instalada en esta tele"
     } catch (e: SecurityException) {

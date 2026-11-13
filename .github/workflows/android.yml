@@ -78,6 +78,8 @@ jobs:
           # 0007: pregunta al catálogo por la emisión ACTUAL del descriptor (/checktorrent), como Ace Stream oficial.
           # 0008: canales H.264 sin IDR (TV entrelazada): SPS + corte I también es punto de entrada para el HLS.
           # 0009: el estado de la sesión dice los bytes de vídeo recibidos y la velocidad (para explicar las esperas).
+          # 0010: abrir con un descriptor ya descargado (tf-<base64url>) que publica MiVisor Gold, sin pedirlo al catálogo.
+          # 0011: huella (SHA-1) del descriptor en el registro, para comparar el del catálogo con el publicado por Gold.
           for p in "$GITHUB_WORKSPACE"/tools/outpace-patches/*.patch; do
             git apply --check "$p"
             git apply "$p"
@@ -96,6 +98,7 @@ jobs:
           cargo test -q -p ace-swarm --lib mivisor_
           cargo test -q -p ace-wire --lib mivisor_
           cargo test -q -p ace-media --lib mivisor_
+          cargo test -q -p ace-engine --lib mivisor_
 
       - name: Compilar Outpace (ARM64 + ARMv7)
         shell: bash

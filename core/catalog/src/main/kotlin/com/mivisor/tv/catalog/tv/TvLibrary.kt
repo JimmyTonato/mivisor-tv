@@ -42,7 +42,31 @@ class TvSource(
     /** 0 desconocida, 1 SD, 2 HD, 3 FHD, 4 4K (para el desempate de la fiabilidad). */
     val quality: Int,
     val qualityLabel: String?,
-    val variantName: String
+    val variantName: String,
+    /** 4f · Datos de MiVisor Gold (verificación, descriptor…); null en las fuentes de proveedores. */
+    val gold: GoldSourceInfo? = null
+)
+
+/**
+ * 4f · Lo que MiVisor Gold sabe de un ID: ya verificado y ordenado allí. La app no lo recalcula: lo enseña (banda,
+ * calidad, «a prueba») y usa el descriptor y la emisión para abrir más rápido.
+ */
+class GoldSourceInfo(
+    /** «verde» (≥70), «medio» (30–69) o «rojo» (<30); null = sin comprobar todavía. */
+    val band: String?,
+    val nota: Int?,
+    val onTrial: Boolean,
+    val firstPieceS: Double?,
+    val checked: String?,
+    val descriptorB64: String?,
+    /** SHA-1 de los bytes del descriptor publicado (para compararlo con el que dé el catálogo). */
+    val descriptorSha1: String?,
+    val emision: String?,
+    val avisos: List<String>,
+    val info: List<String>,
+    /** «AAC estéreo (spa)»… para enseñarlo; los idiomas los elige el reproductor con las pistas reales. */
+    val audios: List<String>,
+    val declaredVsReal: String?
 )
 
 /** Un canal tal como lo ve el usuario ("DAZN LaLiga"), con todas sus fuentes de todos los proveedores. */
@@ -57,7 +81,9 @@ class TvChannel(
     /** Logo real (3c): el del canal o, si no tiene, el de su grupo. null = se pinta el rótulo de texto. */
     val logo: String? = null,
     /** Tipo (deportes, cine…) según el catálogo de logos o el nombre. */
-    val category: com.mivisor.tv.catalog.logos.ChannelCategory? = null
+    val category: com.mivisor.tv.catalog.logos.ChannelCategory? = null,
+    /** 4f · Posición que da MiVisor Gold («orden»): se muestra así, sin otros criterios. null = proveedores. */
+    val orden: Int? = null
 ) {
     /** Familia del diseño 06 (Fútbol, Motor, Deportes…). */
     val family: ChannelFamily by lazy { ChannelFamilies.of(name, category) }
@@ -79,7 +105,9 @@ class TvLibrary(
     val channels: List<TvChannel>,
     val sections: List<TvSection>,
     val providerCount: Int,
-    val links: List<TvLink> = emptyList()
+    val links: List<TvLink> = emptyList(),
+    /** 4f · Viene de la Biblioteca de MiVisor Gold (ya ordenada y verificada), no de los proveedores. */
+    val gold: Boolean = false
 ) {
     private val byId = channels.associateBy { it.id }
     fun channel(id: String): TvChannel? = byId[id]
@@ -132,8 +160,13 @@ class TvLibrary(
             return ChannelFamily.values().mapNotNull { f -> counts[f]?.let { f to it } }
         }
 
-        /** Canales en orden natural («DAZN 2» antes que «DAZN 10»). */
-        fun sorted(list: List<TvChannel>): List<TvChannel> = list.sortedWith(compareBy(NaturalOrder) { it.name })
+        /**
+         * Canales en orden natural («DAZN 2» antes que «DAZN 10»). 4f · Los de MiVisor Gold, por su «orden» y sin más
+         * criterios (el orden ya lo decidió Gold).
+         */
+        fun sorted(list: List<TvChannel>): List<TvChannel> =
+            if (list.isNotEmpty() && list.all { it.orden != null }) list.sortedBy { it.orden }
+            else list.sortedWith(compareBy(NaturalOrder) { it.name })
 
         fun build(providers: List<ProviderCatalog>, resolver: ChannelLogoResolver = ChannelLogoResolver(LogoCatalog.EMPTY)): TvLibrary {
             if (providers.isEmpty()) return EMPTY
@@ -163,15 +196,15 @@ class TvLibrary(
          * los logos de los canales YA agrupados, sin leer ni agrupar otra vez (que es lo caro en una tele modesta).
          */
         fun relogo(lib: TvLibrary, resolver: ChannelLogoResolver): TvLibrary {
-            if (lib.isEmpty) return lib
+            if (lib.isEmpty || lib.gold) return lib   // 4f · la de Gold se monta en GoldLibrary con sus logos
             val channels = lib.channels.map { c ->
                 val logo = resolver.resolve(c.name)
-                TvChannel(c.id, c.name, logo.groupKey, logo.groupName, c.sources, c.initials, logo.best, logo.category)
+                TvChannel(c.id, c.name, logo.groupKey, logo.groupName, c.sources, c.initials, logo.best, logo.category, c.orden)
             }
             val sections = LogoSections.build(channels, resolver, name = { it.name }, listGroup = { null }).map { sec ->
                 TvSection(sec.key ?: "otros", sec.name, sec.items.map { it.first }, sec.logo.groupLogo)
             }
-            return TvLibrary(channels, sections, lib.providerCount, lib.links)
+            return TvLibrary(channels, sections, lib.providerCount, lib.links, lib.gold)
         }
 
         /**

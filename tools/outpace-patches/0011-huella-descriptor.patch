@@ -1,0 +1,29 @@
+diff --git a/crates/ace-swarm/src/resolve.rs b/crates/ace-swarm/src/resolve.rs
+index d3fd61f..ede8be8 100644
+--- a/crates/ace-swarm/src/resolve.rs
++++ b/crates/ace-swarm/src/resolve.rs
+@@ -332,6 +332,12 @@ pub async fn transport_bytes_via_peer<S: AsyncRead + AsyncWrite + Unpin>(
+ /// engine verification but does not establish server-only authenticity; see protocol note 62.
+ pub async fn resolve_via_catalog(content_id: &str) -> Result<StreamInfo, ResolveError> {
+     let bytes = catalog_transport_bytes(content_id).await?;
++    // MiVisor (parche 0011): huella del descriptor que da el catálogo, para que la app compare con el que
++    // publicó MiVisor Gold (si es el mismo y no funcionó, no hace falta insistir con él).
++    eprintln!(
++        "outpace: [mivisor] descriptor sha1={} origen=catalogo",
++        hex::encode(transport_file_hash(&bytes))
++    );
+     let mut info = stream_info_from_transport(&bytes)?;
+     // MiVisor (parche 0007): emisiones «permanentes». El descriptor sigue siendo el mismo aunque el
+     // emisor reinicie, pero cada reinicio es una emisión nueva con otro infohash: el calculado del
+@@ -364,6 +370,11 @@ pub async fn stream_info_from_inline_transport(bytes: &[u8]) -> Result<StreamInf
+     if bytes.is_empty() || bytes.len() > MAX_INLINE_TRANSPORT {
+         return Err(ResolveError::Transport("inline transport size"));
+     }
++    // MiVisor (parche 0011): huella del descriptor publicado.
++    eprintln!(
++        "outpace: [mivisor] descriptor sha1={} origen=publicado",
++        hex::encode(transport_file_hash(bytes))
++    );
+     let mut info = stream_info_from_transport(bytes)?;
+     match catalog_current_infohash(bytes).await {
+         Some(current) if current != info.infohash => {

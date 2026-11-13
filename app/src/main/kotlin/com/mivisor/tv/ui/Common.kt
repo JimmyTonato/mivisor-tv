@@ -79,6 +79,8 @@ fun MvTextField(
     placeholder: String = "",
     keyboard: KeyboardType = KeyboardType.Text,
     focusRequester: FocusRequester? = null,
+    /** 4f · Oculta lo escrito (contraseñas). */
+    password: Boolean = false,
     onDone: () -> Unit = {}
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -100,7 +102,8 @@ fun MvTextField(
                 singleLine = true,
                 textStyle = MvType.Body,
                 cursorBrush = SolidColor(MvColors.Accent2),
-                keyboardOptions = KeyboardOptions(keyboardType = keyboard, imeAction = ImeAction.Done),
+                keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else keyboard, imeAction = ImeAction.Done),
+                visualTransformation = if (password) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
                 keyboardActions = KeyboardActions(onDone = { ime?.hide(); onDone() }),
                 modifier = Modifier.fillMaxWidth()
                     .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)

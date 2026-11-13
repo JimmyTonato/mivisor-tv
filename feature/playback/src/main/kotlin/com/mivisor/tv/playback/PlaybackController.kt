@@ -25,6 +25,7 @@ import com.mivisor.tv.engine.EngineStatus
 import com.mivisor.tv.engine.EngineSupervisor
 import com.mivisor.tv.engine.LiveDelayController
 import com.mivisor.tv.engine.LoadInsight
+import com.mivisor.tv.engine.EngineKeys
 import com.mivisor.tv.engine.TsProbe
 import com.mivisor.tv.outpace.EngineManager
 import com.mivisor.tv.reliability.FailureKind
@@ -74,7 +75,10 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         val quality: String?,
         val state: SourceState,
         val current: Boolean,
-        val tried: Boolean
+        val tried: Boolean,
+        /** 4f · Banda de MiVisor Gold («verde», «medio», «rojo») para el color; null = sin dato de Gold. */
+        val band: String? = null,
+        val onTrial: Boolean = false
     )
 
     data class TrackOption(
@@ -171,6 +175,11 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     private val directKnown = mutableSetOf<String>()
     /** 4e · Llega vídeo de la fuente que se está probando (lo dice [LoadInsight]). */
     @Volatile private var receivingVideo = false
+    /**
+     * 4f · Desde cuándo (elapsedRealtime) se está comprobando en el catálogo el descriptor de un ID de MiVisor Gold que
+     * no funcionó con el descriptor publicado. 0 = no se está comprobando.
+     */
+    private var verifyingDescriptorSince = 0L
     private var recentReloads = ArrayDeque<Long>()
     /** Tras un salto propio dentro de lo descargado, un buffering breve no cuenta como corte. */
     private var jumpGraceUntil = 0L
@@ -520,6 +529,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         generation++
         val gen = generation
         currentSource = src
+        verifyingDescriptorSince = 0
         recoverStep = 0
         audioApplied = false
         attemptStartedAt = SystemClock.elapsedRealtime()
@@ -629,10 +639,37 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                 when (_ui.value.phase) {
                     Phase.TRYING -> {
                         val elapsed = SystemClock.elapsedRealtime() - attemptStartedAt
-                        val limit = StartPolicy.switchAfter(book.autoSwitchAfterMs())
-                        StartPolicy.earlyFailure(elapsed, sawStatus, maxPeers, limit)?.let { kind ->
-                            failed(lastStartError ?: kind, "${elapsed / 1000} s sin imagen · emisores máx. $maxPeers")
-                            return@launch
+                        val limit = startLimit(src)
+                        // 4f · Comprobando en el catálogo el descriptor de un ID de Gold que no funcionó.
+                        if (verifyingDescriptorSince > 0) {
+                            val sha = EngineDiagnostics.lastCatalogDescriptorSha1
+                            val waited = SystemClock.elapsedRealtime() - verifyingDescriptorSince
+                            when {
+                                sha != null && src.descriptorSha1 != null && sha == src.descriptorSha1.lowercase() -> {
+                                    verifyingDescriptorSince = 0
+                                    failed(lastStartError ?: FailureKind.NO_VIDEO, "el catálogo da el MISMO descriptor que publicó MiVisor Gold y no funcionó: se pasa al siguiente")
+                                    return@launch
+                                }
+                                sha != null -> {
+                                    verifyingDescriptorSince = 0
+                                    book.log("Fuente", "${mask(src.contentId)}: el catálogo da un descriptor DISTINTO al publicado · se prueba con el del catálogo")
+                                }
+                                waited > DESCRIPTOR_CHECK_MS && maxPeers == 0 -> {
+                                    verifyingDescriptorSince = 0
+                                    failed(lastStartError ?: FailureKind.NOT_FOUND, "no se pudo comprobar el descriptor en el catálogo: se pasa al siguiente")
+                                    return@launch
+                                }
+                                waited > DESCRIPTOR_CHECK_MS -> verifyingDescriptorSince = 0   // ya hay emisores: se sigue con el catálogo
+                            }
+                        }
+                        val timedOut = StartPolicy.earlyFailure(elapsed, sawStatus, maxPeers, limit)
+                        if (timedOut != null) {
+                            // 4f · ID de Gold que no dio imagen con el descriptor publicado: antes de pasar al siguiente,
+                            // se pide al catálogo y se compara (si es el mismo, al siguiente; si es otro, se prueba).
+                            if (!fallbackToCatalog(src, "${elapsed / 1000} s sin imagen con el descriptor publicado")) {
+                                failed(lastStartError ?: timedOut, "${elapsed / 1000} s sin imagen · emisores máx. $maxPeers")
+                                return@launch
+                            }
                         }
                         // 3i · Si la primera fuente tarda, se calienta YA la siguiente en el motor: si hay que cambiar
                         // (sola al minuto o con «Probar otra fuente»), ya lleva un rato buscando emisores.
@@ -753,6 +790,9 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     private fun retryStart(kind: String, detail: String) {
         val src = currentSource ?: return
         val base = baseUrl ?: return
+        // 4f · Si se abría con el descriptor publicado por MiVisor Gold y falla, se vuelve al camino de siempre
+        // (el motor pide el descriptor al catálogo). Esa vuelta no cuenta como fallo de la fuente.
+        if (fallbackToCatalog(src, detail)) return
         lastStartError = kind
         book.log("Fuente", "${mask(src.contentId)}: $detail al arrancar · se reintenta la misma fuente")
         val gen = generation
@@ -928,6 +968,45 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         scope.launch(Dispatchers.IO) { EngineApi.stop(base, contentId) }
     }
 
+    /**
+     * 4f · Un ID de MiVisor Gold no funcionó con el descriptor publicado (error al arrancar o sin imagen a tiempo).
+     * No se quita el camino de siempre: se vuelve a abrir el MISMO ID con «cid:» (el motor pide el descriptor al
+     * catálogo con su lista de servidores) y el monitor compara la huella del descriptor del catálogo con la del
+     * publicado. Si es el mismo, no se insiste: al siguiente ID. Si es otro, se prueba con él. false = no aplicaba.
+     */
+    private fun fallbackToCatalog(src: PlaySource, why: String): Boolean {
+        if (!src.fixedOrder || !EngineKeys.usingInline(src.contentId)) return false
+        val base = baseUrl ?: return false
+        val p = player ?: return false
+        val oldKey = EngineApi.key(src.contentId)
+        EngineKeys.dropInline(src.contentId)
+        EngineDiagnostics.resetCatalogDescriptor()
+        book.log("Fuente", "${mask(src.contentId)}: $why · se pide el descriptor al catálogo para compararlo")
+        scope.launch(Dispatchers.IO) { EngineApi.stopKey(base, oldKey) }
+        val now = SystemClock.elapsedRealtime()
+        verifyingDescriptorSince = now
+        attemptStartedAt = now          // ventana nueva para el camino del catálogo
+        lastStartError = null
+        _ui.value = _ui.value.copy(message = "Comprobando el canal en el catálogo…")
+        p.stop()
+        p.setMediaItem(mediaItemFor(base, src.contentId))
+        p.prepare()
+        p.play()
+        return true
+    }
+
+    /**
+     * 4f · Tiempo sin imagen hasta pasar SOLA a la siguiente fuente. Las de MiVisor Gold ya vienen verificadas y
+     * ordenadas: si ids[0] no da imagen en [GOLD_SWITCH_MS], se pasa a ids[1] sin preguntar (si está llegando vídeo,
+     * se deja antes acabar el plan B). Con una sola fuente, o con «nunca» en Ajustes, lo de siempre.
+     */
+    private fun startLimit(src: PlaySource): Long {
+        val setting = book.autoSwitchAfterMs()
+        val usual = StartPolicy.switchAfter(setting)
+        if (!src.fixedOrder || setting <= 0 || cycle?.peekNext() == null) return usual
+        return if (receivingVideo) (DIRECT_AFTER_SECS + 20) * 1000L else GOLD_SWITCH_MS
+    }
+
     private fun rows(): List<SourceRow> {
         val req = request ?: return emptyList()
         val c = cycle ?: return emptyList()
@@ -935,7 +1014,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             val s = req.sources.firstOrNull { it.contentId == cid } ?: return@mapIndexedNotNull null
             SourceRow(
                 i, cid, "Fuente ${i + 1}", s.providerName, s.qualityLabel, book.state(cid),
-                current = cid == currentSource?.contentId, tried = c.wasTried(cid)
+                current = cid == currentSource?.contentId, tried = c.wasTried(cid), band = s.band, onTrial = s.onTrial
             )
         }
     }
@@ -1165,6 +1244,10 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         const val NEXT_WARM_AFTER_MS = 5_000L
         /** 4e · Segundos llegando vídeo sin imagen antes de pasar al plan B (vídeo directo). */
         const val DIRECT_AFTER_SECS = 15
+        /** 4f · Fuentes de MiVisor Gold: sin imagen en este tiempo, a la siguiente (el contrato pide 15–20 s). */
+        const val GOLD_SWITCH_MS = 20_000L
+        /** 4f · Tiempo para conseguir del catálogo la huella del descriptor y compararla con la publicada. */
+        const val DESCRIPTOR_CHECK_MS = 12_000L
         /** 4e · Caja negra: cuándo se mira el vídeo y cuánto (como mucho). */
         const val SAMPLE_AFTER_SECS = 8
         const val SAMPLE_BYTES = 3 * 1024 * 1024

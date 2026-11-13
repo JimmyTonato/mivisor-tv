@@ -68,6 +68,12 @@ class SourceBookImpl(
     }
 
     override fun order(channelId: String, sources: List<PlaySource>, chosen: String?): List<String> {
+        // 4f · Biblioteca de MiVisor Gold: el orden ya viene decidido (ids[0] es el mejor) y no se toca. Solo una
+        // fuente elegida a mano va delante.
+        if (sources.isNotEmpty() && sources.all { it.fixedOrder }) {
+            val cids = sources.map { it.contentId }.distinct()
+            return if (chosen != null && chosen in cids) listOf(chosen) + cids.filter { it != chosen } else cids
+        }
         val remembered = runCatching { db.rememberedSource(channelId) }.getOrNull()
         val cids = sources.map { it.contentId }
         val quality = sources.associate { it.contentId to it.quality }

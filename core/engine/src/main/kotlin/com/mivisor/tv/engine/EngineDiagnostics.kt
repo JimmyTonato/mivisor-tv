@@ -192,7 +192,19 @@ object EngineDiagnostics {
         }
     }
 
+    /**
+     * 4f · Huella (SHA-1) del último descriptor que el motor recibió DEL CATÁLOGO (parche 0011). La usa el
+     * reproductor para saber si el catálogo da el mismo descriptor que publicó MiVisor Gold.
+     */
+    @Volatile var lastCatalogDescriptorSha1: String? = null
+        private set
+
+    fun resetCatalogDescriptor() { lastCatalogDescriptorSha1 = null }
+
+    private val CATALOG_SHA1 = Regex("""\[mivisor] descriptor sha1=([0-9a-fA-F]{40}) origen=catalogo""")
+
     fun engineLine(raw: String) {
+        CATALOG_SHA1.find(raw)?.let { lastCatalogDescriptorSha1 = it.groupValues[1].lowercase() }
         if ("[mivisor] " in raw || "[ace] upstream attempt:" in raw || "[portmap] " in raw || "[reachability] " in raw)
             vias = parseVia(vias, raw)
         if (!enabled) return

@@ -9,7 +9,18 @@ class PlaySource(
     val providerName: String,
     /** 0 desconocida, 1 SD, 2 HD, 3 FHD, 4 4K. */
     val quality: Int,
-    val qualityLabel: String?
+    val qualityLabel: String?,
+    /**
+     * 4f · Viene de la Biblioteca de MiVisor Gold: el orden ya lo decidió Gold (ids[0] es el mejor) y la app lo
+     * respeta tal cual; si en ~20 s no hay imagen, pasa sola a la siguiente.
+     */
+    val fixedOrder: Boolean = false,
+    /** 4f · Banda de Gold para el color: «verde», «medio», «rojo»; null = sin comprobar. */
+    val band: String? = null,
+    /** 4f · «A prueba»: acaba de volver tras dar imagen otra vez (válida; se enseña con un aviso discreto). */
+    val onTrial: Boolean = false,
+    /** 4f · SHA-1 del descriptor publicado por Gold, para compararlo con el del catálogo si no funciona. */
+    val descriptorSha1: String? = null
 )
 
 /** Lo que se pide reproducir. [channelId] es estable entre lecturas de los proveedores. */

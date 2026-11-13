@@ -144,7 +144,9 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
     val onlineIds by androidx.compose.runtime.produceState(emptySet<String>(), library) {
         while (true) {
             value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                library.channels.filter { ch -> graph.sources.online(ch.sources.map { it.contentId }) }.map { it.id }.toSet()
+                // 4f · Biblioteca de MiVisor Gold: «en línea» = algún ID en banda verde según Gold (la app no puntúa).
+                if (library.gold) library.channels.filter { ch -> ch.sources.any { it.gold?.band == "verde" } }.map { it.id }.toSet()
+                else library.channels.filter { ch -> graph.sources.online(ch.sources.map { it.contentId }) }.map { it.id }.toSet()
             }
             delay(60_000)
         }

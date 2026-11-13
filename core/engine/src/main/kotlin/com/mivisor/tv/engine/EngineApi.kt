@@ -27,7 +27,11 @@ object EngineApi {
     /** Cierra la sesión en el motor (antes de probar otra fuente o al salir). 404 = ya no existía. */
     fun stop(baseUrl: String, contentId: String): Boolean = request("DELETE", "$baseUrl/streams/ace/${key(contentId)}", 1_500).first in listOf(204, 404)
 
-    fun key(contentId: String) = "cid:" + contentId.trim().lowercase()
+    /** 4f · Cierra la sesión de una clave concreta (la «tf-…» que se deja de usar). */
+    fun stopKey(baseUrl: String, key: String): Boolean = request("DELETE", "$baseUrl/streams/ace/$key", 1_500).first in listOf(204, 404)
+
+    /** 4f · «cid:<id>» o, si MiVisor Gold publicó su descriptor, «tf-…» ([EngineKeys]). */
+    fun key(contentId: String) = EngineKeys.keyFor(contentId)
 
     private fun request(method: String, url: String, timeoutMs: Int): Pair<Int, String?> {
         var c: HttpURLConnection? = null

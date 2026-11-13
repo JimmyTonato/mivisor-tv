@@ -48,12 +48,20 @@ import com.mivisor.tv.ui.design.SectionHeader
 import com.mivisor.tv.ui.design.TvClickable
 import com.mivisor.tv.ui.hhmm
 
-fun TvChannel.request(): PlayRequest =
-    PlayRequest(id, name, sources.map { PlaySource(it.contentId, it.providerId, it.providerName, it.quality, it.qualityLabel) })
+fun TvChannel.request(): PlayRequest = PlayRequest(id, name, playSources())
+
+/** 4f · Las fuentes del canal para el reproductor; las de MiVisor Gold llevan su orden fijo y su banda. */
+fun TvChannel.playSources(): List<PlaySource> = sources.map {
+    PlaySource(it.contentId, it.providerId, it.providerName, it.quality, it.qualityLabel,
+        fixedOrder = it.gold != null, band = it.gold?.band, onTrial = it.gold?.onTrial == true, descriptorSha1 = it.gold?.descriptorSha1)
+}
 
 fun TvChannel.subtitle(): String {
     val n = sources.size
-    val q = when (bestQuality) { 4 -> " · 4K"; 3 -> " · FHD"; 2 -> " · HD"; else -> "" }
+    // 4f · Biblioteca de Gold: la calidad del ID que se abrirá primero (ids[0]), medida por Gold en el vídeo.
+    val first = sources.firstOrNull()?.takeIf { it.gold != null }
+    val q = if (first != null) when (first.quality) { 4 -> " · 4K"; 3 -> " · Full HD"; 2 -> " · HD"; 1 -> " · SD"; else -> "" }
+    else when (bestQuality) { 4 -> " · 4K"; 3 -> " · FHD"; 2 -> " · HD"; else -> "" }
     return (if (n == 1) "1 fuente" else "$n fuentes") + q + if (multiaudio) " · Multiaudio" else ""
 }
 
@@ -65,6 +73,14 @@ fun stateLabel(s: SourceState): Pair<String, androidx.compose.ui.graphics.Color>
     SourceState.QUARANTINE -> "En cuarentena" to MvColors.Bad
     SourceState.QUARANTINE_DUE -> "Se revisará" to MvColors.Soon
     SourceState.INCOMPATIBLE -> "No compatible" to MvColors.Bad
+}
+
+/** 4f · Color y texto de la banda de MiVisor Gold (la nota la calcula Gold; aquí solo se enseña). */
+fun goldBandLabel(band: String): Pair<String, androidx.compose.ui.graphics.Color> = when (band.lowercase()) {
+    "verde" -> "Buena" to MvColors.Ok
+    "medio" -> "Con problemas" to MvColors.Soon
+    "rojo" -> "Falla" to MvColors.Bad
+    else -> "Sin comprobar" to MvColors.Text3
 }
 
 fun TvChannel.plate(): Plate = ChannelPlates.of(name, brandKey)

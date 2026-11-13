@@ -1,0 +1,105 @@
+diff --git a/crates/ace-engine/src/ace_provider/resolution.rs b/crates/ace-engine/src/ace_provider/resolution.rs
+index fd96cda..22acc99 100644
+--- a/crates/ace-engine/src/ace_provider/resolution.rs
++++ b/crates/ace-engine/src/ace_provider/resolution.rs
+@@ -135,6 +135,12 @@ impl AceProvider {
+         if let Some(content_id) = id.strip_prefix("cid:") {
+             return self.resolve_content_id(content_id).await;
+         }
++        // MiVisor (parche 0010): descriptor ya descargado dentro del id (`tf-…`).
++        if let Some(bytes) = crate::transport_url::decode_inline_transport(id) {
++            return ace_swarm::resolve::stream_info_from_inline_transport(&bytes)
++                .await
++                .map_err(|e| ProviderError::Backend(format!("inline transport: {e:?}")));
++        }
+         if let Some(url) = crate::transport_url::decode_transport_url(id) {
+             // Not recorded in the index: a transport URL is caller-supplied, and the index is
+             // shared state whose trackers the infohash does not bind (#164).
+@@ -148,7 +154,7 @@ impl AceProvider {
+                 .await;
+         }
+         Err(ProviderError::Backend(
+-            "id must be a 40-hex infohash, cid:<40hex>, or a transport-url id".into(),
++            "id must be a 40-hex infohash, cid:<40hex>, tf-<descriptor> or a transport-url id".into(),
+         ))
+     }
+ 
+diff --git a/crates/ace-engine/src/transport_url.rs b/crates/ace-engine/src/transport_url.rs
+index 8440a62..38de4ed 100644
+--- a/crates/ace-engine/src/transport_url.rs
++++ b/crates/ace-engine/src/transport_url.rs
+@@ -35,6 +35,18 @@ pub(crate) fn decode_transport_url(id: &str) -> Option<String> {
+     String::from_utf8(bytes).ok()
+ }
+ 
++/// MiVisor (parche 0010): prefijo de un descriptor que va DENTRO del id, en base64url sin relleno
++/// (`tf-<base64url(bytes AceStreamTransport)>`). Lo usa MiVisor TV con el descriptor que publica
++/// MiVisor Gold, para no pedirlo otra vez al catálogo. Como `turl-`, es un único segmento de ruta.
++const INLINE_PREFIX: &str = "tf-";
++
++/// Bytes del descriptor de un id `tf-…`; `None` si no lo es o el base64url no vale.
++pub(crate) fn decode_inline_transport(id: &str) -> Option<Vec<u8>> {
++    let b64 = id.strip_prefix(INLINE_PREFIX)?;
++    let bytes = Base64UrlUnpadded::decode_vec(b64).ok()?;
++    (!bytes.is_empty()).then_some(bytes)
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -75,4 +87,16 @@ mod tests {
+         );
+         assert_eq!(decode_transport_url("turl-@@@not-base64@@@"), None);
+     }
++
++    #[test]
++    fn mivisor_tf_descriptor_en_el_id() {
++        let bytes = b"AceStreamTransport\x00\x01datos".to_vec();
++        let id = format!("tf-{}", Base64UrlUnpadded::encode_string(&bytes));
++        assert!(!id.contains('/') && !id.contains('?') && !id.contains(':'));
++        assert_eq!(decode_inline_transport(&id), Some(bytes));
++        assert_eq!(decode_inline_transport("tf-"), None);
++        assert_eq!(decode_inline_transport("tf-***"), None);
++        assert_eq!(decode_inline_transport("cid:0123"), None);
++        assert_eq!(decode_inline_transport("turl-aHR0cHM6Ly9oL3g"), None);
++    }
+ }
+diff --git a/crates/ace-swarm/src/resolve.rs b/crates/ace-swarm/src/resolve.rs
+index aa52ef8..d3fd61f 100644
+--- a/crates/ace-swarm/src/resolve.rs
++++ b/crates/ace-swarm/src/resolve.rs
+@@ -352,6 +352,34 @@ pub async fn resolve_via_catalog(content_id: &str) -> Result<StreamInfo, Resolve
+     Ok(info)
+ }
+ 
++/// MiVisor (parche 0010): tamaño máximo de un descriptor que trae quien llama (`tf-…`).
++const MAX_INLINE_TRANSPORT: usize = 256 * 1024;
++
++/// MiVisor (parche 0010): abrir con un descriptor ya descargado (lo publica MiVisor Gold), sin
++/// pedirlo otra vez al catálogo con `/gettorrent`. Se decodifica igual que el del catálogo y se
++/// pregunta la emisión ACTUAL con `/checktorrent` (como el parche 0007), porque el descriptor
++/// puede ser «permanente» y su infohash calculado ser una emisión antigua. No se apunta en el
++/// índice de infohashes (como los descriptores por URL): lo aporta quien llama.
++pub async fn stream_info_from_inline_transport(bytes: &[u8]) -> Result<StreamInfo, ResolveError> {
++    if bytes.is_empty() || bytes.len() > MAX_INLINE_TRANSPORT {
++        return Err(ResolveError::Transport("inline transport size"));
++    }
++    let mut info = stream_info_from_transport(bytes)?;
++    match catalog_current_infohash(bytes).await {
++        Some(current) if current != info.infohash => {
++            eprintln!(
++                "outpace: [mivisor] descriptor publicado: emision actual {} (el descriptor daba {})",
++                hex::encode(current),
++                hex::encode(info.infohash)
++            );
++            info.infohash = current;
++        }
++        Some(_) => eprintln!("outpace: [mivisor] descriptor publicado: la emision del descriptor es la actual"),
++        None => eprintln!("outpace: [mivisor] descriptor publicado: checktorrent sin respuesta; se usa la del descriptor"),
++    }
++    Ok(info)
++}
++
+ /// MiVisor (parche 0007): tiempo por servidor para `/checktorrent`.
+ const CHECKTORRENT_TIMEOUT: Duration = Duration::from_secs(3);
+ 

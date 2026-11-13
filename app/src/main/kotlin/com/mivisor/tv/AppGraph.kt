@@ -29,6 +29,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import java.io.File
+import com.mivisor.tv.ui.screens.playSources
 
 /**
  * Inyección de dependencias a mano: un único grafo para toda la app (sin Hilt ni KSP).
@@ -61,6 +62,8 @@ class AppGraph(context: Context) {
         catalogDir = File(app.filesDir, "providers-catalog"))
     /** 3j · Banners de competiciones (rama banners de mivisor-datos), guardados en la memoria de la app. */
     val banners = com.mivisor.tv.data.BannerStore(app, scope, { agenda.url }, log)
+    /** 4f · Biblioteca de canales de MiVisor Gold (rama biblioteca de mivisor-datos, cifrada). */
+    val gold = com.mivisor.tv.data.GoldLibraryRepository(app, scope, { agenda.url }, providers, logos, log)
     /** 3o · Servidores del catálogo de Ace Stream (rama catalogo de mivisor-datos) para el motor. */
     val catalogHosts = com.mivisor.tv.data.CatalogHostsStore(app, scope, { agenda.url }, log)
     /** «Dónde verlo» de los eventos que no traen canales: TheSportsDB, solo al abrir el evento y con caché. */
@@ -75,7 +78,7 @@ class AppGraph(context: Context) {
     val prewarm = com.mivisor.tv.data.Prewarm(
         app, scope,
         bestSource = { ch ->
-            sources.order(ch.id, ch.sources.map { s -> com.mivisor.tv.playback.PlaySource(s.contentId, s.providerId, s.providerName, s.quality, s.qualityLabel) }, null).firstOrNull()
+            sources.order(ch.id, ch.playSources(), null).firstOrNull()
         },
         playing = { player.currentContentId() },
         enabled = { prefs.prewarm },
@@ -88,7 +91,7 @@ class AppGraph(context: Context) {
         com.mivisor.tv.data.ChannelPreview(
             app, scope,
             bestSource = { ch ->
-                sources.order(ch.id, ch.sources.map { s -> com.mivisor.tv.playback.PlaySource(s.contentId, s.providerId, s.providerName, s.quality, s.qualityLabel) }, null).firstOrNull()
+                sources.order(ch.id, ch.playSources(), null).firstOrNull()
             },
             enabled = { prefs.channelPreview ?: com.mivisor.tv.data.ChannelPreview.defaultOn(app) },
             keepWarm = { cid -> prewarm.keep(cid) },
@@ -120,6 +123,7 @@ class AppGraph(context: Context) {
         sources.load()
         mylist.load()
         reminders.load()
+        gold.start()          // 4f · antes que los proveedores: si hay Biblioteca, es lo primero que se ve
         providers.start()
         providers.startupSync()
         agenda.load()
