@@ -6,6 +6,8 @@ import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.relocation.bringIntoViewResponder
 
 /**
  * 3h · Desplazamiento «con pivote», como Google TV: al bajar con el mando, la fila enfocada se queda SIEMPRE a la
@@ -56,15 +58,29 @@ private object FastBringIntoView : BringIntoViewSpec {
     }
 }
 
-/** 4n · En la tele, toda la app usa el desplazamiento rápido (en táctil no cambia nada). */
+/**
+ * 4o · Tope en la raíz: lo que ninguna lista ha podido mostrar NO sube a Android. Si subía, Android desplazaba la
+ * ventana entera hacia arriba para enseñarlo, y la barra de arriba (Inicio, Canales…) se salía de la pantalla (pasaba
+ * en la ficha de un partido en la tele).
+ */
+@OptIn(ExperimentalFoundationApi::class)
+private object NoWindowPan : androidx.compose.foundation.relocation.BringIntoViewResponder {
+    override fun calculateRectForParent(localRect: androidx.compose.ui.geometry.Rect): androidx.compose.ui.geometry.Rect =
+        androidx.compose.ui.geometry.Rect.Zero
+
+    override suspend fun bringChildIntoView(localRect: () -> androidx.compose.ui.geometry.Rect?) = Unit
+}
+
+/** 4n · En la tele, toda la app usa el desplazamiento rápido (en táctil no cambia nada). 4o · Y nunca mueve la ventana. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TvScrollRoot(content: @Composable () -> Unit) {
-    if (LocalUiForm.current.touch) {
-        content()
-        return
+    androidx.compose.foundation.layout.Box(
+        androidx.compose.ui.Modifier.fillMaxSize().bringIntoViewResponder(NoWindowPan)
+    ) {
+        if (LocalUiForm.current.touch) content()
+        else CompositionLocalProvider(LocalBringIntoViewSpec provides FastBringIntoView) { content() }
     }
-    CompositionLocalProvider(LocalBringIntoViewSpec provides FastBringIntoView) { content() }
 }
 
 @OptIn(ExperimentalFoundationApi::class)

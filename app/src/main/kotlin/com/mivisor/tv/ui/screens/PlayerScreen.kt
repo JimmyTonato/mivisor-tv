@@ -49,6 +49,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clip
@@ -224,7 +225,8 @@ fun PlayerScreen(
         loadingLong = false
         waitDismissed = false
         if (ui.phase == Phase.TRYING || ui.phase == Phase.STARTING_ENGINE) {
-            delay(8_000)
+            // 4o · Con la Biblioteca (fuentes ya comprobadas) se espera más antes de ofrecer otra fuente: 25 s; si no, 15 s.
+            delay(if (channel?.sources?.any { it.gold != null } == true) 25_000 else 15_000)
             loadingLong = true
         }
     }
@@ -271,14 +273,35 @@ fun PlayerScreen(
     val agenda by graph.agenda.state.collectAsState()
     val liveEvent = channel?.let { remember(it.id, agenda.agenda, now) { liveEventFor(it, agenda.agenda, lib.library) } }
     // 3h · El retraso llega del reproductor (vuelta al directo adaptativa); solo lo leen quienes lo pintan.
-    val delayMs = if (panel == Panel.INFO) graph.player.live.collectAsState().value.delayMs else null
+    // 4o · CANAL+ / CANAL− del mando (o Re Pág / Av Pág): cambian de FUENTE del mismo canal, no de canal.
+    fun stepSource(dir: Int) {
+        val rows = ui.sources
+        if (rows.size < 2) { toaster.show("Este canal solo tiene una fuente"); return }
+        val cur = rows.indexOfFirst { it.current }.coerceAtLeast(0)
+        val target = rows[(cur + dir + rows.size) % rows.size]
+        toaster.show("Fuente ${target.index} de ${rows.size}")
+        graph.player.selectSource(target.contentId)
+        touch++
+    }
     fun open(p: Panel) {
         lastOpener = p
         panel = p
         touch++
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(Modifier.fillMaxSize().background(Color.Black).onPreviewKeyEvent { e ->
+        val n = e.nativeKeyEvent
+        when (n.keyCode) {
+            AndroidKeyEvent.KEYCODE_CHANNEL_UP, AndroidKeyEvent.KEYCODE_PAGE_UP, AndroidKeyEvent.KEYCODE_CHANNEL_DOWN, AndroidKeyEvent.KEYCODE_PAGE_DOWN -> {
+                if (n.action == AndroidKeyEvent.ACTION_UP && channel != null && (ui.phase == Phase.PLAYING || ui.phase == Phase.TRYING || ui.phase == Phase.FAILED)) {
+                    val up = n.keyCode == AndroidKeyEvent.KEYCODE_CHANNEL_UP || n.keyCode == AndroidKeyEvent.KEYCODE_PAGE_UP
+                    stepSource(if (up) 1 else -1)
+                }
+                true
+            }
+            else -> false
+        }
+    }) {
         val phase = ui.phase
         val fitMode = FITS[fit].second
         AndroidView(
@@ -320,9 +343,13 @@ fun PlayerScreen(
                         if (n.action == AndroidKeyEvent.ACTION_UP) { controls = true; touch++ }
                         true
                     }
-                    AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_DPAD_LEFT,
-                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT, AndroidKeyEvent.KEYCODE_CHANNEL_UP, AndroidKeyEvent.KEYCODE_CHANNEL_DOWN,
-                    AndroidKeyEvent.KEYCODE_LAST_CHANNEL -> true
+                    // 4o · Abajo también abre los controles (como OK). Arriba y los lados no hacen nada (sin zapping).
+                    AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
+                        if (n.action == AndroidKeyEvent.ACTION_UP && phase == Phase.PLAYING) { controls = true; touch++ }
+                        true
+                    }
+                    AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_DPAD_LEFT,
+                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT, AndroidKeyEvent.KEYCODE_LAST_CHANNEL -> true
                     AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, AndroidKeyEvent.KEYCODE_MEDIA_PLAY, AndroidKeyEvent.KEYCODE_MEDIA_PAUSE -> {
                         if (n.action == AndroidKeyEvent.ACTION_UP && phase == Phase.PLAYING) graph.player.togglePause()
                         true
@@ -523,14 +550,6 @@ fun PlayerScreen(
                     listOf(PanelCard("OFF", "Desactivados", "Sin subtítulos", selected = subs.none { it.selected }) { graph.player.disableSubtitles(); panel = null }) +
                         subs.map { t -> PanelCard(shortLang(t.label), t.label, t.detail ?: "Subtítulos de la emisión", selected = t.selected, enabled = t.supported) { graph.player.selectTrack(t); panel = null } }
                 }
-                Panel.VIDEO -> FITS.mapIndexed { i, (label, _) ->
-                    PanelCard(
-                        when (i) { 0 -> "16:9"; 1 -> "ZOOM"; else -> "FULL" }, label,
-                        when (i) { 0 -> "Imagen completa, con bandas si hace falta"; 1 -> "Llena la pantalla recortando los bordes"; else -> "Llena la pantalla deformando la imagen" },
-                        badge = if (i == 0) "Recomendado" else null, selected = fit == i
-                    ) { fit = i }
-                }
-                Panel.INFO -> infoCards(channel, ui, liveEvent, delayMs)
             }
             PanelSheet(
                 current = p,
@@ -538,8 +557,6 @@ fun PlayerScreen(
                     Panel.SOURCES -> "Si va a saltos o con retraso, prueba otra emisión."
                     Panel.AUDIO -> "Pistas de audio de esta fuente · se recuerda en este canal."
                     Panel.SUBS -> "Idioma de los subtítulos."
-                    Panel.VIDEO -> "Cómo se ajusta la imagen a la pantalla."
-                    Panel.INFO -> "Datos de la emisión actual."
                 },
                 cards = cards,
                 note = when (p) {
@@ -547,7 +564,6 @@ fun PlayerScreen(
                         "Al elegir una, se prueba sin salir del canal." + if (aceInstalled) " Mantén OK para abrirla en Ace Stream." else ""
                     Panel.AUDIO -> if (cards.isEmpty()) "Esta fuente no informa de pistas de audio." else null
                     Panel.SUBS -> if (cards.size <= 1) "Esta fuente no trae subtítulos." else null
-                    else -> null
                 },
                 firstFocus = panelFocus,
                 onTab = { panel = it; lastOpener = it },
@@ -572,34 +588,6 @@ private fun shortLang(label: String): String {
     }
 }
 
-/** 4m · Info como tarjetas: retraso, fuente, calidad, emisores, arranque, audio, Gold y motor. */
-private fun infoCards(channel: TvChannel, ui: com.mivisor.tv.playback.PlaybackController.Ui, event: com.mivisor.tv.model.AgendaEvent?, delayMs: Long?): List<PanelCard> {
-    val out = ArrayList<PanelCard>()
-    delayMs?.let { d -> out += PanelCard(if (d >= 2_000) "−${d / 1000} s" else "0 s", "Retraso", if (d >= 2_000) "Respecto al directo" else "En directo") }
-    out += PanelCard(if (ui.sourceCount > 0) "${ui.sourceIndex}/${ui.sourceCount}" else "—", "Fuente", ui.provider ?: "Emisión en uso")
-    (channel.qualityOf(ui.sources.firstOrNull { it.current }?.contentId) ?: qualityName(0, ui.quality))?.let {
-        out += PanelCard(it.take(7), "Calidad", "La que da el canal")
-    }
-    // 4f · Lo que MiVisor Gold midió de esta fuente (no lo que dice el nombre del canal).
-    val gold = ui.sources.firstOrNull { it.current }?.contentId?.let { cid -> channel.sources.firstOrNull { it.contentId == cid }?.gold }
-    val audio = ui.tracks.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.selected }
-    if (audio != null) out += PanelCard(shortLang(audio.label), "Audio", listOfNotNull(audio.label, audio.detail).joinToString(" · "))
-    else gold?.audios?.firstOrNull()?.let { out += PanelCard("AUD", "Audio", gold.audios.joinToString(" · ")) }
-    if (ui.peers > 0) out += PanelCard("${ui.peers}", "Emisores", "Conectados ahora")
-    ui.startMs?.let { out += PanelCard("${"%.1f".format(it / 1000.0)} s", "Arranque", "Hasta la primera imagen") }
-    gold?.let { g ->
-        val (label, color) = g.band?.let { goldBandLabel(it) } ?: ("Sin comprobar" to MvColors.Text3)
-        out += PanelCard(
-            g.nota?.let { "$it %" } ?: "—", "Biblioteca",
-            listOfNotNull(g.declaredVsReal, g.checked?.let { "comprobada $it" }, (g.avisos + g.info).joinToString(" · ") { it.replace('_', ' ') }.ifBlank { null })
-                .joinToString(" · "),
-            badge = label, badgeColor = color
-        )
-    }
-    event?.let { out += PanelCard("AHORA", it.title, it.competition ?: "") }
-    out += PanelCard("OUT", "Motor", "Outpace")
-    return out
-}
 
 /** Evento en directo que se emite en este canal (según la agenda), para la información del reproductor. */
 fun liveEventFor(ch: TvChannel, agenda: com.mivisor.tv.model.Agenda?, library: com.mivisor.tv.catalog.tv.TvLibrary): com.mivisor.tv.model.AgendaEvent? {

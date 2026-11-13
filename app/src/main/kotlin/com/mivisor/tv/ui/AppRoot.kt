@@ -120,10 +120,13 @@ fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
         val t0 = System.currentTimeMillis()
         while (booting) {
             val s = graph.providers.state.value
-            // 4j · Con Biblioteca y sin proveedores, se espera a la Biblioteca (con el tope de 6 s de abajo).
+            // 4j · Con Biblioteca y sin proveedores, se espera a la Biblioteca (con el tope de abajo).
+            // 4o · Con Biblioteca, se espera a ELLA (no a los proveedores): así Inicio no sale primero con los canales de
+            // los proveedores y luego cambia. Tope: 8 s; después Inicio avisa de que se sigue cargando.
             val g = graph.gold.state.value
-            val ready = !s.library.isEmpty || (s.providers.isEmpty() && (!g.configured || g.checkedAt > 0)) || (s.providers.isNotEmpty() && !s.loading)
-            if ((ready && System.currentTimeMillis() - t0 > 250) || System.currentTimeMillis() - t0 > 6_000) booting = false
+            val ready = if (g.configured) s.library.gold || g.error != null || g.wrongPassword || (g.checkedAt > 0 && g.revision == 0L)
+            else !s.library.isEmpty || s.providers.isEmpty() || !s.loading
+            if ((ready && System.currentTimeMillis() - t0 > 250) || System.currentTimeMillis() - t0 > 8_000) booting = false
             else delay(100)
         }
     }
@@ -154,7 +157,15 @@ fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
                 Box(Modifier.fillMaxWidth().height(620.dp).background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, MvColors.Bg))))
             }
             if (booting && route != Route.Wizard && route !is Route.AddProvider) {
-                BootScreen(slow = libState.loading)
+                val g by graph.gold.state.collectAsState()
+                BootScreen(
+                    slow = libState.loading || (g.configured && !libState.library.gold),
+                    what = when {
+                        g.configured && g.revision == 0L -> "Primera vez: descargando la Biblioteca. Puede tardar un poco…"
+                        g.configured -> "Cargando la Biblioteca (${g.channels} canales)…"
+                        else -> "Leyendo tus proveedores…"
+                    }
+                )
                 return@Box
             }
             when (route) {
@@ -459,7 +470,7 @@ private fun HeaderBar(graph: AppGraph) {
 
 /** Preparación (diseño 06): Órbita y marca mientras se leen los datos guardados. Sin botón «Saltar» ni tiempo mínimo. */
 @Composable
-private fun BootScreen(slow: Boolean) {
+private fun BootScreen(slow: Boolean, what: String = "Preparando tus canales…") {
     var late by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { delay(1_500); late = true }
     Box(Modifier.fillMaxSize().background(MvColors.Bg), contentAlignment = Alignment.Center) {
@@ -470,7 +481,11 @@ private fun BootScreen(slow: Boolean) {
             Spacer(Modifier.height(6.dp))
             MvText("TU DEPORTE. EN UNA SOLA EXPERIENCIA.", MvType.Caption.copy(color = MvColors.Text2, letterSpacing = 1.5.sp))
             Spacer(Modifier.height(28.dp))
-            MvText(if (late && slow) "Preparación más lenta de lo habitual…" else "Preparando tus canales…", MvType.Small.copy(color = MvColors.Text3))
+            MvText(if (late) what else "Preparando tus canales…", MvType.Small.copy(color = MvColors.Text2))
+            if (late && slow) {
+                Spacer(Modifier.height(4.dp))
+                MvText("Va más lento de lo normal: en cuanto esté, entras solo.", MvType.Caption.copy(color = MvColors.Text3))
+            }
         }
     }
 }

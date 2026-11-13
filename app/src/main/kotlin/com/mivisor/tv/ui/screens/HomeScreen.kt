@@ -195,6 +195,14 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
             MvNotice("Sin conexión a Internet.", "Ves la agenda y los canales guardados. Los canales no se pueden abrir hasta que vuelva la red.",
                 Modifier.padding(pad).padding(bottom = 12.dp), MvColors.Soon)
         }
+        // 4o · La Biblioteca aún no está en pantalla (arranque lento o primera descarga): que se sepa.
+        if (goldState.configured && !lib.library.gold && goldState.error == null) Column(Modifier.fillMaxWidth()) {
+            MvNotice(
+                if (goldState.revision == 0L) "Descargando la Biblioteca por primera vez…" else "Cargando la Biblioteca…",
+                "Mientras tanto ves los canales de tus proveedores. En cuanto esté, aparece sola.",
+                Modifier.padding(pad).padding(bottom = 12.dp), MvColors.Soon
+            )
+        }
         goldState.error?.takeIf { withLibrary }?.let { why ->
             Column(Modifier.fillMaxWidth()) {
                 MvNotice("Biblioteca:", why, Modifier.padding(pad).padding(bottom = 12.dp), MvColors.Soon)

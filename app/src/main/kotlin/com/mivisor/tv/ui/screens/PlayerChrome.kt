@@ -71,7 +71,7 @@ import kotlinx.coroutines.flow.StateFlow
  */
 
 /** Pestañas del reproductor (orden de la hoja inferior). */
-internal enum class Panel(val label: String) { SOURCES("Fuentes"), AUDIO("Audio"), SUBS("Subtítulos"), VIDEO("Vídeo"), INFO("Info") }
+internal enum class Panel(val label: String) { SOURCES("Fuentes"), AUDIO("Audio"), SUBS("Subtítulos") }
 
 private val Muted = Color(0xFF8D96A0)
 private val Soft = Color(0xFFC9CFD6)
@@ -108,17 +108,17 @@ private fun Eyebrow(text: String, color: Color = MvColors.Accent, size: androidx
     MvText(text.uppercase(), MvType.Eyebrow.copy(color = color, fontSize = size, letterSpacing = (size.value * 0.1f).sp, fontWeight = FontWeight.SemiBold), maxLines = 1)
 }
 
-/** Logo del canal en baldosa + nombre en mayúsculas espaciadas. */
+/** Logo del canal en baldosa + nombre en mayúsculas espaciadas. 4o · Logo grande: que se vea qué canal es. */
 @Composable
-private fun ChannelBadge(channel: TvChannel?) {
+private fun ChannelBadge(channel: TvChannel?, logoW: Dp = 88.dp, logoH: Dp = 50.dp) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (channel != null) {
             com.mivisor.tv.ui.LogoImage(
-                channel.logo, 64.dp, Modifier.size(width = 46.dp, height = 32.dp), RoundedCornerShape(9.dp),
-                plain = Color(0xE60E1A27), frame = Color(0x1AFFFFFF), padding = 0.1f
-            ) { MvText(channel.initials, MvType.SmallStrong, maxLines = 1) }
-            Spacer(Modifier.width(10.dp))
-            MvText(channel.name.uppercase(), MvType.SmallStrong.copy(color = Soft, fontSize = 12.sp, letterSpacing = 1.7.sp), maxLines = 1)
+                channel.logo, logoW * 1.5f, Modifier.size(width = logoW, height = logoH), RoundedCornerShape(12.dp),
+                plain = Color(0xE60E1A27), frame = Color(0x1AFFFFFF), padding = 0.08f
+            ) { MvText(channel.initials, MvType.BodyStrong, maxLines = 1) }
+            Spacer(Modifier.width(14.dp))
+            MvText(channel.name.uppercase(), MvType.SmallStrong.copy(color = Soft, fontSize = 13.sp, letterSpacing = 1.8.sp), maxLines = 1)
         }
     }
 }
@@ -196,13 +196,13 @@ internal fun PlayerControls(
     val behind = l.behind || paused
     val ph = phone()
     Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures(onTap = { onHide() }) }) {
-        Box(Modifier.align(Alignment.TopStart).fillMaxWidth().height(118.dp).background(Brush.verticalGradient(listOf(Color(0xCC060B12), Color.Transparent))))
+        Box(Modifier.align(Alignment.TopStart).fillMaxWidth().height(140.dp).background(Brush.verticalGradient(listOf(Color(0xCC060B12), Color.Transparent))))
         if (!dimmed) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(if (ph) 260.dp else 340.dp)
             .background(Brush.verticalGradient(0f to Color.Transparent, 0.85f to Color(0xF7060B12))))
 
         // Arriba: (volver) · logo y canal · señal y fuente · hora.
         Row(
-            Modifier.align(Alignment.TopStart).fillMaxWidth().padding(horizontal = MvDims.SafeX).padding(top = 30.dp),
+            Modifier.align(Alignment.TopStart).fillMaxWidth().padding(horizontal = MvDims.SafeX).padding(top = 26.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (onClose != null) {
@@ -288,8 +288,6 @@ internal fun PlayerControls(
                     BarChip("Fuentes", MvIcons.Layers, openers.getValue(Panel.SOURCES), onTouch) { onPanel(Panel.SOURCES) }
                     BarChip("Audio", MvIcons.Volume, openers.getValue(Panel.AUDIO), onTouch) { onPanel(Panel.AUDIO) }
                     BarChip("Subtítulos", MvIcons.Subtitles, openers.getValue(Panel.SUBS), onTouch) { onPanel(Panel.SUBS) }
-                    BarChip("Vídeo", MvIcons.Tv, openers.getValue(Panel.VIDEO), onTouch) { onPanel(Panel.VIDEO) }
-                    BarChip("Info", MvIcons.Info, openers.getValue(Panel.INFO), onTouch) { onPanel(Panel.INFO) }
                     BarChip(if (favorite) "En Mi lista" else "Mi lista", MvIcons.Star, null, onTouch, highlighted = favorite, onClick = onFavorite)
                 }
             }
@@ -480,29 +478,39 @@ private fun SheetCard(c: PanelCard, fr: FocusRequester?, width: Dp) {
 
 /* ───────────────────────────── Carga ───────────────────────────── */
 
-/** Fondo de las pantallas de carga y aviso: noche con un toque de color y las líneas de un campo, muy tenues. */
+/**
+ * 4o · Fondo de carga y avisos, más moderno: noche con dos halos suaves de color (el del canal arriba a la derecha y
+ * un toque de [tint] abajo a la izquierda) y viñeta. Sin líneas de campo.
+ */
 @Composable
-private fun StageBackground(tint: Color, content: @Composable BoxScope.() -> Unit) {
+private fun StageBackground(tint: Color, glow: Color = Color(0xFF2A4A6E), content: @Composable BoxScope.() -> Unit) {
     Box(
-        Modifier.fillMaxSize()
-            .background(Brush.radialGradient(listOf(tint, Color(0xFF0B1622), Color(0xFF060B12)), center = Offset(1500f, 420f), radius = 1300f))
-            .drawBehind {
-                val w = size.width
-                val h = size.height
-                val s = Stroke(width = 2.5.dp.toPx())
-                val c = Color.White.copy(alpha = 0.06f)
-                val p = androidx.compose.ui.graphics.Path().apply {
-                    moveTo(w * 0.65f, h * 0.19f); lineTo(w * 0.52f, h * 0.67f); lineTo(w * 0.99f, h * 0.67f); lineTo(w * 0.99f, h * 0.19f); close()
-                }
-                drawPath(p, c, style = s)
-                drawLine(c, Offset(w * 0.755f, h * 0.19f), Offset(w * 0.755f, h * 0.67f), s.width)
-            }
+        Modifier.fillMaxSize().background(MvColors.Bg).drawBehind {
+            val w = size.width
+            val h = size.height
+            drawRect(Brush.radialGradient(listOf(glow.copy(alpha = 0.55f), Color.Transparent), center = Offset(w * 0.86f, h * 0.18f), radius = w * 0.55f))
+            drawRect(Brush.radialGradient(listOf(tint.copy(alpha = 0.6f), Color.Transparent), center = Offset(w * 0.08f, h * 1.05f), radius = w * 0.5f))
+            drawRect(Brush.verticalGradient(0f to Color.Transparent, 0.6f to Color.Transparent, 1f to Color(0x99060B12)))
+        }
     ) { content() }
 }
 
+/** Color de marca del canal para el halo del fondo (si su placa lo da). */
+@Composable
+private fun channelGlow(channel: TvChannel?): Color {
+    val tone = channel?.let { runCatching { it.plate().tone }.getOrNull() } ?: return Color(0xFF2A4A6E)
+    return when (tone) {
+        com.mivisor.tv.catalog.tv.Plate.Tone.RED -> Color(0xFF6E2A36)
+        com.mivisor.tv.catalog.tv.Plate.Tone.BLUE -> Color(0xFF23477A)
+        com.mivisor.tv.catalog.tv.Plate.Tone.LIGHT -> Color(0xFF3A4A5E)
+        com.mivisor.tv.catalog.tv.Plate.Tone.DARK -> Color(0xFF2A4A6E)
+    }
+}
+
 /**
- * Carga (prototipo «Cargando canal»): logo y canal arriba; a la izquierda EN DIRECTO, el partido en grande y la
- * competición; abajo, qué está pasando, tres barras de fase y la línea técnica.
+ * 4o · Carga, rehecha: a la izquierda y centrado en vertical, el logo grande del canal y a su lado qué se carga
+ * (EN DIRECTO / CONECTANDO, el canal y el partido si lo hay). Abajo, como antes, qué está pasando, las tres fases
+ * (ahora a lo ancho, sin cortar el texto) y la línea técnica.
  */
 @Composable
 internal fun LoadingStage(
@@ -517,36 +525,45 @@ internal fun LoadingStage(
     extra: @Composable () -> Unit = {}
 ) {
     val ph = phone()
-    StageBackground(Color(0xFF1C2E42)) {
-        Box(Modifier.align(Alignment.TopStart).padding(start = MvDims.SafeX, top = 40.dp)) { ChannelBadge(channel) }
-        Column(
-            Modifier.align(Alignment.TopStart).padding(start = MvDims.SafeX, end = MvDims.SafeX, top = if (ph) 110.dp else 150.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+    StageBackground(Color(0xFF1B2A3C), channelGlow(channel)) {
+        Row(
+            Modifier.align(Alignment.CenterStart).padding(horizontal = MvDims.SafeX).padding(bottom = if (ph) 70.dp else 110.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                PulseDot(if (event != null) MvColors.Live else MvColors.Accent)
-                Spacer(Modifier.width(8.dp))
-                MvText(
-                    if (event != null) "EN DIRECTO" else "CONECTANDO",
-                    MvType.SmallStrong.copy(color = if (event != null) Color(0xFFFF7A72) else MvColors.Accent, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-                )
+            if (channel != null) {
+                com.mivisor.tv.ui.LogoImage(
+                    channel.logo, 300.dp, Modifier.size(width = if (ph) 150.dp else 210.dp, height = if (ph) 84.dp else 118.dp), RoundedCornerShape(20.dp),
+                    plain = Color(0xE60E1A27), frame = Color(0x1FFFFFFF), padding = 0.08f
+                ) { MvText(channel.initials, MvType.Title, maxLines = 1) }
+                Spacer(Modifier.width(if (ph) 18.dp else 28.dp))
             }
-            Column(Modifier.widthIn(max = 760.dp)) { BigTitle(event, channel, if (ph) 44.sp else 76.sp, twoLines = true) }
-            val ctx = event?.competition?.takeIf { it.isNotBlank() } ?: event?.let { sportName(it.sport) }
-                ?: channel?.brandName ?: "Televisión en directo"
-            Eyebrow(ctx, size = 14.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.widthIn(max = 620.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    PulseDot(if (event != null) MvColors.Live else MvColors.Accent)
+                    Spacer(Modifier.width(8.dp))
+                    MvText(
+                        if (event != null) "EN DIRECTO" else "CONECTANDO",
+                        MvType.SmallStrong.copy(color = if (event != null) Color(0xFFFF7A72) else MvColors.Accent, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+                    )
+                }
+                MvText(channel?.name ?: "Cargando…", MvType.Display.copy(fontSize = if (ph) 26.sp else 36.sp, lineHeight = if (ph) 30.sp else 41.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp), maxLines = 2)
+                val second = event?.let { ev -> if (ev.home != null && ev.away != null) "${ev.home} vs ${ev.away}" else ev.title }
+                if (second != null) MvText(second, MvType.Heading.copy(color = Soft, fontWeight = FontWeight.Medium), maxLines = 1)
+                val ctx = event?.competition?.takeIf { it.isNotBlank() } ?: event?.let { sportName(it.sport) } ?: channel?.brandName
+                if (ctx != null) Eyebrow(ctx, size = 12.sp)
+            }
         }
         Column(
             Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = MvDims.SafeX).padding(bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 MvText(status, MvType.BodyStrong.copy(fontSize = 15.sp), maxLines = 1)
-                if (hint != null) MvText(hint, MvType.Small.copy(color = Muted), maxLines = 2, modifier = Modifier.widthIn(max = 640.dp))
+                if (hint != null) MvText(hint, MvType.Small.copy(color = Muted), maxLines = 2, modifier = Modifier.widthIn(max = 700.dp))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                listOf("Buscando el canal", "Conectando fuente ${sourceIndex.coerceAtLeast(1)}", "Iniciando vídeo").forEachIndexed { i, label ->
-                    PhaseBar(label, i < step, i == step, if (ph) 96.dp else 118.dp)
+            Row(Modifier.fillMaxWidth(if (ph) 0.95f else 0.72f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                listOf("Buscando el canal", "Conectando a la fuente ${sourceIndex.coerceAtLeast(1)}", "Iniciando el vídeo").forEachIndexed { i, label ->
+                    PhaseBar(label, i < step, i == step, Modifier.weight(1f))
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -558,10 +575,10 @@ internal fun LoadingStage(
 }
 
 @Composable
-private fun PhaseBar(label: String, done: Boolean, running: Boolean, width: Dp) {
+private fun PhaseBar(label: String, done: Boolean, running: Boolean, modifier: Modifier) {
     val loop = rememberLoop(1400)
     val accent = MvColors.Accent
-    Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(
             Modifier.fillMaxWidth().height(4.dp).background(Color(0x2EFFFFFF), RoundedCornerShape(2.dp)).drawBehind {
                 when {
@@ -608,8 +625,8 @@ internal fun AlertStage(
     actions: @Composable () -> Unit
 ) {
     val ph = phone()
-    StageBackground(kind.tint) {
-        Box(Modifier.align(Alignment.TopStart).padding(start = MvDims.SafeX, top = 40.dp)) { ChannelBadge(channel) }
+    StageBackground(kind.tint, channelGlow(channel)) {
+        Box(Modifier.align(Alignment.TopStart).padding(start = MvDims.SafeX, top = 34.dp)) { ChannelBadge(channel) }
         Column(
             Modifier.align(Alignment.CenterStart).padding(horizontal = MvDims.SafeX).padding(top = 30.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)

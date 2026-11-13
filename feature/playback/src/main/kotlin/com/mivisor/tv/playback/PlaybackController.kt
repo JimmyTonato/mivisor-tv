@@ -771,7 +771,10 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             recentReloads.addLast(now)
             while (recentReloads.isNotEmpty() && now - recentReloads.first() > 120_000L) recentReloads.removeFirst()
             val base0 = catchUp.reserveMs(now, loadControl?.policy?.targetMs ?: 6_000L)
-            val grown = if (recentReloads.size >= 3) (maxOf(cushionMs, base0) * 1.5).toLong() else maxOf(cushionMs, base0)
+            // 4o · Se retoma DONDE IBAS (el retraso que llevabas respecto al directo), no en el directo: antes cada
+            // recarga daba un salto hacia delante y, si la emisión seguía mal, otro, y otro.
+            val where = (_live.value.delayMs ?: 0L)
+            val grown = maxOf(if (recentReloads.size >= 3) (maxOf(cushionMs, base0) * 1.5).toLong() else maxOf(cushionMs, base0), where)
             cushionMs = grown.coerceAtMost(catchUp.maxDelayMs - 6_000L).coerceAtLeast(0)
             _ui.value = _ui.value.copy(recovering = "Recuperando la imagen…")
             resyncing = false
@@ -1004,7 +1007,7 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         val setting = book.autoSwitchAfterMs()
         val usual = StartPolicy.switchAfter(setting)
         if (!src.fixedOrder || setting <= 0 || cycle?.peekNext() == null) return usual
-        return if (receivingVideo) (DIRECT_AFTER_SECS + 20) * 1000L else GOLD_SWITCH_MS
+        return if (receivingVideo) (DIRECT_AFTER_SECS + 30) * 1000L else GOLD_SWITCH_MS
     }
 
     private fun rows(): List<SourceRow> {
@@ -1238,14 +1241,17 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     }
 
     private companion object {
-        /** Mientras se espera a que vuelva la imagen, la misma fuente se recarga cada… */
-        const val RELOAD_EVERY_MS = 15_000L
+        /** Mientras se espera a que vuelva la imagen, la misma fuente se recarga cada… (4o · 20 s, antes 15). */
+        const val RELOAD_EVERY_MS = 20_000L
         /** 3i · Tras este tiempo sin imagen con la primera fuente, se calienta la siguiente. */
         const val NEXT_WARM_AFTER_MS = 5_000L
         /** 4e · Segundos llegando vídeo sin imagen antes de pasar al plan B (vídeo directo). */
         const val DIRECT_AFTER_SECS = 15
-        /** 4f · Fuentes de MiVisor Gold: sin imagen en este tiempo, a la siguiente (el contrato pide 15–20 s). */
-        const val GOLD_SWITCH_MS = 20_000L
+        /**
+         * 4f · Fuentes de MiVisor Gold: sin imagen en este tiempo, a la siguiente. 4o · 35 s (antes 20): vienen
+         * comprobadas, así que se les da más margen antes de cambiar.
+         */
+        const val GOLD_SWITCH_MS = 35_000L
         /** 4f · Tiempo para conseguir del catálogo la huella del descriptor y compararla con la publicada. */
         const val DESCRIPTOR_CHECK_MS = 12_000L
         /** 4e · Caja negra: cuándo se mira el vídeo y cuánto (como mucho). */

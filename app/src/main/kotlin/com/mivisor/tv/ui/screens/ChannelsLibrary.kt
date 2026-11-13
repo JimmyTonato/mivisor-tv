@@ -88,8 +88,8 @@ object ChannelsMemory {
 /** Medidas de Canales (3f). */
 private object Lib {
     val Logo = 40.dp
-    /** Ancho mínimo de una tarjeta: 4 columnas en la tele, 3 en el móvil en horizontal, 5-6 en una tablet grande. */
-    val TileMin = 190.dp
+    /** 4o · Ancho mínimo de una tarjeta: 6 columnas en la tele (antes 4), 4 en el móvil en horizontal, 7-8 en tablet. */
+    val TileMin = 140.dp
 }
 
 /** Una entrada de la rejilla: título de grupo (ocupa toda la fila) o canal. */
@@ -276,7 +276,7 @@ fun ChannelsScreen(graph: AppGraph, nav: Nav, toaster: Toaster) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(Lib.TileMin), state = grid, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = 4.dp, bottom = 40.dp, start = 3.dp, end = 3.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             entries.forEachIndexed { i, e ->
                 when (e) {
@@ -432,7 +432,7 @@ fun ChannelCard(
             color = MvColors.Surface1, focusedColor = MvColors.Surface1, ringColor = MvColors.Accent2,
             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
         ) { _ ->
-            com.mivisor.tv.ui.LogoImage(ch.logo, 120.dp, Modifier.fillMaxSize(), RoundedCornerShape(12.dp), plain = MvColors.Surface2, padding = 0.18f) {
+            com.mivisor.tv.ui.LogoImage(ch.logo, 120.dp, Modifier.fillMaxSize(), RoundedCornerShape(12.dp), plain = MvColors.Surface2, padding = 0.08f) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     MvIcon(MvIcons.Signal, size = 26.dp, tint = MvColors.Text3)
                     Spacer(Modifier.height(6.dp))
