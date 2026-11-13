@@ -16,6 +16,7 @@ object MvIcons {
     val Home = R.drawable.ic_home
     val Calendar = R.drawable.ic_calendar
     val Tv = R.drawable.ic_tv
+    val Subtitles = R.drawable.ic_subtitles
     val Search = R.drawable.ic_search
     val Star = R.drawable.ic_star
     val Settings = R.drawable.ic_settings

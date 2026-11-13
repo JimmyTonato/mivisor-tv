@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -107,6 +108,14 @@ fun SettingsScreen(graph: AppGraph, nav: Nav, toaster: Toaster, onLook: () -> Un
     val startPage = remember { SettingsMemory.page }
     var page by remember { mutableStateOf(startPage) }
     LaunchedEffect(page) { SettingsMemory.page = page }
+    // 4n · Al recorrer el menú con el mando, la página de la derecha NO se rehace en cada paso (eso era lo lento: cada
+    // pulsación construía una página entera). Se cambia cuando el foco se para ~¼ s en una opción, o al pulsar OK.
+    var hovered by remember { mutableStateOf<Page?>(null) }
+    LaunchedEffect(hovered) {
+        val h = hovered ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(260)
+        page = h
+    }
     var editing by remember { mutableStateOf<ProviderInfo?>(null) }
     var deleting by remember { mutableStateOf<ProviderInfo?>(null) }
     var forgetting by remember { mutableStateOf(false) }
@@ -134,11 +143,23 @@ fun SettingsScreen(graph: AppGraph, nav: Nav, toaster: Toaster, onLook: () -> Un
             Column(Modifier.width(300.dp).fillMaxHeight()) {
                 MvText("Ajustes", MvType.Title, modifier = Modifier.padding(bottom = 14.dp))
                 val menuState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, startPage.ordinal - 3))
-                LazyColumn(state = menuState, verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 48.dp)) {
+                val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                LazyColumn(state = menuState, modifier = Modifier.onPreviewKeyEvent { e ->
+                    // 4n · Derecha con una página aún por cambiar: se cambia ya y el foco entra en la nueva.
+                    val h = hovered
+                    if (h != null && h != page && e.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT) {
+                        if (e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
+                            page = h
+                            scope.launch { kotlinx.coroutines.delay(60); focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Right) }
+                        }
+                        true
+                    } else false
+                }, verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 48.dp)) {
                     itemsIndexed(Page.values().toList()) { _, p ->
                         val v = remember(values, lib, warp) { valueOf(p) }
                         TvClickable(
-                            onClick = { page = p }, onFocus = { page = p }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                            onClick = { hovered = null; page = p }, onFocus = { hovered = p }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
                             focusedScale = 1.02f, color = if (p == page) MvColors.Surface2 else MvColors.Bg, focusedColor = MvColors.Text,
                             ringColor = MvColors.Accent2, focusRequester = if (p == startPage) first else null
                         ) { focused ->

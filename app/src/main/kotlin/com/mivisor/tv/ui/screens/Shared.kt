@@ -313,3 +313,29 @@ fun CrestRing(name: String, image: String?, glow: Color, size: Dp, person: Boole
         Visual(name, image, glow, size * 0.7f, person)
     }
 }
+
+/**
+ * 4n · Calidad de una fuente tal como la da el canal (Biblioteca de Gold o proveedor), con el nombre de siempre:
+ * 4K, Full HD, HD o SD. Primero el nivel (0–4); si no hay, se interpreta la etiqueta («FHD», «1080p», «UHD»…).
+ */
+fun qualityName(rank: Int, label: String?): String? {
+    when (rank) {
+        4 -> return "4K"
+        3 -> return "Full HD"
+        2 -> return "HD"
+        1 -> return "SD"
+    }
+    val l = label?.trim()?.lowercase() ?: return null
+    return when {
+        l.isEmpty() -> null
+        "4k" in l || "uhd" in l || "2160" in l -> "4K"
+        "fhd" in l || "full" in l || "1080" in l -> "Full HD"
+        "720" in l || l == "hd" || l.startsWith("hd ") -> "HD"
+        "sd" in l || "480" in l || "576" in l || "360" in l -> "SD"
+        else -> label
+    }
+}
+
+/** 4n · Calidad de la fuente [contentId] de este canal. */
+fun TvChannel.qualityOf(contentId: String?): String? =
+    sources.firstOrNull { it.contentId == contentId }?.let { qualityName(it.quality, it.qualityLabel) }

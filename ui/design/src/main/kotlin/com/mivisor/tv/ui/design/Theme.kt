@@ -109,5 +109,5 @@ val LocalLite = staticCompositionLocalOf { false }
 
 @Composable
 fun MvTheme(lite: Boolean, content: @Composable () -> Unit) {
-    CompositionLocalProvider(LocalLite provides lite, content = content)
+    CompositionLocalProvider(LocalLite provides lite) { TvScrollRoot(content) }
 }

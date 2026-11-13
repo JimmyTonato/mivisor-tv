@@ -31,6 +31,9 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.launch
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -136,9 +139,17 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
             heroBox.background(Brush.horizontalGradient(listOf(MatchGlow.Home.copy(alpha = 0.22f), Color.Transparent, MatchGlow.Away.copy(alpha = 0.30f))))
         )
         Box(heroBox.background(Brush.verticalGradient(0.5f to Color.Transparent, 0.82f to MvColors.Bg.copy(alpha = 0.85f), 1f to MvColors.Bg)))
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = MvDims.SafeX, end = MvDims.SafeX, bottom = 48.dp)) {
+        // 4n · La ficha empieza SIEMPRE arriba del todo (marcador entero) y, al volver con el foco a sus botones, se
+        // vuelve arriba: antes la lista se quedaba desplazada y el marcador salía cortado por arriba.
+        val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+        val listScope = androidx.compose.runtime.rememberCoroutineScope()
+        LaunchedEffect(event.id) {
+            kotlinx.coroutines.delay(150)
+            listState.scrollToItem(0)
+        }
+        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(start = MvDims.SafeX, end = MvDims.SafeX, bottom = 48.dp)) {
             item {
-                Column(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 22.dp)) {
+                Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 18.dp)) {
                     // 4k · Partido: el marcador del diseño (escudos en sus aros, VS en el centro, nombres debajo).
                     if (event.away != null) MatchBoard(event, status, best?.name, mine.size)
                     else {
@@ -154,8 +165,14 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
                         Spacer(Modifier.height(10.dp))
                         MvText(event.title, MvType.Display.copy(fontWeight = FontWeight.Black), maxLines = 2)
                     }
-                    Spacer(Modifier.height(18.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Spacer(Modifier.height(14.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.onFocusChanged { f ->
+                            if (f.hasFocus && (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0))
+                                listScope.launch { listState.animateScrollToItem(0) }
+                        }
+                    ) {
                         if (best != null) MvButton("Ver en ${best.name}", { nav.go(Route.Player(best.id)) }, icon = MvIcons.Play, primary = true, focusRequester = first)
                         if (status != EventStatus.FINISHED) MvButton(
                             if (reminded) "Recordatorio puesto" else "Recordarme",
@@ -245,15 +262,18 @@ private fun MatchBoard(event: AgendaEvent, status: EventStatus, channel: String?
     val away = event.away ?: ""
     val shape = RoundedCornerShape(26.dp)
     val phone = com.mivisor.tv.ui.design.LocalUiForm.current == com.mivisor.tv.ui.design.UiForm.PHONE
-    val ring = if (phone) 92.dp else 128.dp
+    val ring = if (phone) 80.dp else 96.dp
     Box(
-        Modifier.fillMaxWidth().height(if (phone) 300.dp else 340.dp).clip(shape)
+        // 4n · Más bajo (270 dp en la tele) para que la ficha quepa entera con los botones sin desplazarse, y con base
+        // opaca: sobre el banner de la competición los colores se mezclaban.
+        Modifier.fillMaxWidth().height(if (phone) 250.dp else 270.dp).clip(shape)
+            .background(MvColors.Bg.copy(alpha = 0.9f))
             .background(Brush.horizontalGradient(listOf(MatchGlow.Home.copy(alpha = 0.30f), MvColors.Bg.copy(alpha = 0.86f), MatchGlow.Away.copy(alpha = 0.30f))))
             .background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to MvColors.Bg.copy(alpha = 0.55f)))
             .border(1.dp, Brush.horizontalGradient(listOf(MatchGlow.Home.copy(alpha = 0.7f), Color(0x10FFFFFF), Color(0x10FFFFFF), MatchGlow.Away.copy(alpha = 0.7f))), shape)
     ) {
         // Arriba: competición entre líneas doradas y, debajo, el estado.
-        Column(Modifier.align(Alignment.TopCenter).padding(top = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.align(Alignment.TopCenter).padding(top = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 GoldLine(70.dp, toRight = false, thickness = 1.dp)
                 Spacer(Modifier.width(12.dp))
@@ -280,16 +300,16 @@ private fun MatchBoard(event: AgendaEvent, status: EventStatus, channel: String?
             }
         }
         // Centro: local · VS · visitante.
-        Row(Modifier.fillMaxWidth().align(Alignment.TopCenter).padding(top = if (phone) 66.dp else 76.dp), verticalAlignment = Alignment.Top) {
+        Row(Modifier.fillMaxWidth().align(Alignment.TopCenter).padding(top = if (phone) 56.dp else 62.dp), verticalAlignment = Alignment.Top) {
             BoardTeam(home, event.homeVisual, MatchGlow.Home, ring, event.isPersonVsPerson, phone, Modifier.weight(1f))
             Box(Modifier.height(ring), contentAlignment = Alignment.Center) {
-                VsBadge(if (phone) 26.dp else 38.dp, lines = if (phone) 22.dp else 44.dp)
+                VsBadge(if (phone) 24.dp else 30.dp, lines = if (phone) 22.dp else 40.dp)
             }
             BoardTeam(away, event.awayVisual, MatchGlow.Away, ring, event.isPersonVsPerson, phone, Modifier.weight(1f))
         }
         // Abajo: cápsula con competición, canal y fecha.
         Row(
-            Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp).height(38.dp)
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).height(32.dp)
                 .background(MvColors.Bg.copy(alpha = 0.55f), RoundedCornerShape(19.dp))
                 .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(19.dp))
                 .padding(horizontal = 20.dp),
@@ -315,8 +335,8 @@ private fun MatchBoard(event: AgendaEvent, status: EventStatus, channel: String?
 private fun BoardTeam(name: String, image: String?, glow: Color, ring: Dp, person: Boolean, phone: Boolean, modifier: Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         CrestRing(name, image, glow, ring, person)
-        Spacer(Modifier.height(14.dp))
-        val fs = if (phone) 18.sp else 24.sp
+        Spacer(Modifier.height(10.dp))
+        val fs = if (phone) 17.sp else 20.sp
         MvText(
             name.uppercase(),
             MvType.Display.copy(

@@ -18,11 +18,53 @@ import androidx.compose.runtime.staticCompositionLocalOf
 private object PivotBringIntoView : BringIntoViewSpec {
     private const val PIVOT = 0.28f
 
+    /** 4n · Desplazamiento corto y rápido (antes, el muelle por defecto: lento y se encolaba al mantener abajo). */
+    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> = FAST_SCROLL
+
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
         // Lo enfocado ocupa casi toda la pantalla: se alinea arriba con un pequeño margen.
         if (size >= containerSize * 0.7f) return offset - containerSize * 0.04f
+        // 4n · Zona cómoda: si ya se ve entero y no está pegado a los bordes, NO se mueve nada. Así la primera pantalla
+        // (portada, ficha de un partido) no se desplaza al recibir el foco, y bajar entre filas visibles no cuesta un
+        // desplazamiento animado por cada pulsación.
+        if (offset >= containerSize * 0.12f && offset + size <= containerSize * 0.86f) return 0f
         return offset - containerSize * PIVOT
     }
+}
+
+/** 4n · Animación de desplazamiento de la tele: 160 ms, sin rebote. */
+private val FAST_SCROLL: androidx.compose.animation.core.AnimationSpec<Float> =
+    androidx.compose.animation.core.tween(durationMillis = 160, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+
+/**
+ * 4n · El comportamiento normal de Compose (lo justo para que se vea) pero con la animación rápida. Se pone en la raíz
+ * de la app ([TvScrollRoot]): Ajustes, filas horizontales, paneles…
+ */
+@OptIn(ExperimentalFoundationApi::class)
+private object FastBringIntoView : BringIntoViewSpec {
+    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> = FAST_SCROLL
+
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val trailing = offset + size
+        val leading = offset
+        return when {
+            leading >= 0 && trailing <= containerSize -> 0f
+            leading < 0 && trailing > containerSize -> 0f
+            kotlin.math.abs(leading) < kotlin.math.abs(trailing - containerSize) -> leading
+            else -> trailing - containerSize
+        }
+    }
+}
+
+/** 4n · En la tele, toda la app usa el desplazamiento rápido (en táctil no cambia nada). */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun TvScrollRoot(content: @Composable () -> Unit) {
+    if (LocalUiForm.current.touch) {
+        content()
+        return
+    }
+    CompositionLocalProvider(LocalBringIntoViewSpec provides FastBringIntoView) { content() }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
