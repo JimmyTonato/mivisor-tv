@@ -226,37 +226,10 @@ fun SettingsScreen(graph: AppGraph, nav: Nav, toaster: Toaster, onLook: () -> Un
 @Composable
 private fun ProvidersPage(graph: AppGraph, nav: Nav, toaster: Toaster, onEdit: (ProviderInfo) -> Unit) {
     val lib by graph.providers.state.collectAsState()
-    val sync by graph.providers.sync.collectAsState()
-    var auto by remember { mutableStateOf(graph.prefs.providersAutoSync) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        // 3j · Catálogo central de GitHub (rama providers de mivisor-datos).
-        MvPanel {
-            MvText("Catálogo central (GitHub)", MvType.Heading)
-            Spacer(Modifier.height(4.dp))
-            MvText(
-                when {
-                    sync.running -> "Sincronizando…"
-                    sync.lastAt > 0 -> "Última sincronización: ${hhmm(sync.lastAt)} · ${ago(sync.lastAt)}" + (if (sync.note.isNotEmpty()) " · ${sync.note}" else "")
-                    else -> "Todavía no se ha sincronizado"
-                } + (sync.error?.let { "\n$it" } ?: ""),
-                MvType.Small, color = if (sync.error != null) MvColors.Soon else MvColors.Text2
-            )
-            Spacer(Modifier.height(10.dp))
-            MvRow("Actualizar automáticamente al iniciar", { auto = !auto; graph.prefs.providersAutoSync = auto },
-                subtitle = if (auto) "Al abrir: añade, renombra y quita los que ya no están. Los personales no se tocan"
-                else "Al abrir no se cambia nada",
-                icon = MvIcons.Refresh) { MvSwitch(auto) }
-            Spacer(Modifier.height(10.dp))
-            // 3k · Cada botón con su explicación debajo, a lo ancho: así no se corta ningún texto.
-            MvRow("Sincronizar ahora con GitHub", {
-                toaster.show("Sincronizando con GitHub…")
-                graph.providers.syncCatalog(com.mivisor.tv.catalog.datos.CentralProviders.Mode.FULL) { toaster.show(it) }
-            }, subtitle = "Deja los de GitHub igual que el catálogo y vuelve a traer los que borraste", icon = MvIcons.Refresh, enabled = !sync.running)
-            MvRow("Actualizar sin perder mis proveedores", {
-                toaster.show("Actualizando desde GitHub…")
-                graph.providers.syncCatalog(com.mivisor.tv.catalog.datos.CentralProviders.Mode.KEEP_MINE) { toaster.show(it) }
-            }, subtitle = "Solo añade los nuevos y renombra; no quita nada", icon = MvIcons.Layers, enabled = !sync.running)
-        }
+        // 4p · Ya no hay catálogo de GitHub: los canales vienen de la Biblioteca y aquí solo se añaden proveedores a mano.
+        MvText("Los canales vienen de la Biblioteca. Aquí puedes añadir proveedores propios: sus canales y fuentes nuevos se suman a los de la Biblioteca.",
+            MvType.Small, color = MvColors.Text2)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             MvButton("Añadir manualmente", { nav.go(Route.AddProvider()) }, icon = MvIcons.Add, primary = true)
             MvButton(if (lib.loading) "Leyendo…" else "Releer todos", { graph.providers.refresh(); toaster.show("Leyendo tus proveedores…") }, icon = MvIcons.Refresh, enabled = lib.providers.isNotEmpty())
@@ -265,7 +238,7 @@ private fun ProvidersPage(graph: AppGraph, nav: Nav, toaster: Toaster, onEdit: (
         lib.providers.forEach { p ->
             MvRow(
                 title = p.name,
-                subtitle = (if (p.github) "GitHub" else "Personal") + (p.codeHint?.let { " · código $it" } ?: "") + " · " +
+                subtitle = "Personal" + (p.codeHint?.let { " · código $it" } ?: "") + " · " +
                     (if (p.error != null) "Error: ${p.error}" else if (p.lastOk == 0L) "pendiente de leer" else "${p.channels} canales · actualizado ${ago(p.lastOk)}") +
                     if (p.usesWarp) " · necesita WARP" else "",
                 icon = MvIcons.Layers,

@@ -31,6 +31,8 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.draw.clipToBounds
 import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.runtime.LaunchedEffect
@@ -126,7 +128,9 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
     val (a1, _) = MvPalette.pair(event.away ?: event.sport)
     val mine = announced.options.flatMap { it.yours }.distinctBy { it.id }
 
-    Box(Modifier.fillMaxSize()) {
+    // 4p · El banner es 16:9 a todo el ancho: en la tele mide más que el hueco bajo la barra y se centraba hacia
+    // arriba, pintándose ENCIMA de la barra de menú. Ahora se recorta al hueco y se pega arriba.
+    Box(Modifier.fillMaxSize().clipToBounds()) {
         // Fondo del diseño: los colores de los dos equipos, de izquierda a derecha, fundidos con el fondo.
         // 3j · Banner de la competición (si lo hay); si no, los colores de los dos equipos.
         // 3l · A todo el ancho como antes, pero «alejado»: el banner se ve ENTERO (16:9, sin recortar arriba ni abajo),
@@ -134,7 +138,7 @@ fun EventScreen(graph: AppGraph, nav: Nav, route: Route.Event, toaster: Toaster)
         // lista). Mismo cálculo en tele y tablet, y decodificado al ancho real de la pantalla.
         val screenPx = androidx.compose.ui.platform.LocalContext.current.resources.displayMetrics.widthPixels.coerceIn(1280, 2560)
         val banner = rememberBanner(event.sport, event.competition, screenPx)
-        val heroBox = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+        val heroBox = Modifier.fillMaxWidth().wrapContentHeight(Alignment.Top, unbounded = true).aspectRatio(16f / 9f)
         if (!BannerBackground(banner, heroBox)) Box(
             heroBox.background(Brush.horizontalGradient(listOf(MatchGlow.Home.copy(alpha = 0.22f), Color.Transparent, MatchGlow.Away.copy(alpha = 0.30f))))
         )

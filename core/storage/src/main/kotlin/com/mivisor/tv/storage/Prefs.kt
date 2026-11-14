@@ -194,6 +194,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("providers_seeded", false)
         set(v) = sp.edit().putBoolean("providers_seeded", v).apply()
 
+    /** 4p · Ya se quitaron los proveedores que venían del catálogo de GitHub (se hace una vez). */
+    var githubProvidersRetired: Boolean
+        get() = sp.getBoolean("github_providers_retired", false)
+        set(v) = sp.edit().putBoolean("github_providers_retired", v).apply()
+
     /** Ids de los proveedores que vienen de GitHub (el resto son «Personal»). */
     var githubProviders: Set<String>
         get() = sp.getStringSet("github_providers", emptySet())?.toSet() ?: emptySet()

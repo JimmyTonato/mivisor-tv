@@ -38,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -97,18 +98,9 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
     val goldState by graph.gold.state.collectAsState()
     val withLibrary = lib.library.gold || goldState.configured
 
-    if (lib.loadedOnce && lib.providers.isEmpty() && !withLibrary) {
-        LaunchedEffect(Unit) { backdrop.colors = null }
-        EmptyState(
-            "Añade tu primer proveedor",
-            "MiVisor TV junta los canales de tus proveedores y elige sola la fuente que mejor funciona. Necesitas al menos uno para empezar.",
-            icon = MvIcons.Tv
-        ) {
-            MvButton("Añadir proveedor", { nav.go(Route.AddProvider()) }, icon = MvIcons.Add, primary = true, focusRequester = first)
-        }
-        InitialFocus(first)
-        return
-    }
+    // 4p · Sin Biblioteca ni proveedores: Inicio igual, con la agenda (sin canales) y un aviso para ponerlos.
+    val noChannels = lib.loadedOnce && lib.providers.isEmpty() && !withLibrary
+    LaunchedEffect(noChannels) { if (noChannels) backdrop.colors = null }
     // 4j · Biblioteca puesta pero aún sin canales (primer arranque o sin copia): se espera a la Biblioteca.
     val waitingLibrary = withLibrary && lib.library.isEmpty && lib.providers.isEmpty() &&
         (goldState.busy || goldState.checkedAt == 0L) && goldState.error == null
@@ -147,6 +139,15 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
             .take(12)
     }
     val hero = events.firstOrNull { it.second.isNotEmpty() }
+    // 4p · Partido destacado de portada: uno EN DIRECTO cuyo canal da buena señal (banda verde de la Biblioteca o, en
+    // tus proveedores, una fuente que va bien). Sale solo, con la imagen del partido en una ventanita sin sonido.
+    val spotlight = remember(agenda.agenda, library) {
+        events.firstOrNull { (ev, chs) ->
+            ev.status(now) == EventStatus.LIVE && chs.isNotEmpty() && chs.first().let { c ->
+                c.sources.firstOrNull()?.gold?.band?.lowercase() == "verde" || graph.sources.online(c.sources.map { it.contentId })
+            }
+        }
+    }
     // 3g · Portada doble: los dos partidos principales (directos primero; si no, lo más importante de las próximas 24 h).
     val featured = remember(agenda.agenda, library) {
         val live = events.filter { it.first.status(now) == EventStatus.LIVE }
@@ -195,6 +196,14 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
             MvNotice("Sin conexión a Internet.", "Ves la agenda y los canales guardados. Los canales no se pueden abrir hasta que vuelva la red.",
                 Modifier.padding(pad).padding(bottom = 12.dp), MvColors.Soon)
         }
+        if (noChannels) Column(Modifier.fillMaxWidth().padding(pad).padding(bottom = 14.dp)) {
+            MvNotice("Solo agenda:", "No tienes canales. Pon la contraseña de la Biblioteca o añade un proveedor para poder ver los partidos.",
+                Modifier.padding(bottom = 10.dp), MvColors.Soon)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MvButton("Poner la Biblioteca", { openLibrarySettings(nav) }, icon = MvIcons.Settings, primary = true)
+                MvButton("Añadir proveedor", { nav.go(Route.AddProvider()) }, icon = MvIcons.Add)
+            }
+        }
         // 4o · La Biblioteca aún no está en pantalla (arranque lento o primera descarga): que se sepa.
         if (goldState.configured && !lib.library.gold && goldState.error == null) Column(Modifier.fillMaxWidth()) {
             MvNotice(
@@ -217,7 +226,10 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
         // 1 · Portada.
         Column(Modifier.fillMaxWidth()) {
             // 3h · OK abre la ficha del partido (quién juega y dónde verlo, como en la Agenda); mantener OK lo reproduce.
-            if (featured.size == 2) DuoHero(featured, now, first, form,
+            if (spotlight != null) SpotlightHero(spotlight.first, spotlight.second, now, first, graph, form,
+                onWatch = { graph.preview.release(); nav.go(Route.Player(spotlight.second.first().id)) },
+                onOptions = { nav.go(Route.Event(spotlight.first.id)) })
+            else if (featured.size == 2) DuoHero(featured, now, first, form,
                 onPlay = { ev, chs -> if (chs.isNotEmpty()) nav.go(Route.Player(chs.first().id)) else nav.go(Route.Event(ev.id)) },
                 onOpen = { ev -> nav.go(Route.Event(ev.id)) })
             else if (hero != null) Hero(hero.first, hero.second, now, first, graph, form,
@@ -232,7 +244,8 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
         }
         // 2 · En emisión y a continuación.
         // Sin repetir los dos de la portada.
-        val rowEvents = if (featured.size == 2) events.filter { e -> featured.none { it.first.id == e.first.id } } else events
+        val rowEvents = if (spotlight != null) events.filter { it.first.id != spotlight.first.id }
+            else if (featured.size == 2) events.filter { e -> featured.none { it.first.id == e.first.id } } else events
         if (rowEvents.isNotEmpty()) Column(Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(bottom = 26.dp)) {
                 val live = rowEvents.count { it.first.status(now) == EventStatus.LIVE }
@@ -357,6 +370,88 @@ private fun Hero(
                 // 3h · Primero la ficha (dónde verlo y todos los canales, como en la Agenda); «Ver ahora» al lado.
                 MvButton("Dónde verlo", onOptions, icon = MvIcons.Layers, primary = true, focusRequester = first)
                 MvButton("Ver ahora en ${main.name}", onWatch, icon = MvIcons.Play)
+            }
+        }
+    }
+}
+
+/**
+ * 4p · Portada con el partido en directo que mejor se ve: a la izquierda quién juega (escudos en sus aros), la
+ * competición y los botones; a la derecha la imagen del partido en directo, sin sonido, en una ventanita. OK la
+ * abre en grande. La ventanita usa la vista previa de Canales (un reproductor pequeño, buffer corto) y se suelta al
+ * salir de Inicio.
+ */
+@Composable
+private fun SpotlightHero(
+    ev: AgendaEvent,
+    chs: List<TvChannel>,
+    now: Long,
+    first: FocusRequester,
+    graph: AppGraph,
+    form: com.mivisor.tv.ui.design.UiForm,
+    onWatch: () -> Unit,
+    onOptions: () -> Unit
+) {
+    val main = chs.first()
+    val phone = form == com.mivisor.tv.ui.design.UiForm.PHONE
+    val preview = graph.preview
+    val pv by preview.state.collectAsState()
+    LaunchedEffect(main.id) { preview.onFocus(main) }
+    androidx.compose.runtime.DisposableEffect(main.id) { onDispose { preview.onBlur(main.id) } }
+    val banner = rememberBanner(ev.sport, ev.competition, 1920)
+    Box(Modifier.fillMaxWidth().height(if (phone) 250.dp else 300.dp)) {
+        BannerBackground(banner)
+        Row(Modifier.fillMaxSize().padding(horizontal = MvDims.SafeX).padding(top = 14.dp, bottom = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    MvTag("● EN DIRECTO", MvColors.Live, filled = true)
+                    Spacer(Modifier.width(12.dp))
+                    MvText((ev.competition ?: sportName(ev.sport)).uppercase(), MvType.Eyebrow.copy(color = MvColors.Text2, fontSize = 13.sp), maxLines = 1)
+                }
+                Spacer(Modifier.height(14.dp))
+                if (ev.away != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                    CrestRing(ev.home ?: ev.title, ev.homeVisual, MatchGlow.Home, if (phone) 48.dp else 60.dp, ev.isPersonVsPerson)
+                    VsBadge(16.dp, Modifier.padding(horizontal = 10.dp))
+                    CrestRing(ev.away!!, ev.awayVisual, MatchGlow.Away, if (phone) 48.dp else 60.dp, ev.isPersonVsPerson)
+                    Spacer(Modifier.width(16.dp))
+                    Column {
+                        val st = MvType.Display.copy(fontSize = if (phone) 22.sp else 30.sp, lineHeight = if (phone) 25.sp else 34.sp, fontWeight = FontWeight.Black)
+                        MvText(ev.home ?: ev.title, st, maxLines = 1)
+                        MvText(ev.away!!, st.copy(color = MvColors.Text2), maxLines = 1)
+                    }
+                } else MvText(ev.title, MvType.Display.copy(fontSize = if (phone) 24.sp else 32.sp, fontWeight = FontWeight.Black), maxLines = 2)
+                Spacer(Modifier.height(12.dp))
+                MvText(main.name + (main.qualityOf(main.sources.firstOrNull()?.contentId)?.let { " · $it" } ?: "") +
+                    (if (chs.size > 1) " · ${chs.size} canales" else ""),
+                    MvType.Body.copy(color = MvColors.Text2), maxLines = 1)
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    MvButton("Ver ahora", onWatch, icon = MvIcons.Play, primary = true, focusRequester = first)
+                    MvButton("Dónde verlo", onOptions, icon = MvIcons.Layers)
+                }
+            }
+            Spacer(Modifier.width(24.dp))
+            // La ventanita con la imagen del partido.
+            val shape = RoundedCornerShape(16.dp)
+            Box(
+                Modifier.width(if (phone) 260.dp else 400.dp).aspectRatio(16f / 9f).clip(shape).background(Color(0xFF0B1622))
+                    .border(1.dp, Color(0x29FFFFFF), shape)
+            ) {
+                com.mivisor.tv.ui.LogoImage(main.logo, 200.dp, Modifier.align(Alignment.Center).size(width = 160.dp, height = 90.dp), RoundedCornerShape(12.dp),
+                    plain = Color(0xFF0E1A27), padding = 0.1f) { MvText(main.name, MvType.BodyStrong, maxLines = 2) }
+                if (pv.channelId == main.id) androidx.compose.ui.viewinterop.AndroidView(
+                    factory = { ctx -> android.view.TextureView(ctx).also { preview.attach(it) } },
+                    onRelease = { preview.detach(it) },
+                    modifier = Modifier.fillMaxSize().clip(shape).graphicsLayer { alpha = if (pv.ready) 1f else 0f }
+                )
+                Row(
+                    Modifier.align(Alignment.TopStart).padding(10.dp).background(Color(0xCC060B12), RoundedCornerShape(7.dp)).padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LiveDot(MvColors.Live, 6.dp)
+                    Spacer(Modifier.width(6.dp))
+                    MvText(if (pv.channelId == main.id && pv.ready) "EN DIRECTO · sin sonido" else "Conectando…", MvType.Caption.copy(fontWeight = FontWeight.Bold))
+                }
             }
         }
     }

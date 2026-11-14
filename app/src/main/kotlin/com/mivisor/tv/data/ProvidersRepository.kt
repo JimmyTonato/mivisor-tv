@@ -339,9 +339,23 @@ class ProvidersRepository(
      * iniciar» activado. Sin red no cambia nada (se sigue con lo guardado).
      */
     fun startupSync() {
-        when {
-            !prefs.providersSeeded -> syncCatalog(com.mivisor.tv.catalog.datos.CentralProviders.Mode.FULL, firstRun = true)
-            prefs.providersAutoSync -> syncCatalog(com.mivisor.tv.catalog.datos.CentralProviders.Mode.AUTO)
+        // 4p · El catálogo de proveedores de GitHub se retira: ya no se mantiene y los canales vienen de la Biblioteca.
+        // Al abrir NO se baja nada. Una sola vez, se quitan los proveedores que se habían traído de ahí; los añadidos
+        // a mano («Personal») se quedan.
+        prefs.providersSeeded = true
+        prefs.providersAutoSync = false
+        if (prefs.githubProvidersRetired) return
+        scope.launch {
+            val ids = prefs.githubProviders
+            if (ids.isNotEmpty()) {
+                withContext(Dispatchers.IO) { ids.forEach { runCatching { db.deleteProvider(it) } } }
+                prefs.warpProviders = prefs.warpProviders - ids
+                log.add("Proveedores", "Quitados ${ids.size} proveedores del catálogo de GitHub (retirado). Los personales se mantienen")
+            }
+            prefs.githubProviders = emptySet()
+            prefs.dismissedProviders = emptySet()
+            prefs.githubProvidersRetired = true
+            if (ids.isNotEmpty()) refresh(cacheFirst = true)
         }
     }
 

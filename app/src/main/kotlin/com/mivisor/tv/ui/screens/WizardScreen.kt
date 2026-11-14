@@ -59,8 +59,11 @@ private object WizardStep {
 }
 
 /**
- * Primera configuración (como el diseño): 5 pasos con barra de progreso.
- * 0 Bienvenida · 1 Tus proveedores (QR) · 2 Comprobación rápida · 3 Menú y modo ligero · 4 Todo listo.
+ * Primera configuración: pasos con barra de progreso.
+ * 0 Bienvenida · 1 Biblioteca (¿tienes la contraseña?) · 2 Proveedores (solo si no hay Biblioteca; opcional) ·
+ * 3 Comprobación rápida · 4 Menú y modo ligero · 5 Todo listo.
+ * 4p · Ya no se baja ningún proveedor solo: con la Biblioteca hay canales; sin ella, o se añade un proveedor a mano o
+ * se queda solo la agenda.
  */
 @Composable
 fun WizardScreen(graph: AppGraph, nav: Nav, onDone: () -> Unit) {
@@ -70,16 +73,17 @@ fun WizardScreen(graph: AppGraph, nav: Nav, onDone: () -> Unit) {
         Box(Modifier.fillMaxWidth().height(260.dp).background(Brush.verticalGradient(listOf(Color(0xFF13233D), MvColors.Bg))))
         Column(Modifier.fillMaxSize().padding(horizontal = MvDims.SafeX * 1.5f, vertical = MvDims.SafeY)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                repeat(5) { i ->
+                repeat(6) { i ->
                     Box(Modifier.size(width = 36.dp, height = 4.dp).background(if (i <= step) MvColors.Accent2 else MvColors.Surface4, RoundedCornerShape(2.dp)))
                 }
             }
             Spacer(Modifier.height(28.dp))
             when (step) {
                 0 -> Welcome(onStart = { step = 1 }, onImport = { nav.go(Route.Backup(export = false)) })
-                1 -> Providers(graph, nav, onNext = { step = 2 })
-                2 -> QuickCheck(graph, onNext = { step = 3 })
-                3 -> MenuStyle(graph, onNext = { step = 4 })
+                1 -> LibraryStep(graph, onHave = { step = 3 }, onNo = { step = 2 })
+                2 -> Providers(graph, nav, onNext = { step = 3 })
+                3 -> QuickCheck(graph, onNext = { step = 4 })
+                4 -> MenuStyle(graph, onNext = { step = 5 })
                 else -> AllSet(graph, onDone = { WizardStep.value = 0; onDone() })
             }
         }
@@ -103,7 +107,7 @@ private fun Welcome(onStart: () -> Unit, onImport: () -> Unit) {
         Spacer(Modifier.height(18.dp))
         MvText("Vamos a dejarlo listo", MvType.Display)
         Spacer(Modifier.height(10.dp))
-        MvText("Tres pasos: tus proveedores, una comprobación rápida y cómo quieres ver el menú. Puedes cambiarlo todo después en Ajustes.",
+        MvText("Unos pasos: la Biblioteca de canales (o tus proveedores), una comprobación rápida y cómo quieres ver el menú. Puedes cambiarlo todo después en Ajustes.",
             MvType.Body.copy(color = MvColors.Text2))
         Spacer(Modifier.height(28.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -122,9 +126,10 @@ private fun Providers(graph: AppGraph, nav: Nav, onNext: () -> Unit) {
     val first = remember { FocusRequester() }
     Row {
         Column(Modifier.weight(1f)) {
-            MvText("Tus proveedores", MvType.Title)
+            MvText("¿Quieres añadir un proveedor?", MvType.Title)
             Spacer(Modifier.height(8.dp))
-            MvText("Escanea el código con el móvil y escribe allí los códigos de tus proveedores. Se guardan solo en esta tele.",
+            MvText("Sin Biblioteca, los canales salen de tus proveedores. Escanea el código con el móvil y escribe allí sus códigos (se guardan solo en esta tele). " +
+                "Si no añades ninguno, tendrás la agenda pero sin canales; podrás poner la Biblioteca o un proveedor cuando quieras en Ajustes.",
                 MvType.Body.copy(color = MvColors.Text2))
             Spacer(Modifier.height(18.dp))
             lib.providers.forEach { p ->
@@ -142,9 +147,10 @@ private fun Providers(graph: AppGraph, nav: Nav, onNext: () -> Unit) {
             message?.let { MvText(it, MvType.SmallStrong, color = MvColors.Soon, modifier = Modifier.padding(bottom = 8.dp)) }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MvButton("Continuar", onNext, icon = MvIcons.Play, primary = true, focusRequester = first)
-                MvButton("Escribir con el mando", { nav.go(Route.AddProvider(fromWizard = true)) }, icon = MvIcons.Add)
-                MvButton("Más tarde", onNext)
+                if (lib.providers.isNotEmpty()) MvButton("Continuar", onNext, icon = MvIcons.Play, primary = true, focusRequester = first)
+                MvButton("Escribir con el mando", { nav.go(Route.AddProvider(fromWizard = true)) }, icon = MvIcons.Add,
+                    primary = lib.providers.isEmpty(), focusRequester = if (lib.providers.isEmpty()) first else null)
+                if (lib.providers.isEmpty()) MvButton("No, solo la agenda", onNext)
             }
         }
         Spacer(Modifier.width(40.dp))
@@ -158,6 +164,62 @@ private fun Providers(graph: AppGraph, nav: Nav, onNext: () -> Unit) {
         )
     }
     InitialFocus(first, "w1")
+}
+
+/**
+ * 4p · ¿Tienes la contraseña de la Biblioteca? Sí → se escribe, se guarda cifrada, se comprueba y se cargan los
+ * canales. No → paso de proveedores.
+ */
+@Composable
+private fun LibraryStep(graph: AppGraph, onHave: () -> Unit, onNo: () -> Unit) {
+    val g by graph.gold.state.collectAsState()
+    val lib by graph.providers.state.collectAsState()
+    var typing by remember { mutableStateOf(false) }
+    var text by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf<String?>(null) }
+    var checking by remember { mutableStateOf(false) }
+    val first = remember { FocusRequester() }
+    val ready = g.configured && lib.library.gold && !g.wrongPassword && g.channels > 0
+    fun save() {
+        if (text.isBlank()) { message = "Escribe la contraseña"; return }
+        checking = true
+        message = "Comprobando la contraseña y descargando la Biblioteca…"
+        graph.gold.setPassword(text.toCharArray()) { m -> checking = false; message = m }
+        text = ""
+    }
+    Column(Modifier.widthIn(max = 760.dp)) {
+        MvText("¿Tienes la contraseña de la Biblioteca?", MvType.Title)
+        Spacer(Modifier.height(8.dp))
+        MvText("La Biblioteca de MiVisor trae los canales ya comprobados y ordenados. Si tienes su contraseña, es lo único que necesitas.",
+            MvType.Body.copy(color = MvColors.Text2))
+        Spacer(Modifier.height(20.dp))
+        when {
+            ready -> {
+                MvRow("Biblioteca lista", onHave, subtitle = "${g.channels} canales · revisión ${g.revision}", icon = MvIcons.Check,
+                    trailing = "Continuar", trailingColor = MvColors.Ok, focusRequester = first)
+            }
+            typing -> {
+                com.mivisor.tv.ui.MvTextField(text, { text = it; message = null }, "Contraseña de la Biblioteca",
+                    placeholder = "La que te ha dado el administrador", password = true, onDone = { save() })
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    MvButton(if (checking) "Comprobando…" else "Comprobar", { save() }, icon = MvIcons.Check, primary = true, enabled = !checking, focusRequester = first)
+                    MvButton("No la tengo", onNo)
+                }
+            }
+            else -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MvButton("Sí, la tengo", { typing = true }, icon = MvIcons.Check, primary = true, focusRequester = first)
+                MvButton("No", onNo)
+            }
+        }
+        (message ?: g.error ?: g.note.takeIf { checking && it.isNotBlank() })?.let {
+            Spacer(Modifier.height(12.dp))
+            MvText(it, MvType.SmallStrong, color = if (g.wrongPassword || g.error != null) MvColors.Soon else MvColors.Text2)
+        }
+        Spacer(Modifier.height(10.dp))
+        MvText("Se guarda cifrada en esta tele. Nunca se muestra ni se escribe en el registro.", MvType.Caption)
+    }
+    InitialFocus(first, "w1-$typing-$ready")
 }
 
 @Composable

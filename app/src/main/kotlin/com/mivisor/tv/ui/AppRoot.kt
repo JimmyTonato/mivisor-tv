@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.drawBehind
@@ -190,14 +191,16 @@ fun AppRoot(graph: AppGraph, nav: Nav, onExit: () -> Unit) {
                         navPosition == "side" -> Box(Modifier.fillMaxSize()) {
                             Column(Modifier.fillMaxSize().padding(start = RAIL_W - MvDims.SafeX + 37.dp)) {
                                 HeaderBar(graph)
-                                Box(Modifier.fillMaxSize()) { content() }
+                                // 4p · Recortado: nada de la pantalla (p. ej. el banner 16:9 de la ficha) puede pintarse encima de la barra.
+                            Box(Modifier.fillMaxSize().clipToBounds()) { content() }
                             }
                             Rail(route, onTab = { nav.tab(it) })
                         }
                         // 3f · Por defecto: barra superior (como Google TV o Netflix). Todo el ancho para el contenido.
                         else -> Column(Modifier.fillMaxSize()) {
                             TopNav(graph, route, onTab = { nav.tab(it) })
-                            Box(Modifier.fillMaxSize()) { content() }
+                            // 4p · Recortado: nada de la pantalla (p. ej. el banner 16:9 de la ficha) puede pintarse encima de la barra.
+                            Box(Modifier.fillMaxSize().clipToBounds()) { content() }
                         }
                     }
                 }

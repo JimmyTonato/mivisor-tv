@@ -91,14 +91,28 @@ class ChannelMatcher(channels: List<Channel>) {
             "dazn f1" to "daznf1"
         )
 
+        /**
+         * 4p · Palabras de relleno que la agenda pone junto al canal («LaLiga Hypermotion · Ver partido», «M+ LaLiga en
+         * directo») o artículos sueltos. Se quitan en los DOS lados (agenda y canal), así nunca hacen que un canal casé
+         * con otro distinto: solo dejan de impedir que case el bueno.
+         */
+        private val NOISE = setOf(
+            "ver", "partido", "partidos", "directo", "vivo", "en", "online", "gratis", "streaming", "stream", "app", "web",
+            "aqui", "enlace", "link", "senal", "emision", "oficial", "plataforma", "y", "el", "la", "los", "las", "de", "del"
+        )
+
+        /** 4p · «Dial M54», «Dial 110», «dial 54 0110»: el número del dial no es parte del nombre del canal. */
+        private val DIAL = Regex("\\bdial\\s*[:#]?\\s*[a-z]?\\d+(\\s+\\d+)*")
+
         fun tokens(name: String): List<String> {
             // Primero la normalización GENERAL (Unicode decorativo, invisibles, emojis…); después los alias.
             var text = Normalizer.normalize(ChannelNameNormalizer.display(name).lowercase(), Normalizer.Form.NFD)
                 .replace(Regex("\\p{Mn}+"), "")
             ALIASES.forEach { (from, to) -> text = text.replace(from, " $to ") }
+            text = DIAL.replace(text, " ")
             return text.replace(Regex("[^a-z0-9]+"), " ")
                 .split(' ')
-                .filter { it.isNotEmpty() && it !in QUALITY }
+                .filter { it.isNotEmpty() && it !in QUALITY && it !in NOISE }
         }
     }
 }
