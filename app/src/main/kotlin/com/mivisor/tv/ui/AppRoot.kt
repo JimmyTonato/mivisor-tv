@@ -355,7 +355,8 @@ private fun TopNav(graph: AppGraph, route: Route, onTab: (Route) -> Unit) {
         NavIcon(MvIcons.Search, selected == Route.Search) { onTab(Route.Search) }
         Spacer(Modifier.width(6.dp))
         NavIcon(MvIcons.Settings, selected == Route.Settings) { onTab(Route.Settings) }
-        Spacer(Modifier.width(18.dp))
+        Spacer(Modifier.width(14.dp))
+        LoadingPill(graph)
         LiveDot(
             when (engine.phase) {
                 EngineSupervisor.Phase.READY -> MvColors.Ok
@@ -379,6 +380,31 @@ private fun TopNav(graph: AppGraph, route: Route, onTab: (Route) -> Unit) {
         MvText("WARP", MvType.Caption.copy(color = MvColors.Text3))
         Spacer(Modifier.width(16.dp))
         MvText(hhmm(now), MvType.BodyStrong)
+    }
+}
+
+/**
+ * 4q · Qué se está cargando ahora mismo (Biblioteca, logos de los canales, banners), con un spinner. Desaparece cuando
+ * no hay nada en marcha. El detalle (y «volver a cargar») está en Ajustes › Biblioteca.
+ */
+@Composable
+private fun LoadingPill(graph: AppGraph) {
+    val g by graph.gold.state.collectAsState()
+    val logos by graph.providers.logoStatus.collectAsState()
+    val banners by graph.banners.status.collectAsState()
+    val what = listOfNotNull(
+        if (g.busy) "Biblioteca" else null,
+        if (logos.busy) "logos" else null,
+        if (banners.busy) "banners" else null
+    )
+    if (what.isEmpty()) return
+    Row(
+        Modifier.padding(end = 12.dp).background(MvColors.Surface2, RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        com.mivisor.tv.ui.design.Spinner(12.dp)
+        Spacer(Modifier.width(7.dp))
+        MvText("Cargando " + what.joinToString(", "), MvType.Caption.copy(color = MvColors.Text2), maxLines = 1)
     }
 }
 
@@ -437,6 +463,7 @@ private fun HeaderBar(graph: AppGraph) {
     ) {
         com.mivisor.tv.ui.design.MvWordmark(20.sp)
         Spacer(Modifier.weight(1f))
+        LoadingPill(graph)
         LiveDot(
             when (engine.phase) {
                 EngineSupervisor.Phase.READY -> MvColors.Ok

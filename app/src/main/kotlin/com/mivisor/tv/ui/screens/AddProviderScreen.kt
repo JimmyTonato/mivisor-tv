@@ -20,6 +20,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
 import com.mivisor.tv.AppGraph
@@ -66,40 +69,46 @@ fun AddProviderScreen(graph: AppGraph, route: Route.AddProvider, onDone: () -> U
     }
 
     Box(Modifier.fillMaxSize()) {
-        // Diseño: el formulario a la izquierda y «Escribe desde el móvil» con su QR siempre a la derecha.
-        com.mivisor.tv.ui.PhoneQrCard(
-            "Escribe desde el móvil", "Escanea y pega el código en el móvil. Llega a este campo; no se guarda hasta que lo compruebes.",
-            onText = { code = it.trim(); error = null },
-            modifier = Modifier.align(Alignment.TopEnd).padding(end = MvDims.SafeX, top = 40.dp).width(280.dp)
-        )
-        Column(Modifier.padding(start = MvDims.SafeX, end = MvDims.SafeX + 308.dp).widthIn(max = 560.dp)) {
-            MvText("Añadir proveedor", MvType.Title)
-            Spacer(Modifier.height(6.dp))
-            MvText("Escribe el código que te dio tu proveedor. Se comprueba ahora y se guarda cifrado en esta tele; después no se vuelve a mostrar.", MvType.Small)
-            Spacer(Modifier.height(24.dp))
-            Row(verticalAlignment = Alignment.Bottom) {
-                MvTextField(code, { code = it; error = null }, "Código", Modifier.weight(1f), placeholder = "código del proveedor", focusRequester = codeField, onDone = { submit() })
-                Spacer(Modifier.width(16.dp))
-                MvButton("Móvil", { phone = true }, icon = MvIcons.Phone)
-            }
-            Spacer(Modifier.height(18.dp))
-            MvTextField(name, { name = it }, "Nombre (opcional)", placeholder = "p. ej. Casa, Deportes…")
-            Spacer(Modifier.height(18.dp))
-            MvRow(
-                "Este proveedor necesita WARP",
-                { warp = !warp },
-                subtitle = "Si WARP no está conectada, sus fallos no cuentan contra las fuentes.",
-                icon = MvIcons.Shield
-            ) { MvSwitch(warp) }
-            Spacer(Modifier.height(24.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                MvButton(if (busy) "Comprobando…" else "Comprobar y añadir", { submit() }, icon = MvIcons.Add, primary = true, enabled = !busy)
-                if (busy) Spinner(28.dp)
-            }
-            error?.let {
-                Spacer(Modifier.height(16.dp))
-                MvText(it, MvType.BodyStrong, color = MvColors.Bad)
-            }
+        // Diseño: el formulario a la izquierda y «Escribe desde el móvil» con su QR a la derecha. 4q · Si no cabe
+        // (tablets pequeñas), el QR va debajo, y todo se puede desplazar.
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = MvDims.SafeX).padding(bottom = 28.dp)) {
+            SideBySide(sideWidth = 280.dp, main = {
+                Column(Modifier.widthIn(max = 560.dp)) {
+                    MvText("Añadir proveedor", MvType.Title)
+                    Spacer(Modifier.height(6.dp))
+                    MvText("Escribe el código que te dio tu proveedor. Se comprueba ahora y se guarda cifrado en esta tele; después no se vuelve a mostrar.", MvType.Small)
+                    Spacer(Modifier.height(24.dp))
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        MvTextField(code, { code = it; error = null }, "Código", Modifier.weight(1f), placeholder = "código del proveedor", focusRequester = codeField, onDone = { submit() })
+                        Spacer(Modifier.width(16.dp))
+                        MvButton("Móvil", { phone = true }, icon = MvIcons.Phone)
+                    }
+                    Spacer(Modifier.height(18.dp))
+                    MvTextField(name, { name = it }, "Nombre (opcional)", placeholder = "p. ej. Casa, Deportes…")
+                    Spacer(Modifier.height(18.dp))
+                    MvRow(
+                        "Este proveedor necesita WARP",
+                        { warp = !warp },
+                        subtitle = "Si WARP no está conectada, sus fallos no cuentan contra las fuentes.",
+                        icon = MvIcons.Shield
+                    ) { MvSwitch(warp) }
+                    Spacer(Modifier.height(24.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        MvButton(if (busy) "Comprobando…" else "Comprobar y añadir", { submit() }, icon = MvIcons.Add, primary = true, enabled = !busy)
+                        if (busy) Spinner(28.dp)
+                    }
+                    error?.let {
+                        Spacer(Modifier.height(16.dp))
+                        MvText(it, MvType.BodyStrong, color = MvColors.Bad)
+                    }
+                }
+            }, side = {
+                com.mivisor.tv.ui.PhoneQrCard(
+                    "Escribe desde el móvil", "Escanea y pega el código en el móvil. Llega a este campo; no se guarda hasta que lo compruebes.",
+                    onText = { code = it.trim(); error = null },
+                    modifier = Modifier.padding(top = 40.dp).fillMaxWidth()
+                )
+            })
         }
         if (phone) {
             BackHandler { phone = false }

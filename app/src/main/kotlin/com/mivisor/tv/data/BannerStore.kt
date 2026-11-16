@@ -32,12 +32,17 @@ class BannerStore(
     private val _version = MutableStateFlow(0)
     val version: StateFlow<Int> = _version.asStateFlow()
     private var job: Job? = null
+    /** 4q · Estado de los banners (para enseñar si ya están). */
+    private val _status = MutableStateFlow(LoadStatus())
+    val status: StateFlow<LoadStatus> = _status.asStateFlow()
 
     val baseUrl: String get() = GitHubData.bannersBase(agendaUrl())
 
     /** Al abrir: lo guardado al instante y después GitHub (si toca) y la primera pasada de descargas. */
     fun start() {
-        scope.launch(Dispatchers.IO) { runCatching { repo.loadCached() }.getOrNull()?.let { _catalog.value = it } }
+        scope.launch(Dispatchers.IO) {
+            runCatching { repo.loadCached() }.getOrNull()?.let { _catalog.value = it; _status.value = LoadStatus.ok("${it.entries.size} en el aparato") }
+        }
         refresh(force = false, delayMs = 4_000)
     }
 
@@ -45,24 +50,30 @@ class BannerStore(
         job?.cancel()
         job = scope.launch(Dispatchers.IO) {
             if (delayMs > 0) delay(delayMs)
+            _status.value = LoadStatus.working("Mirando si hay banners nuevos…")
             val c = try {
                 repo.refresh(GitHubData.bannersManifest(agendaUrl()), force)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 log.add("Banners", "No se pudo leer el catálogo de banners: ${e.message ?: e.javaClass.simpleName}")
+                _status.value = if (_catalog.value != null) LoadStatus.ok("Los del aparato (no se pudo actualizar)")
+                else LoadStatus.failed("No se pudieron descargar")
                 withContext(Dispatchers.Main) { onDone("No se pudo leer el catálogo de banners") }
                 return@launch
             }
             _catalog.value = c
             // Primera pasada: se bajan los que falten o hayan cambiado, uno a uno (sin competir con lo demás).
             var got = 0
+            val pending = c.entries.count { repo.needsCheck(it) }
             for (e in c.entries) {
                 if (!repo.needsCheck(e)) continue
+                _status.value = LoadStatus.working("Descargando banners ${got + 1} de $pending…")
                 if (runCatching { repo.ensure(e, baseUrl) }.getOrNull() != null) got++
                 if (got > 0 && got % 4 == 0) _version.value++
             }
             if (got > 0) { _version.value++; log.add("Banners", "$got banners guardados o actualizados") }
+            _status.value = LoadStatus.ok("${c.entries.size} listos")
             withContext(Dispatchers.Main) { onDone(if (got > 0) "$got banners actualizados" else "Banners al día") }
         }
     }

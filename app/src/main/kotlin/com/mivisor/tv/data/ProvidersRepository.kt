@@ -109,6 +109,9 @@ class ProvidersRepository(
     /** 4f · Logos: el resolvedor actual y cada vez que cambia (la Biblioteca de Gold vuelve a poner sus logos). */
     private val _logos = MutableStateFlow<ChannelLogoResolver?>(null)
     val logoResolver: StateFlow<ChannelLogoResolver?> = _logos.asStateFlow()
+    /** 4q · Estado de los logos de los canales (para enseñar si ya están). */
+    private val _logoStatus = MutableStateFlow(LoadStatus())
+    val logoStatus: StateFlow<LoadStatus> = _logoStatus.asStateFlow()
     private var loadJob: Job? = null
     /** Últimos catálogos leídos: para volver a montar la biblioteca cuando llegan logos nuevos sin releer nada. */
     @Volatile private var lastCatalogs: List<ProviderCatalog> = emptyList()
@@ -160,6 +163,12 @@ class ProvidersRepository(
         if (rows.isEmpty()) {
             _state.value = LibraryState(loadedOnce = true)
             snapshotFile?.let { f -> withContext(Dispatchers.IO) { runCatching { f.delete() } } }
+            // 4q · Sin proveedores (solo Biblioteca) los logos se cargaban NUNCA: este era el único sitio que los leía.
+            // Ahora se usan los del disco y, si toca, se descargan; la Biblioteca se vuelve a pintar al llegar.
+            if (resolver == null) runCatching { withContext(Dispatchers.IO) { logos.cached() } }.getOrNull()?.let {
+                resolver = it; _logos.value = it; _logoStatus.value = LoadStatus.ok("En el aparato")
+            }
+            refreshLogos(force = resolver == null)
             return
         }
         _state.value = _state.value.copy(loading = true, providers = rows.map { it.info(warp) })
@@ -200,7 +209,7 @@ class ProvidersRepository(
         // 3f · Los logos NUNCA retrasan los canales: se usa lo que hay en disco y, si toca descargar el catálogo o la
         // lista de picons, se hace después y la biblioteca se vuelve a montar al llegar (ver [refreshLogos]).
         val logoResolver = resolver
-            ?: runCatching { logos.cached() }.getOrNull()?.also { resolver = it; _logos.value = it }
+            ?: runCatching { logos.cached() }.getOrNull()?.also { resolver = it; _logos.value = it; _logoStatus.value = LoadStatus.ok("En el aparato") }
             ?: ChannelLogoResolver(LogoCatalog.EMPTY)
         lastCatalogs = catalogs
         // 3g · Si lo leído es igual que lo que ya está montado (lo normal al abrir la app), no se vuelve a montar.
@@ -232,17 +241,32 @@ class ProvidersRepository(
     @Volatile private var builtWith: ChannelLogoResolver? = null
 
     /** 3f · Descarga los logos que toque (como mucho 1 vez al día / a la semana) sin bloquear nada. */
-    private fun refreshLogos() {
+    private fun refreshLogos(force: Boolean = false) {
         if (logoJob?.isActive == true) return
         logoJob = scope.launch {
-            val needed = withContext(Dispatchers.IO) { runCatching { logos.needsNetwork() }.getOrDefault(false) }
-            if (!needed) return@launch
-            val r = withContext(Dispatchers.IO) { runCatching { logos.load(logoUrl()) }.getOrNull() } ?: return@launch
-            resolver = r
-            _logos.value = r
-            relogo(r)
+            val needed = force || withContext(Dispatchers.IO) { runCatching { logos.needsNetwork() }.getOrDefault(false) }
+            if (!needed) {
+                if (resolver != null) _logoStatus.value = LoadStatus.ok("Al día")
+                return@launch
+            }
+            _logoStatus.value = LoadStatus.working("Descargando logos…")
+            val r = withContext(Dispatchers.IO) { runCatching { logos.load(logoUrl()) } }
+            r.exceptionOrNull()?.let { e ->
+                _logoStatus.value = if (resolver != null) LoadStatus.ok("Los del aparato (no se pudo actualizar)")
+                else LoadStatus.failed("No se pudieron descargar: ${e.message ?: e.javaClass.simpleName}")
+                log.add("Logos", "No se pudieron descargar los logos: ${e.message ?: e.javaClass.simpleName}")
+                return@launch
+            }
+            val res = r.getOrNull() ?: return@launch
+            resolver = res
+            _logos.value = res
+            _logoStatus.value = LoadStatus.ok("Listos")
+            relogo(res)
         }
     }
+
+    /** 4q · «Volver a cargar» desde Ajustes. */
+    fun reloadLogos() = refreshLogos(force = true)
 
     /** 3g · Logos nuevos: solo se cambian los logos de la biblioteca ya montada (sin reagrupar). */
     private suspend fun relogo(r: ChannelLogoResolver) {

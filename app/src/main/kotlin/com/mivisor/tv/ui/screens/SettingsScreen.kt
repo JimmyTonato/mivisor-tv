@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Alignment
@@ -230,7 +231,7 @@ private fun ProvidersPage(graph: AppGraph, nav: Nav, toaster: Toaster, onEdit: (
         // 4p · Ya no hay catálogo de GitHub: los canales vienen de la Biblioteca y aquí solo se añaden proveedores a mano.
         MvText("Los canales vienen de la Biblioteca. Aquí puedes añadir proveedores propios: sus canales y fuentes nuevos se suman a los de la Biblioteca.",
             MvType.Small, color = MvColors.Text2)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        ButtonRow(10.dp) {
             MvButton("Añadir manualmente", { nav.go(Route.AddProvider()) }, icon = MvIcons.Add, primary = true)
             MvButton(if (lib.loading) "Leyendo…" else "Releer todos", { graph.providers.refresh(); toaster.show("Leyendo tus proveedores…") }, icon = MvIcons.Refresh, enabled = lib.providers.isNotEmpty())
         }
@@ -265,7 +266,7 @@ private fun ProviderOptions(graph: AppGraph, p: ProviderInfo, onClose: () -> Uni
             Spacer(Modifier.height(14.dp))
             MvRow("Necesita WARP", { warp = !warp }, subtitle = "Sin WARP conectada, sus fallos no penalizan a las fuentes.", icon = MvIcons.Shield) { MvSwitch(warp) }
             Spacer(Modifier.height(20.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ButtonRow(12.dp) {
                 MvButton("Guardar", {
                     if (name.isNotBlank() && name != p.name) graph.providers.rename(p.id, name)
                     if (warp != p.usesWarp) graph.providers.setUsesWarp(p.id, warp)
@@ -385,7 +386,7 @@ private fun EnginePage(graph: AppGraph, onChange: () -> Unit, toaster: (String) 
                 "Ayuda con canales de muy poca gente. Gasta algo más de red (comparte lo que ya tiene)."
             else "Solo se conecta él a otros. Si un canal sale con nombre pero sin emisores, prueba a activarlo.") +
             (if (full && warpOn) "\nCon WARP conectado nadie puede entrar: para que sirva, prueba con WARP apagado." else "")) { MvSwitch(full) }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow(12.dp) {
             MvButton("Reiniciar motor", { graph.player.stop(); scope.launch { EngineManager.stop(); EngineManager.ensureStarted(context) } }, icon = MvIcons.Refresh, enabled = supported == null)
             MvButton("Arrancar", { scope.launch { EngineManager.ensureStarted(context) } }, icon = MvIcons.Play, enabled = supported == null)
             MvButton("Parar", { graph.player.stop(); scope.launch { EngineManager.stop() } }, icon = MvIcons.Close)
@@ -420,7 +421,7 @@ private fun WarpPage(graph: AppGraph, nav: Nav) {
                 FingerRow("Huella esperada", r.warp?.let { short(it) } ?: "—")
                 FingerRow("Huella de esta app", r.own?.let { short(it) } ?: "—")
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ButtonRow(12.dp) {
                 MvButton("Abrir WARP", { graph.warp.openApp() }, icon = MvIcons.Shield)
                 MvButton("Ver diagnóstico", { nav.go(Route.Diagnostics) }, icon = MvIcons.Pulse)
             }
@@ -439,7 +440,7 @@ private fun WarpPage(graph: AppGraph, nav: Nav) {
                 else -> "Huella distinta: MiVisor TV no puede controlar esta WARP (no se rebaja la seguridad)"
             })
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow(12.dp) {
             when (warp.phase) {
                 WarpPhase.CONNECTED -> MvButton("Desconectar", { graph.warp.disconnect() }, icon = MvIcons.Shield, primary = true)
                 WarpPhase.PERMISSION_REQUIRED -> MvButton("Autorizar VPN", { graph.warp.requestPermission() }, icon = MvIcons.Shield, primary = true)
@@ -560,7 +561,7 @@ private fun AgendaPage(graph: AppGraph, toaster: Toaster) {
             state.error?.let { KeyValue("Último error", it) }
         }
         MvTextField(url, { url = it }, "Dirección de agenda.json (vacío = la de por defecto)", placeholder = BuildConfig.AGENDA_URL)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow(12.dp) {
             MvButton("Guardar y recargar", { graph.prefs.agendaUrl = url; graph.agenda.load(force = true); toaster.show("Recargando agenda…") }, icon = MvIcons.Refresh, primary = true)
             MvButton("Usar la de por defecto", { url = ""; graph.prefs.agendaUrl = ""; graph.agenda.load(force = true) })
         }
@@ -653,7 +654,27 @@ private fun LibraryPage(graph: AppGraph, toaster: Toaster, onChange: () -> Unit)
         graph.gold.setPassword(pw) { msg -> toaster.show(msg); onChange() }
     }
 
+    val logoSt by graph.providers.logoStatus.collectAsState()
+    val bannerSt by graph.banners.status.collectAsState()
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // 4q · Qué se ha cargado ya (y qué falta), con un spinner en lo que está en marcha.
+        MvPanel {
+            MvText("QUÉ SE HA CARGADO", MvType.Eyebrow.copy(color = MvColors.Text2))
+            Spacer(Modifier.height(8.dp))
+            LoadLine("Biblioteca", when {
+                !g.configured -> com.mivisor.tv.data.LoadStatus(text = "Sin contraseña")
+                g.busy -> com.mivisor.tv.data.LoadStatus.working("Comprobando…")
+                g.error != null -> com.mivisor.tv.data.LoadStatus.failed(g.error!!)
+                graph.providers.showingGold -> com.mivisor.tv.data.LoadStatus.ok("${g.channels} canales · revisión ${g.revision}")
+                else -> com.mivisor.tv.data.LoadStatus.working("Cargando…")
+            })
+            LoadLine("Logos de los canales", logoSt)
+            LoadLine("Banners de competiciones", bannerSt)
+        }
+        ButtonRow(10.dp) {
+            MvButton("Volver a cargar logos", { graph.providers.reloadLogos(); toaster.show("Descargando logos…") }, icon = MvIcons.Refresh)
+            MvButton("Buscar banners nuevos", { graph.banners.refresh(force = true) { toaster.show(it) } }, icon = MvIcons.Refresh)
+        }
         if (g.configured) {
             MvPanel {
                 MvText("ESTADO", MvType.Eyebrow.copy(color = MvColors.Text2))
@@ -692,6 +713,24 @@ private fun LibraryPage(graph: AppGraph, toaster: Toaster, onChange: () -> Unit)
                 subtitle = "Borra la contraseña y la copia guardada. Se quedan solo los canales de tus proveedores", icon = MvIcons.Delete
             )
         }
+    }
+}
+
+/** 4q · Una línea de «Qué se ha cargado»: spinner si está en marcha, punto verde si está, rojo si falló. */
+@Composable
+private fun LoadLine(name: String, st: com.mivisor.tv.data.LoadStatus) {
+    Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) {
+            when {
+                st.busy -> com.mivisor.tv.ui.design.Spinner(14.dp)
+                st.error -> com.mivisor.tv.ui.design.LiveDot(MvColors.Bad, 8.dp)
+                st.done -> com.mivisor.tv.ui.design.LiveDot(MvColors.Ok, 8.dp)
+                else -> com.mivisor.tv.ui.design.LiveDot(MvColors.Text3, 8.dp)
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        MvText(name, MvType.SmallStrong, modifier = Modifier.width(190.dp), maxLines = 1)
+        MvText(st.text, MvType.Small.copy(color = if (st.error) MvColors.Bad else MvColors.Text2), maxLines = 2, modifier = Modifier.weight(1f))
     }
 }
 
@@ -745,7 +784,7 @@ private fun CompetitionsPage(graph: AppGraph, onChange: () -> Unit) {
         return
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow(12.dp) {
             MvButton("Mostrar todas", {
                 graph.prefs.hiddenCompetitions = emptyList()
                 hidden = emptySet()
@@ -921,7 +960,7 @@ private fun LogPage(graph: AppGraph) {
     var version by remember { mutableIntStateOf(0) }
     LaunchedEffect(version) { rows = withContext(Dispatchers.IO) { graph.log.recent(150) } }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow(12.dp) {
             MvButton("Actualizar", { version++ }, icon = MvIcons.Refresh)
             MvButton("Borrar", { graph.log.clear(); rows = emptyList() }, icon = MvIcons.Delete)
         }

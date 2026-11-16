@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.unit.dp
 import com.mivisor.tv.catalog.tv.ChannelPlates
 import com.mivisor.tv.catalog.tv.Plate
@@ -339,3 +340,41 @@ fun qualityName(rank: Int, label: String?): String? {
 /** 4n · Calidad de la fuente [contentId] de este canal. */
 fun TvChannel.qualityOf(contentId: String?): String? =
     sources.firstOrNull { it.contentId == contentId }?.let { qualityName(it.quality, it.qualityLabel) }
+
+/**
+ * 4q · Fila de botones que salta de línea si no cabe (tablets pequeñas, móvil en vertical): nunca se pierde un botón
+ * por la derecha.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun ButtonRow(spacing: androidx.compose.ui.unit.Dp = 12.dp, content: @Composable () -> Unit) {
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(spacing),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) { content() }
+}
+
+/**
+ * 4q · Dos bloques lado a lado si hay ancho (tele, tablet grande); si no, uno debajo del otro. [side] es el bloque
+ * secundario (p. ej. el QR del móvil), de ancho [sideWidth] cuando va al lado.
+ */
+@Composable
+fun SideBySide(
+    sideWidth: androidx.compose.ui.unit.Dp,
+    minWidth: androidx.compose.ui.unit.Dp = 780.dp,
+    gap: androidx.compose.ui.unit.Dp = 32.dp,
+    main: @Composable () -> Unit,
+    side: @Composable () -> Unit
+) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+        if (maxWidth >= minWidth) Row {
+            Column(Modifier.weight(1f)) { main() }
+            Spacer(Modifier.width(gap))
+            Column(Modifier.width(sideWidth)) { side() }
+        } else Column {
+            main()
+            Spacer(Modifier.height(gap / 1.5f))
+            Column(Modifier.widthIn(max = sideWidth + 80.dp)) { side() }
+        }
+    }
+}

@@ -69,7 +69,7 @@ fun ChannelScreen(graph: AppGraph, nav: Nav, route: Route.Channel, toaster: Toas
             Spacer(Modifier.height(6.dp))
             MvText(listOfNotNull(ch.brandName, ch.subtitle()).joinToString(" · "), MvType.Small)
             Spacer(Modifier.height(24.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ButtonRow(12.dp) {
                 MvButton("Ver ahora", { nav.go(Route.Player(ch.id)) }, icon = MvIcons.Play, primary = true, focusRequester = play)
                 MvButton(if (fav) "En Mi lista" else "Mi lista", {
                     graph.mylist.toggleFavorite(ch.id, ch.name)

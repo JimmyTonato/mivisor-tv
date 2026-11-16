@@ -199,7 +199,7 @@ fun HomeScreen(graph: AppGraph, nav: Nav, toaster: Toaster, backdrop: com.miviso
         if (noChannels) Column(Modifier.fillMaxWidth().padding(pad).padding(bottom = 14.dp)) {
             MvNotice("Solo agenda:", "No tienes canales. Pon la contraseña de la Biblioteca o añade un proveedor para poder ver los partidos.",
                 Modifier.padding(bottom = 10.dp), MvColors.Soon)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ButtonRow(12.dp) {
                 MvButton("Poner la Biblioteca", { openLibrarySettings(nav) }, icon = MvIcons.Settings, primary = true)
                 MvButton("Añadir proveedor", { nav.go(Route.AddProvider()) }, icon = MvIcons.Add)
             }
@@ -366,7 +366,7 @@ private fun Hero(
                 (if (chs.size > 1) " · ${chs.size} canales" else ""),
                 MvType.Heading.copy(color = MvColors.Text2, fontWeight = FontWeight.Normal), maxLines = 1)
             Spacer(Modifier.height(18.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ButtonRow(12.dp) {
                 // 3h · Primero la ficha (dónde verlo y todos los canales, como en la Agenda); «Ver ahora» al lado.
                 MvButton("Dónde verlo", onOptions, icon = MvIcons.Layers, primary = true, focusRequester = first)
                 MvButton("Ver ahora en ${main.name}", onWatch, icon = MvIcons.Play)
@@ -425,7 +425,7 @@ private fun SpotlightHero(
                     (if (chs.size > 1) " · ${chs.size} canales" else ""),
                     MvType.Body.copy(color = MvColors.Text2), maxLines = 1)
                 Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ButtonRow(12.dp) {
                     MvButton("Ver ahora", onWatch, icon = MvIcons.Play, primary = true, focusRequester = first)
                     MvButton("Dónde verlo", onOptions, icon = MvIcons.Layers)
                 }
@@ -579,7 +579,7 @@ private fun QuietHero(
                 Spacer(Modifier.height(6.dp))
                 MvText("Lo viste ${playedAt?.let { ago(it) } ?: "hace poco"} · ${last.subtitle()}", MvType.Body.copy(color = MvColors.Text2), maxLines = 1)
                 Spacer(Modifier.height(18.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ButtonRow(12.dp) {
                     MvButton("Ver ahora", onWatch, icon = MvIcons.Play, primary = true, focusRequester = first)
                     MvButton("Canales", onChannels, icon = MvIcons.Grid)
                 }
@@ -590,7 +590,7 @@ private fun QuietHero(
                 Spacer(Modifier.height(6.dp))
                 MvText("Mira la agenda para ver lo próximo o entra en tus canales.", MvType.Body.copy(color = MvColors.Text2), maxLines = 2)
                 Spacer(Modifier.height(18.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ButtonRow(12.dp) {
                     MvButton("Ver canales", onChannels, icon = MvIcons.Grid, primary = true, focusRequester = first)
                     MvButton("Agenda", onAgenda, icon = MvIcons.Calendar)
                 }

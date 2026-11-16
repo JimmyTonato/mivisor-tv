@@ -640,7 +640,7 @@ internal fun AlertStage(
                 maxLines = 2, modifier = Modifier.widthIn(max = 760.dp))
             MvText(body, MvType.Body.copy(color = Soft, fontSize = 16.sp, lineHeight = 23.sp), maxLines = 4, modifier = Modifier.widthIn(max = 620.dp))
             Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { actions() }
+            ButtonRow(10.dp) { actions() }
         }
         if (tech != null) MvText(tech, MvType.Small.copy(color = Muted), maxLines = 1,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = MvDims.SafeX, bottom = 28.dp))

@@ -92,7 +92,8 @@ class GoldLibraryRepository(
         }
         // Llegan logos nuevos: se vuelven a poner (los canales se rehacen enteros, es poco trabajo).
         scope.launch {
-            providers.logoResolver.drop(1).filterNotNull().collect { r ->
+            // 4q · Sin drop(1): si los logos llegaban antes de empezar a escuchar, la Biblioteca se quedaba sin ellos.
+            providers.logoResolver.filterNotNull().collect { r ->
                 val bib = current ?: return@collect
                 if (r !== builtWith) publish(bib, touched = null, touchedCats = emptySet(), rebuild = true)
             }

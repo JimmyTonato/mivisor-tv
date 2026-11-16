@@ -27,6 +27,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -71,7 +73,8 @@ fun WizardScreen(graph: AppGraph, nav: Nav, onDone: () -> Unit) {
     BackHandler(enabled = step > 0) { step-- }
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxWidth().height(260.dp).background(Brush.verticalGradient(listOf(Color(0xFF13233D), MvColors.Bg))))
-        Column(Modifier.fillMaxSize().padding(horizontal = MvDims.SafeX * 1.5f, vertical = MvDims.SafeY)) {
+        // 4q · Con desplazamiento: en tablets pequeñas los botones de abajo se quedaban fuera sin poder llegar a ellos.
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = MvDims.SafeX * 1.5f, vertical = MvDims.SafeY).padding(bottom = 28.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 repeat(6) { i ->
                     Box(Modifier.size(width = 36.dp, height = 4.dp).background(if (i <= step) MvColors.Accent2 else MvColors.Surface4, RoundedCornerShape(2.dp)))
@@ -110,7 +113,7 @@ private fun Welcome(onStart: () -> Unit, onImport: () -> Unit) {
         MvText("Unos pasos: la Biblioteca de canales (o tus proveedores), una comprobación rápida y cómo quieres ver el menú. Puedes cambiarlo todo después en Ajustes.",
             MvType.Body.copy(color = MvColors.Text2))
         Spacer(Modifier.height(28.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow {
             MvButton("Empezar", onStart, icon = MvIcons.Play, primary = true, focusRequester = first)
             MvButton("Importar copia de otra tele", onImport, icon = MvIcons.Phone)
         }
@@ -124,8 +127,8 @@ private fun Providers(graph: AppGraph, nav: Nav, onNext: () -> Unit) {
     val scope = rememberCoroutineScope()
     var message by remember { mutableStateOf<String?>(null) }
     val first = remember { FocusRequester() }
-    Row {
-        Column(Modifier.weight(1f)) {
+    SideBySide(sideWidth = 360.dp, main = {
+        Column {
             MvText("¿Quieres añadir un proveedor?", MvType.Title)
             Spacer(Modifier.height(8.dp))
             MvText("Sin Biblioteca, los canales salen de tus proveedores. Escanea el código con el móvil y escribe allí sus códigos (se guardan solo en esta tele). " +
@@ -146,23 +149,23 @@ private fun Providers(graph: AppGraph, nav: Nav, onNext: () -> Unit) {
             }
             message?.let { MvText(it, MvType.SmallStrong, color = MvColors.Soon, modifier = Modifier.padding(bottom = 8.dp)) }
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ButtonRow {
                 if (lib.providers.isNotEmpty()) MvButton("Continuar", onNext, icon = MvIcons.Play, primary = true, focusRequester = first)
                 MvButton("Escribir con el mando", { nav.go(Route.AddProvider(fromWizard = true)) }, icon = MvIcons.Add,
                     primary = lib.providers.isEmpty(), focusRequester = if (lib.providers.isEmpty()) first else null)
                 if (lib.providers.isEmpty()) MvButton("No, solo la agenda", onNext)
             }
         }
-        Spacer(Modifier.width(40.dp))
+    }, side = {
         PhoneQrCard(
             "Escribe desde el móvil", "Cada código que envíes se comprueba y se añade aquí.",
             onText = { code ->
                 message = "Comprobando el código…"
                 scope.launch { message = graph.providers.add(code, "", false) ?: "Proveedor añadido" }
             },
-            modifier = Modifier.width(360.dp)
+            modifier = Modifier.fillMaxWidth()
         )
-    }
+    })
     InitialFocus(first, "w1")
 }
 
@@ -202,12 +205,12 @@ private fun LibraryStep(graph: AppGraph, onHave: () -> Unit, onNo: () -> Unit) {
                 com.mivisor.tv.ui.MvTextField(text, { text = it; message = null }, "Contraseña de la Biblioteca",
                     placeholder = "La que te ha dado el administrador", password = true, onDone = { save() })
                 Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ButtonRow {
                     MvButton(if (checking) "Comprobando…" else "Comprobar", { save() }, icon = MvIcons.Check, primary = true, enabled = !checking, focusRequester = first)
                     MvButton("No la tengo", onNo)
                 }
             }
-            else -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            else -> ButtonRow {
                 MvButton("Sí, la tengo", { typing = true }, icon = MvIcons.Check, primary = true, focusRequester = first)
                 MvButton("No", onNo)
             }
