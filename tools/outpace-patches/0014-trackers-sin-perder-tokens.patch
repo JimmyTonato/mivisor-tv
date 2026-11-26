@@ -1,0 +1,96 @@
+From 26d4e9c63cfcb866bffdc3f8f2b0caeca7fb5e58 Mon Sep 17 00:00:00 2001
+From: x <a@b>
+Date: Thu, 26 Nov 2026 00:02:11 +0100
+Subject: [PATCH] 0014
+
+---
+ crates/ace-wire/src/transport.rs | 58 ++++++++++++++++++++++++++++++--
+ 1 file changed, 56 insertions(+), 2 deletions(-)
+
+diff --git a/crates/ace-wire/src/transport.rs b/crates/ace-wire/src/transport.rs
+index 60e619a..d8ed1cb 100644
+--- a/crates/ace-wire/src/transport.rs
++++ b/crates/ace-wire/src/transport.rs
+@@ -272,9 +272,9 @@ pub fn normalize_trackers(raw: &Bencode) -> Vec<String> {
+     for text in texts {
+         for url in split_urls(&text) {
+             if let Some(url) = clean_tracker_url(&url) {
+-                let key = url.trim_end_matches('/').to_ascii_lowercase();
++                let key = tracker_dedup_key(&url);
+                 if out.len() < MAX_DESCRIPTOR_TRACKERS
+-                    && !out.iter().any(|u| u.trim_end_matches('/').to_ascii_lowercase() == key)
++                    && !out.iter().any(|u| tracker_dedup_key(u) == key)
+                 {
+                     out.push(url);
+                 }
+@@ -284,6 +284,32 @@ pub fn normalize_trackers(raw: &Bencode) -> Vec<String> {
+     out
+ }
+ 
++/// MiVisor (parche 0014): clave para no repetir trackers. Solo el esquema y el servidor (`host:puerto`)
++/// se comparan sin mayúsculas (RFC 3986 §6.2.2.1); la ruta, la consulta y los tokens se comparan tal cual,
++/// así `?token=AbC` y `?token=abc` son trackers distintos. Una barra final se ignora solo si no hay
++/// consulta (`/announce` = `/announce/`). Antes se pasaba TODA la URL a minúsculas y se podía perder una
++/// alternativa válida.
++fn tracker_dedup_key(url: &str) -> String {
++    let Some((scheme, rest)) = url.split_once("://") else {
++        return url.to_string();
++    };
++    let cut = rest
++        .find(|c: char| c == '/' || c == '?' || c == '#')
++        .unwrap_or(rest.len());
++    let (authority, tail) = rest.split_at(cut);
++    let tail = if tail.contains('?') || tail.contains('#') {
++        tail
++    } else {
++        tail.strip_suffix('/').unwrap_or(tail)
++    };
++    format!(
++        "{}://{}{}",
++        scheme.to_ascii_lowercase(),
++        authority.to_ascii_lowercase(),
++        tail
++    )
++}
++
+ const MAX_DESCRIPTOR_TRACKERS: usize = 64;
+ const TRACKER_SCHEMES: [&str; 3] = ["udp://", "http://", "https://"];
+ 
+@@ -478,6 +504,34 @@ mod tests {
+         assert_eq!(got, ["udp://a:1/announce", "udp://b:2/announce", "http://c:3/announce", "udp://d:4/announce"]);
+     }
+ 
++    #[test]
++    fn mivisor_trackers_tokens_y_rutas_distintos_no_se_pierden() {
++        let got = mivisor_norm(d(vec![(
++            "trackers",
++            l(vec![
++                b("https://tracker.example/announce?token=AbC"),
++                b("https://tracker.example/announce?token=abc"),
++                b("https://TRACKER.example/announce?token=AbC"),
++                b("http://t.example/Announce"),
++                b("http://t.example/announce"),
++                b("udp://h:1/announce/"),
++                b("UDP://H:1/announce"),
++            ]),
++        )]));
++        assert_eq!(
++            got,
++            [
++                "https://tracker.example/announce?token=AbC",
++                "https://tracker.example/announce?token=abc",
++                "http://t.example/Announce",
++                "http://t.example/announce",
++                "udp://h:1/announce/",
++            ]
++        );
++        assert_eq!(super::tracker_dedup_key("UDP://H:1"), "udp://h:1");
++        assert_eq!(super::tracker_dedup_key("http://h/a/?x=1"), "http://h/a/?x=1");
++    }
++
+     #[test]
+     fn mivisor_trackers_limpieza() {
+         let got = mivisor_norm(d(vec![(
+-- 
+2.43.0
+

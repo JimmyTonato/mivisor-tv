@@ -1,0 +1,106 @@
+From 9330085a3f9c3fb118d77b5cb205bbf2ae121ebd Mon Sep 17 00:00:00 2001
+From: x <a@b>
+Date: Wed, 25 Nov 2026 23:44:03 +0100
+Subject: [PATCH] 0012
+
+---
+ .../ace-swarm/src/live_session/continuity.rs  | 54 +++++++++++++++++++
+ .../src/live_session/pool_support.rs          |  7 +++
+ 2 files changed, 61 insertions(+)
+
+diff --git a/crates/ace-swarm/src/live_session/continuity.rs b/crates/ace-swarm/src/live_session/continuity.rs
+index 845f9b4..ab40702 100644
+--- a/crates/ace-swarm/src/live_session/continuity.rs
++++ b/crates/ace-swarm/src/live_session/continuity.rs
+@@ -1,5 +1,19 @@
+ use super::*;
+ 
++/// MiVisor (parche 0012): tiempo que la pieza que toca puede quedarse sin llegar, aunque algún emisor la
++/// anuncie, antes de saltarla. Antes, si un emisor la anunciaba pero no la mandaba, el vídeo se paraba
++/// hasta que llegaba (o hasta cambiar de emisor a los 12 s): el reproductor se quedaba sin datos.
++const MIVISOR_STUCK_PIECE_MS: u64 = 6_000;
++/// MiVisor (parche 0012): solo se salta si el directo va al menos estas piezas por delante. Al ritmo del
++/// directo (o con la emisión parada) no se salta nada: la pieza aún puede llegar a tiempo.
++const MIVISOR_STUCK_MIN_AHEAD: u64 = 8;
++
++/// MiVisor (parche 0012): ¿saltar la pieza que toca? Lógica pura (probada en `mivisor_tests`).
++pub(super) fn mivisor_should_skip_stuck(stuck_ms: u128, next_needed: u64, head: u64) -> bool {
++    stuck_ms >= u128::from(MIVISOR_STUCK_PIECE_MS)
++        && head.saturating_sub(next_needed) >= MIVISOR_STUCK_MIN_AHEAD
++}
++
+ #[derive(Clone, Copy)]
+ pub(super) struct ResumeCursor {
+     next_needed: u64,
+@@ -201,6 +215,28 @@ impl Continuity {
+         Some(floor)
+     }
+ 
++    /// MiVisor (parche 0012): la pieza que toca lleva [`MIVISOR_STUCK_PIECE_MS`] sin llegar aunque algún
++    /// emisor la anuncia, y el directo va por delante: se salta esa pieza (como hace `skip_evicted_gap`
++    /// con una pieza que ya nadie tiene) y la salida se recoloca en el siguiente fotograma clave. Un
++    /// tirón corto en vez de un corte largo.
++    pub(super) fn mivisor_skip_stuck_piece(&mut self, now: Instant) -> Option<u64> {
++        let next = self.reasm.next_needed();
++        let stuck_ms = now.duration_since(self.next_needed_since).as_millis();
++        if !mivisor_should_skip_stuck(stuck_ms, next, self.head) {
++            return None;
++        }
++        let target = next.saturating_add(1);
++        self.recovery_event(RecoveryEvent::SkippedEvictedGap);
++        self.reasm.skip_to(target);
++        self.arm_output_gate();
++        self.active_peers.prune_below(target);
++        self.requested_at.retain(|&p, _| p >= target);
++        self.received_chunks.retain(|&p, _| p >= target);
++        self.piece_producers.retain(|&p, _| p >= target);
++        self.next_needed_since = now;
++        Some(target)
++    }
++
+     /// Enforce the configured live cushion immediately, before requests or publication.
+     /// This also drops stale partial/completed pieces and releases their peer slots when
+     /// a newly learned head outruns the cursor. Once output exists, a forward skip uses
+@@ -330,3 +366,21 @@ impl Continuity {
+         self.active_peers.update_window(id, min_piece, max_piece);
+     }
+ }
++
++#[cfg(test)]
++mod mivisor_tests {
++    use super::*;
++
++    #[test]
++    fn mivisor_salta_pieza_atascada_solo_si_el_directo_va_delante() {
++        // Atascada 6 s y el directo 8 piezas por delante: se salta.
++        assert!(mivisor_should_skip_stuck(6_000, 100, 108));
++        // Poco tiempo: aún puede llegar.
++        assert!(!mivisor_should_skip_stuck(5_999, 100, 200));
++        // Al ritmo del directo (o emisión parada): no se salta.
++        assert!(!mivisor_should_skip_stuck(60_000, 100, 107));
++        assert!(!mivisor_should_skip_stuck(60_000, 100, 100));
++        // Cursor por delante del borde (esperando a que la fuente produzca): nunca.
++        assert!(!mivisor_should_skip_stuck(60_000, 120, 100));
++    }
++}
+diff --git a/crates/ace-swarm/src/live_session/pool_support.rs b/crates/ace-swarm/src/live_session/pool_support.rs
+index f0cc7ee..e14ce9c 100644
+--- a/crates/ace-swarm/src/live_session/pool_support.rs
++++ b/crates/ace-swarm/src/live_session/pool_support.rs
+@@ -356,6 +356,13 @@ pub(super) async fn retransmit_stalled_requests(
+         );
+         changed = true;
+     }
++    // MiVisor (parche 0012): pieza anunciada que no llega y el directo va por delante: se salta.
++    if let Some(target) = continuity.mivisor_skip_stuck_piece(now) {
++        crate::alog!(
++            "[ace] mivisor: playback cursor stuck on a piece upstreams still advertise; skipping to {target}"
++        );
++        changed = true;
++    }
+     let timed_out = continuity.timed_out_requests(now);
+     if !timed_out.is_empty() {
+         let request_timeout = continuity.live_recovery.request_timeout();
+-- 
+2.43.0
+

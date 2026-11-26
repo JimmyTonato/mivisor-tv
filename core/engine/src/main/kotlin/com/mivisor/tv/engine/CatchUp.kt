@@ -11,6 +11,10 @@ package com.mivisor.tv.engine
  *     probar (30 s → 1 min → 2 min → 4 min). Cada prueba buena relaja esa espera.
  *  5. Si la descarga va justa, no se prueba nada: se mantiene el retraso y la imagen fluida.
  *  6. Nunca se sale de lo que guarda el motor: si el retraso se acerca a su ventana, se adelanta lo justo.
+ *
+ * 4r · Con `approach = false` (lo normal desde la 4r: «Acercarse solo al directo» apagado) solo queda el punto 6:
+ * la app no adelanta ni acelera por su cuenta; ir al directo es un botón del usuario. Perseguir el directo gastaba el
+ * colchón y el siguiente bache ya era un corte («Recuperando la imagen» en bucle).
  */
 object CatchUpPolicy {
     /** Sin cortes este tiempo antes de acercarse… */
@@ -201,7 +205,7 @@ class CatchUpController {
      * Cada ~1 s. [delayMs] = retraso respecto al borde (null = no se sabe); [bufferAheadMs] = imagen ya descargada por
      * delante de lo que se ve; [targetMs] = retraso mínimo sano del buffer adaptativo; [playing] = imagen en marcha.
      */
-    fun onTick(nowMs: Long, delayMs: Long?, bufferAheadMs: Long, targetMs: Long, playing: Boolean): Action {
+    fun onTick(nowMs: Long, delayMs: Long?, bufferAheadMs: Long, targetMs: Long, playing: Boolean, approach: Boolean = true): Action {
         val recentStalls = stalls.count { nowMs - it.at <= CatchUpPolicy.RECENT_MS }
         val required = minOf(
             CatchUpPolicy.STABLE_MAX_MS,
@@ -238,6 +242,12 @@ class CatchUpController {
             resetMargin()
             stats = stats.copy(steps = stats.steps + 1, recoveredMs = stats.recoveredMs + step, state = State.CATCHING_UP)
             return Action.SeekForward(step)
+        }
+        // 4r · Sin acercamiento automático: solo la guarda de la ventana (arriba). Nada de saltos ni de acelerar.
+        if (!approach) {
+            probing = false
+            stats = stats.copy(state = if (delayMs - reserve <= CatchUpPolicy.TOLERANCE_MS) State.ON_TIME else State.WAITING)
+            return Action.None
         }
         val excess = delayMs - reserve
         // Prueba anterior evaluada: 30 s sin cortes desde que se acercó = salió bien (se relaja la espera).

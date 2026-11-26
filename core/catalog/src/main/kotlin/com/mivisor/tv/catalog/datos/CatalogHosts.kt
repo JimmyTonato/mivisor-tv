@@ -43,6 +43,19 @@ object CatalogHosts {
         return Parsed(out, skipped, updated)
     }
 
+    /**
+     * 4t · Lo que escribe el usuario en Ajustes: «51.158.152.5», «51.158.152.5:8081» o con espacios alrededor.
+     * Devuelve «ip:puerto» (8081 si no pone puerto) o null si no es una IPv4 pública con un puerto válido.
+     */
+    fun parseManual(text: String): String? {
+        val t = text.trim().removePrefix("http://").removeSuffix("/")
+        if (t.isEmpty() || t.any { it.isWhitespace() }) return null
+        val colon = t.lastIndexOf(':')
+        val host = if (colon >= 0) t.substring(0, colon) else t
+        val port = if (colon >= 0) t.substring(colon + 1).toIntOrNull() ?: return null else 8081
+        return valid(host, port)
+    }
+
     /** «ip:puerto» si es una IPv4 pública y un puerto válido. */
     fun valid(host: String, port: Int): String? {
         if (port !in 1..65535) return null

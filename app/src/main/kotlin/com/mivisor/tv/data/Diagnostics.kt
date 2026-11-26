@@ -81,7 +81,7 @@ class Diagnostics(private val graph: AppGraph) {
             EngineSupervisor.Phase.STARTING -> "Outpace arrancando"
             EngineSupervisor.Phase.FAILED -> "Outpace con error: ${s.message ?: "sin detalle"}"
             EngineSupervisor.Phase.STOPPED -> "Outpace parado (arranca al ver un canal)"
-        } + " · commit ${BuildConfig.OUTPACE_COMMIT.take(12)}"
+        } + " · commit ${BuildConfig.OUTPACE_COMMIT.take(12)} · parches ${BuildConfig.OUTPACE_PATCHES.ifEmpty { "ninguno" }}"
     }
 
     private fun warpText(): String {

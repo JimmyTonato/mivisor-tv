@@ -80,6 +80,9 @@ jobs:
           # 0009: el estado de la sesión dice los bytes de vídeo recibidos y la velocidad (para explicar las esperas).
           # 0010: abrir con un descriptor ya descargado (tf-<base64url>) que publica MiVisor Gold, sin pedirlo al catálogo.
           # 0011: huella (SHA-1) del descriptor en el registro, para comparar el del catálogo con el publicado por Gold.
+          # 0012: pieza que un emisor anuncia pero no llega en 6 s, con el directo 8+ piezas por delante: se salta (tirón, no corte).
+          # 0013: descriptores del catálogo guardados en disco (MIVISOR_DESCRIPTOR_DIR): si el catálogo no responde, se usa el guardado.
+          # 0014: trackers repetidos: solo esquema y servidor sin mayúsculas; rutas y tokens distintos no se pierden.
           for p in "$GITHUB_WORKSPACE"/tools/outpace-patches/*.patch; do
             git apply --check "$p"
             git apply "$p"

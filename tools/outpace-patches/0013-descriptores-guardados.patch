@@ -1,0 +1,172 @@
+From 5051ad07af8bc12c1027fcfe52b80f24ee655dc0 Mon Sep 17 00:00:00 2001
+From: x <a@b>
+Date: Wed, 25 Nov 2026 23:44:26 +0100
+Subject: [PATCH] 0013
+
+---
+ crates/ace-swarm/src/resolve.rs | 142 ++++++++++++++++++++++++++++++++
+ 1 file changed, 142 insertions(+)
+
+diff --git a/crates/ace-swarm/src/resolve.rs b/crates/ace-swarm/src/resolve.rs
+index ede8be8..5bb7339 100644
+--- a/crates/ace-swarm/src/resolve.rs
++++ b/crates/ace-swarm/src/resolve.rs
+@@ -580,9 +580,118 @@ const CATALOG_PEER_CHECK: Duration = Duration::from_secs(3);
+ /// arranca, mientras Ace Stream oficial (u otras apps) sí lo ven. Si salen emisiones distintas, se
+ /// pregunta a sus trackers cuánta gente tiene cada una y se usa la que más tenga (empate: la del
+ /// servidor que va antes en la lista). Todo queda en líneas `[mivisor]` para el diagnóstico.
++/// MiVisor (parche 0013): carpeta donde se guardan los descriptores que ha dado el catálogo (la pone la
++/// app). Sin ella, no se guarda nada (como antes).
++const MIVISOR_DESCRIPTOR_DIR_ENV: &str = "MIVISOR_DESCRIPTOR_DIR";
++/// MiVisor (parche 0013): como mucho tantos descriptores guardados (se borran los más antiguos).
++const MIVISOR_DESCRIPTOR_CACHE_MAX: usize = 400;
++/// MiVisor (parche 0013): tamaño máximo de un descriptor guardado.
++const MIVISOR_DESCRIPTOR_MAX_BYTES: usize = 256 * 1024;
++
++/// MiVisor (parche 0013): pregunta al catálogo y guarda el descriptor que da. Si el catálogo no responde
++/// (caído, bloqueado, lento), usa el último descriptor guardado de ese canal, si lo hay y se puede leer.
++/// Así los canales ya vistos siguen abriendo aunque el catálogo falle.
+ async fn catalog_transport_bytes_query(
+     parameter: &str,
+     value: &str,
++) -> Result<Vec<u8>, ResolveError> {
++    let dir = std::env::var_os(MIVISOR_DESCRIPTOR_DIR_ENV).map(std::path::PathBuf::from);
++    match catalog_transport_bytes_query_net(parameter, value).await {
++        Ok(bytes) => {
++            if let Some(dir) = &dir {
++                mivisor_descriptor_store(dir, parameter, value, &bytes);
++            }
++            Ok(bytes)
++        }
++        Err(e) => {
++            let saved = dir
++                .as_ref()
++                .and_then(|dir| mivisor_descriptor_load(dir, parameter, value))
++                .filter(|bytes| stream_info_from_transport(bytes).is_ok());
++            match saved {
++                Some(bytes) => {
++                    eprintln!(
++                        "outpace: [mivisor] catalogo sin respuesta: se usa el descriptor guardado"
++                    );
++                    Ok(bytes)
++                }
++                None => Err(e),
++            }
++        }
++    }
++}
++
++/// MiVisor (parche 0013): fichero del descriptor guardado (solo letras y números en el nombre).
++fn mivisor_descriptor_path(
++    dir: &std::path::Path,
++    parameter: &str,
++    value: &str,
++) -> Option<std::path::PathBuf> {
++    let param: String = parameter
++        .chars()
++        .filter(|c| c.is_ascii_alphanumeric())
++        .take(16)
++        .collect();
++    let key: String = value
++        .chars()
++        .filter(|c| c.is_ascii_alphanumeric())
++        .take(64)
++        .collect::<String>()
++        .to_ascii_lowercase();
++    if param.is_empty() || key.is_empty() {
++        return None;
++    }
++    Some(dir.join(format!("{param}-{key}.bin")))
++}
++
++/// MiVisor (parche 0013): guarda el descriptor (escritura a un temporal y renombrado: nunca a medias).
++fn mivisor_descriptor_store(dir: &std::path::Path, parameter: &str, value: &str, bytes: &[u8]) {
++    if bytes.is_empty() || bytes.len() > MIVISOR_DESCRIPTOR_MAX_BYTES {
++        return;
++    }
++    let Some(path) = mivisor_descriptor_path(dir, parameter, value) else {
++        return;
++    };
++    if std::fs::create_dir_all(dir).is_err() {
++        return;
++    }
++    let tmp = path.with_extension("tmp");
++    if std::fs::write(&tmp, bytes).is_ok() && std::fs::rename(&tmp, &path).is_err() {
++        let _ = std::fs::remove_file(&tmp);
++    }
++    mivisor_descriptor_trim(dir, MIVISOR_DESCRIPTOR_CACHE_MAX);
++}
++
++/// MiVisor (parche 0013): el descriptor guardado, tal cual (sin comprobar).
++fn mivisor_descriptor_load(dir: &std::path::Path, parameter: &str, value: &str) -> Option<Vec<u8>> {
++    let path = mivisor_descriptor_path(dir, parameter, value)?;
++    let bytes = std::fs::read(path).ok()?;
++    (!bytes.is_empty() && bytes.len() <= MIVISOR_DESCRIPTOR_MAX_BYTES).then_some(bytes)
++}
++
++/// MiVisor (parche 0013): deja como mucho `max` descriptores (borra los más antiguos).
++fn mivisor_descriptor_trim(dir: &std::path::Path, max: usize) {
++    let Ok(entries) = std::fs::read_dir(dir) else {
++        return;
++    };
++    let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> = entries
++        .filter_map(|e| e.ok())
++        .filter(|e| e.path().extension().is_some_and(|x| x == "bin"))
++        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
++        .collect();
++    if files.len() <= max {
++        return;
++    }
++    files.sort_by_key(|f| f.0);
++    let excess = files.len() - max;
++    for (_, path) in files.into_iter().take(excess) {
++        let _ = std::fs::remove_file(path);
++    }
++}
++
++async fn catalog_transport_bytes_query_net(
++    parameter: &str,
++    value: &str,
+ ) -> Result<Vec<u8>, ResolveError> {
+     let mut jobs = tokio::task::JoinSet::new();
+     for (order, (host, port)) in catalog_hosts().into_iter().enumerate() {
+@@ -1909,3 +2018,36 @@ mod tests {
+         assert_eq!(index.get(&info.infohash), Some(info));
+     }
+ }
++
++#[cfg(test)]
++mod mivisor_descriptor_tests {
++    use super::*;
++
++    #[test]
++    fn mivisor_descriptor_guardado_se_lee_y_se_recorta() {
++        let dir = std::env::temp_dir().join(format!("mivisor-desc-{}", std::process::id()));
++        let _ = std::fs::remove_dir_all(&dir);
++        let id = "0123456789abcdef0123456789abcdef01234567";
++        assert!(mivisor_descriptor_load(&dir, "pid", id).is_none());
++        mivisor_descriptor_store(&dir, "pid", id, b"descriptor");
++        assert_eq!(
++            mivisor_descriptor_load(&dir, "pid", id).as_deref(),
++            Some(&b"descriptor"[..])
++        );
++        // Nombres raros no salen de la carpeta.
++        assert_eq!(
++            mivisor_descriptor_path(&dir, "pid", "../../etc/x").unwrap(),
++            dir.join("pid-etcx.bin")
++        );
++        assert!(mivisor_descriptor_path(&dir, "pid", "../..").is_none());
++        // Vacío o demasiado grande: no se guarda.
++        mivisor_descriptor_store(&dir, "pid", "ab", b"");
++        assert!(mivisor_descriptor_load(&dir, "pid", "ab").is_none());
++        // Recorte a 1 fichero.
++        mivisor_descriptor_store(&dir, "infohash", "cd", b"otro");
++        mivisor_descriptor_trim(&dir, 1);
++        let left = std::fs::read_dir(&dir).unwrap().count();
++        assert_eq!(left, 1);
++        let _ = std::fs::remove_dir_all(&dir);
++    }
++}
+-- 
+2.43.0
+

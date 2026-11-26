@@ -11,7 +11,8 @@ class FullP2pTest {
         val env = cfg.environment()
         assertEquals("127.0.0.1:0", env["OUTPACE_PEER_LISTEN"])
         assertEquals("0", env["OUTPACE_ENABLE_INBOUND"])
-        assertEquals("0", env["OUTPACE_ENABLE_SEEDING"])
+        // 4r · Compartir con quien ya estamos conectados va siempre (no abre puertos).
+        assertEquals("1", env["OUTPACE_ENABLE_SEEDING"])
         assertEquals("0", env["OUTPACE_ENABLE_PORT_MAPPING"])
         assertEquals("none", env["OUTPACE_PORT_MAP_BACKEND"])
         assertTrue(cfg.validate().isEmpty())

@@ -108,10 +108,14 @@ class Prefs(context: Context) {
         get() = sp.getString("auto_switch", "60") ?: "60"
         set(v) = sp.edit().putString("auto_switch", v).apply()
 
-    /** 3e · Volver solo al directo cuando la imagen se queda atrás. */
+    /**
+     * 3e · Volver solo al directo cuando la imagen se queda atrás. 4r · APAGADO por defecto (clave nueva, así también
+     * se apaga en las instalaciones que ya lo tenían): perseguir el directo gastaba el colchón y provocaba
+     * «Recuperando la imagen» en bucle. Ir al directo es el botón del reproductor.
+     */
     var autoLive: Boolean
-        get() = sp.getBoolean("auto_live", true)
-        set(v) = sp.edit().putBoolean("auto_live", v).apply()
+        get() = sp.getBoolean("auto_live_v2", false)
+        set(v) = sp.edit().putBoolean("auto_live_v2", v).apply()
 
     /** Verificador (3d): solo manual y con la app abierta; estas opciones afectan a «Comprobar ahora». */
     var verifierFavoritesOnly: Boolean

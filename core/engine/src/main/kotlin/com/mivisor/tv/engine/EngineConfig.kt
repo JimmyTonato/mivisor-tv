@@ -5,8 +5,9 @@ package com.mivisor.tv.engine
  *
  * Cliente de reproducción, no nodo de la red:
  *  - HTTP solo en 127.0.0.1 (puerto preferido 16900, o uno libre si está ocupado por otra app).
- *  - Por defecto sin listener de peers entrantes, sin seeding y sin mapeo de puertos (UPnP/NAT-PMP). Con
- *    [fullP2p] (3s, Ajustes › Motor) se activan los tres, como en Ace Stream oficial. RTMP aislado en un puerto efímero.
+ *  - Por defecto sin listener de peers entrantes y sin mapeo de puertos (UPnP/NAT-PMP). Con [fullP2p] (3s, Ajustes ›
+ *    Motor) se activan, como en Ace Stream oficial. 4r · Compartir con quien ya estamos conectados, siempre.
+ *    RTMP aislado en un puerto efímero.
  *  - Sin rutas compatibles con Ace (las de /ace): MiVisor usa la API nativa.
  *  - Resolución de Content ID por el catálogo y, si falla, BEP-9 (comprueba SHA-1 del descriptor).
  *
@@ -40,12 +41,17 @@ data class EngineConfig(
             "OUTPACE_CATALOG_HOSTS" to catalogHosts.joinToString(","),
             "OUTPACE_BIND" to "$HOST:$bindPort",
             "OUTPACE_DATA_DIR" to dataDir,
+            // 4r · Parche 0013: descriptores del catálogo guardados (los canales ya vistos abren aunque el catálogo falle).
+            "MIVISOR_DESCRIPTOR_DIR" to "$dataDir/$DESCRIPTOR_DIR",
             "HOME" to homeDir,
             // Servicios auxiliares: aislados o apagados.
             "OUTPACE_RTMP_BIND" to "$HOST:0",
             "OUTPACE_PEER_LISTEN" to if (fullP2p) "$ANY:$peerPort" else "$HOST:0",
             "OUTPACE_ENABLE_INBOUND" to flag(fullP2p),
-            "OUTPACE_ENABLE_SEEDING" to flag(fullP2p),
+            // 4r · Compartir mientras ves, SIEMPRE: subir a los emisores con los que ya estamos conectados (conexiones
+            // que abrimos nosotros; no abre puertos ni acepta a nadie). Los emisores tratan mejor a quien también da.
+            // Aceptar conexiones de otros y abrir el puerto en el router sigue siendo «P2P completo».
+            "OUTPACE_ENABLE_SEEDING" to "1",
             "OUTPACE_ENABLE_PORT_MAPPING" to flag(fullP2p),
             "OUTPACE_PORT_MAP_BACKEND" to if (fullP2p) "auto" else "none",
             "OUTPACE_MAX_INBOUND" to (if (fullP2p) limits.maxInbound else 0).toString(),
@@ -117,15 +123,41 @@ data class EngineConfig(
         /** Duración pedida de cada segmento HLS (se corta en el siguiente keyframe pasado este tiempo). */
         const val HLS_SEGMENT_MS = 2000L
         const val BINARY_NAME = "liboutpace.so"
+        /** 4r · Carpeta (dentro de la del motor) de los descriptores guardados por el parche 0013. */
+        const val DESCRIPTOR_DIR = "mivisor-descriptores"
         /** 3o · Lista de serie mientras no llegue la de mivisor-datos (rama `catalogo`). */
         val DEFAULT_CATALOG_HOSTS = listOf("51.158.152.5:8081")
         /** Fichero (en la carpeta del motor) con la última lista válida descargada, una «ip:puerto» por línea. */
         const val CATALOG_HOSTS_FILE = "catalog-hosts.txt"
 
-        /** La lista guardada o, si no hay o está vacía, la de serie. */
+        /** 4t · Servidores añadidos a mano en Ajustes, una «ip:puerto» por línea. Se prueban antes que los de GitHub. */
+        const val MANUAL_CATALOG_HOSTS_FILE = "catalog-hosts-manual.txt"
+        /** Máximo total que se pasa al motor (manuales + GitHub). */
+        const val MAX_CATALOG_HOSTS = 16
+
+        private fun readHosts(f: java.io.File): List<String> =
+            runCatching { f.readLines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") } }.getOrNull().orEmpty()
+
+        /** La lista descargada de GitHub o, si no hay o está vacía, la de serie. */
+        fun downloadedCatalogHosts(workDir: java.io.File): List<String> =
+            readHosts(java.io.File(workDir, CATALOG_HOSTS_FILE)).ifEmpty { DEFAULT_CATALOG_HOSTS }
+
+        /** Los añadidos a mano (puede estar vacía). */
+        fun manualCatalogHosts(workDir: java.io.File): List<String> = readHosts(java.io.File(workDir, MANUAL_CATALOG_HOSTS_FILE))
+
+        /** Guarda los manuales de forma atómica (fichero temporal + renombrar). Lista vacía = se borra el fichero. */
+        fun saveManualCatalogHosts(workDir: java.io.File, hosts: List<String>) {
+            val dst = java.io.File(workDir, MANUAL_CATALOG_HOSTS_FILE)
+            if (hosts.isEmpty()) { dst.delete(); return }
+            workDir.mkdirs()
+            val tmp = java.io.File(workDir, "$MANUAL_CATALOG_HOSTS_FILE.tmp")
+            tmp.writeText(hosts.distinct().joinToString("\n"))
+            if (!tmp.renameTo(dst)) { dst.delete(); tmp.renameTo(dst) }
+        }
+
+        /** Lo que recibe el motor: primero los manuales, después los de GitHub (o los de serie), sin repetidos. */
         fun savedCatalogHosts(workDir: java.io.File): List<String> =
-            runCatching { java.io.File(workDir, CATALOG_HOSTS_FILE).readLines().map { it.trim() }.filter { it.isNotEmpty() } }
-                .getOrNull()?.takeIf { it.isNotEmpty() } ?: DEFAULT_CATALOG_HOSTS
+            (manualCatalogHosts(workDir) + downloadedCatalogHosts(workDir)).distinct().take(MAX_CATALOG_HOSTS)
         private const val MAX_PIECE_BYTES = 1L shl 20
 
         /** 3p · Lo que el motor guarda hacia atrás (ventana HLS) en este aparato. */

@@ -514,7 +514,8 @@ fun PlayerScreen(
             StallCard(
                 text = text, live = graph.player.live,
                 caption = if (graph.prefs.autoSwitch == "never") "Se sigue intentando con esta fuente hasta que vuelva o elijas otra."
-                else "Cuando la imagen vuelva a ser estable, la app se irá acercando sola al directo.",
+                else if (graph.prefs.autoLive) "Cuando la imagen vuelva a ser estable, la app se irá acercando sola al directo."
+                else "Cuando vuelva, sigues donde estabas. «Volver al directo» en los controles, cuando quieras.",
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = MvDims.SafeX, bottom = 30.dp)
             ) {
                 if (offerWait) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -125,3 +125,19 @@ class HlsWindowTest {
         org.junit.Assert.assertTrue(EngineConfig.maxSafeDelayMs(true) - CatchUpPolicy.WINDOW_GUARD_MS >= 12_000L)
     }
 }
+
+class ManualCatalogHostsTest {
+    @org.junit.Test fun losManualesVanPrimeroSinRepetirYSobrevivenAGitHub() {
+        val dir = java.nio.file.Files.createTempDirectory("mv").toFile()
+        java.io.File(dir, EngineConfig.CATALOG_HOSTS_FILE).writeText("1.2.3.4:8081\n5.6.7.8:8081\n")
+        EngineConfig.saveManualCatalogHosts(dir, listOf("9.9.9.9:8081", "5.6.7.8:8081"))
+        org.junit.Assert.assertEquals(listOf("9.9.9.9:8081", "5.6.7.8:8081", "1.2.3.4:8081"), EngineConfig.savedCatalogHosts(dir))
+        org.junit.Assert.assertEquals(listOf("1.2.3.4:8081", "5.6.7.8:8081"), EngineConfig.downloadedCatalogHosts(dir))
+        // Una lista nueva de GitHub no toca los manuales.
+        java.io.File(dir, EngineConfig.CATALOG_HOSTS_FILE).writeText("4.4.4.4:8081\n")
+        org.junit.Assert.assertEquals(listOf("9.9.9.9:8081", "5.6.7.8:8081", "4.4.4.4:8081"), EngineConfig.savedCatalogHosts(dir))
+        EngineConfig.saveManualCatalogHosts(dir, emptyList())
+        org.junit.Assert.assertEquals(listOf("4.4.4.4:8081"), EngineConfig.savedCatalogHosts(dir))
+        org.junit.Assert.assertFalse(java.io.File(dir, EngineConfig.MANUAL_CATALOG_HOSTS_FILE).exists())
+    }
+}

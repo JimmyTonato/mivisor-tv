@@ -275,7 +275,7 @@ internal fun PlayerControls(
                         paused -> "El directo sigue avanzando"
                         l.behind && l.state == com.mivisor.tv.engine.CatchUpController.State.CATCHING_UP -> "Acercándote al directo poco a poco…"
                         l.behind && l.aheadMs >= 15_000 -> "Lo que falta hasta el directo ya está descargado"
-                        l.behind -> "Vas por detrás por un corte: se irá acercando sola"
+                        l.behind -> "Vas por detrás por un corte · sigues sin perderte nada"
                         else -> hint ?: ""
                     },
                     MvType.Small.copy(color = Muted), maxLines = 1, modifier = Modifier.weight(1f)

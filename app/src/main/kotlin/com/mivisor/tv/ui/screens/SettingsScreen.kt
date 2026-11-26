@@ -320,6 +320,7 @@ private fun EnginePage(graph: AppGraph, onChange: () -> Unit, toaster: (String) 
             })
             KeyValue("Puerto local", engine.port?.let { "127.0.0.1:$it (solo esta tele)" } ?: "—")
             KeyValue("Compilado desde", "outpace @ ${BuildConfig.OUTPACE_COMMIT.take(12)}")
+            KeyValue("Parches MiVisor", BuildConfig.OUTPACE_PATCHES.ifEmpty { "ninguno" })
             KeyValue("Este aparato", "Android ${Build.VERSION.RELEASE} · ${Build.SUPPORTED_ABIS.firstOrNull() ?: "?"} · ${EngineManager.totalRamMb(context)} MB" + if (EngineManager.isLowRam(context)) " · modo poca memoria" else "")
             supported?.let { KeyValue("Aviso", it) }
             if (m.channel != null) {
@@ -374,6 +375,30 @@ private fun EnginePage(graph: AppGraph, onChange: () -> Unit, toaster: (String) 
                 (if (cat.note.isNotEmpty()) "\n${cat.note}" else "") +
                 (lastCatalogError?.let { "\nÚltimo aviso del motor: ${it.takeLast(90)}" } ?: ""),
             icon = MvIcons.Refresh, trailing = "Buscar lista nueva")
+        // 4t · Servidores añadidos a mano: se guardan aparte (GitHub no los pisa) y el motor los prueba primero.
+        val restartEngine = {
+            graph.player.stop()
+            scope.launch { EngineManager.stop(); EngineManager.ensureStarted(context) }
+        }
+        cat.manual.forEach { h ->
+            MvRow("Servidor añadido: $h", {
+                graph.catalogHosts.removeManual(h)
+                    .onSuccess { restartEngine(); toaster("$it quitado: el motor se ha reiniciado") }
+                    .onFailure { toaster("No se pudo quitar: ${it.message}") }
+            }, subtitle = "Añadido a mano · se prueba antes que los de GitHub", icon = MvIcons.Delete, trailing = "Quitar")
+        }
+        var newHost by remember { mutableStateOf("") }
+        var hostError by remember { mutableStateOf<String?>(null) }
+        val addHost = {
+            graph.catalogHosts.addManual(newHost)
+                .onSuccess { newHost = ""; hostError = null; restartEngine(); toaster("$it añadido: el motor se ha reiniciado para usarlo") }
+                .onFailure { hostError = it.message }
+            Unit
+        }
+        MvTextField(newHost, { newHost = it; hostError = null }, "Añadir servidor del catálogo a mano",
+            placeholder = "IP o IP:puerto (p. ej. 51.158.152.5:8081)", keyboard = androidx.compose.ui.text.input.KeyboardType.Uri, onDone = addHost)
+        hostError?.let { MvText(it, MvType.Caption, color = MvColors.Bad) }
+        ButtonRow(12.dp) { MvButton("Añadir servidor", addHost, icon = MvIcons.Add, enabled = newHost.isNotBlank()) }
         // 3s · P2P completo: aceptar conexiones de otros (como Ace Stream oficial). Se aplica reiniciando el motor.
         var full by remember { mutableStateOf(graph.prefs.fullP2p) }
         val warpOn = graph.warp.state.collectAsState().value.phase == WarpPhase.CONNECTED
@@ -835,8 +860,8 @@ private fun SourcesPage(graph: AppGraph, nav: Nav, forgotten: Int, onForget: () 
             subtitle = if (prewarm) "Con el foco 1,5 s sobre un canal, su mejor fuente se prepara: al abrirlo sale antes"
             else "Cada canal empieza a prepararse al abrirlo") { MvSwitch(prewarm) }
         MvRow("Acercarse solo al directo", { autoLive = !autoLive; graph.prefs.autoLive = autoLive },
-            subtitle = if (autoLive) "Un corte no te mueve. Cuando la imagen está estable, se acerca poco a poco dejando margen"
-            else "Te quedas donde estabas; usa «Ir al directo» o «Adelantar 15 s» en los controles") { MvSwitch(autoLive) }
+            subtitle = if (autoLive) "Cuando la imagen está estable, se acerca poco a poco al directo (puede provocar más cortes)"
+            else "Recomendado: te quedas donde estabas y la imagen va fluida; usa «Volver al directo» cuando quieras") { MvSwitch(autoLive) }
         var protect by remember { mutableStateOf(graph.prefs.protectSources) }
         MvRow("No penalizar fuentes por fallos de la red, de la VPN o del aparato", { protect = !protect; graph.prefs.protectSources = protect },
             subtitle = if (protect) "Si el corte es de casa (sin Internet, WARP caída, motor o memoria), la fuente no pierde nota"

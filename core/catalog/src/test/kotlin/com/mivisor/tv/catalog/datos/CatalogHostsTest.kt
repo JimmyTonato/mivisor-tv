@@ -26,4 +26,12 @@ class CatalogHostsTest {
         assertEquals("https://raw.githubusercontent.com/JimmyTonato/mivisor-datos/catalogo/catalog-hosts.json",
             GitHubData.catalogHosts("https://raw.githubusercontent.com/JimmyTonato/mivisor-datos/main/agenda.json"))
     }
+
+    @org.junit.Test fun manualAceptaIpConYSinPuertoYRechazaLoDemas() {
+        org.junit.Assert.assertEquals("51.158.152.5:8081", CatalogHosts.parseManual(" 51.158.152.5 "))
+        org.junit.Assert.assertEquals("51.158.152.5:9000", CatalogHosts.parseManual("51.158.152.5:9000"))
+        org.junit.Assert.assertEquals("51.158.152.5:8081", CatalogHosts.parseManual("http://51.158.152.5:8081/"))
+        for (bad in listOf("", "192.168.1.10", "10.0.0.1:8081", "51.158.152.5:0", "51.158.152.5:99999", "catalogo.ejemplo.com", "51.158.152", "51.158.152.5:abc", "1.2.3.4 5"))
+            org.junit.Assert.assertNull(bad, CatalogHosts.parseManual(bad))
+    }
 }

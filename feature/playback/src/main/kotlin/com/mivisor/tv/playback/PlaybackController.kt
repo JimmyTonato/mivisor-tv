@@ -14,11 +14,14 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.SeekParameters
 import com.mivisor.tv.catalog.AceStreamLink
 import com.mivisor.tv.engine.AdaptiveBuffer
 import com.mivisor.tv.engine.CatchUpController
+import com.mivisor.tv.engine.CatchUpPolicy
 import com.mivisor.tv.engine.EngineApi
 import com.mivisor.tv.engine.EngineDiagnostics
 import com.mivisor.tv.engine.EngineStatus
@@ -205,6 +208,9 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     private var recoverStep = 0
     /** Última recarga de la misma fuente en el corte actual (3e: se recarga cada 15 s mientras se espera). */
     private var lastReloadAt = 0L
+    /** 4r · Últimos bytes recibidos por el motor y cuándo crecieron por última vez (para no recargar si llega vídeo). */
+    private var lastDownloaded = 0L
+    private var downloadGrewAt = 0L
     /** Último error del reproductor al arrancar (se reintenta la misma fuente hasta el minuto). */
     private var lastStartError: String? = null
     /** Fuentes saltadas en este ciclo porque su red (WARP) no estaba disponible: no se penalizan. */
@@ -422,10 +428,20 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         if (p.playWhenReady) {
             p.pause()
         } else {
-            // Al reanudar se vuelve al directo (borde − objetivo): salto limpio en HLS.
-            resyncing = true
-            resyncStartedAt = SystemClock.elapsedRealtime()
-            runCatching { p.seekToDefaultPosition() }
+            // 4r · Al reanudar se sigue DONDE ESTABAS (antes: salto al directo, sin colchón y con cortes después).
+            // Solo si la pausa ha sido tan larga que esa imagen ya no la guarda el motor, se va al punto más antiguo
+            // que aún guarda (con margen). Ir al directo es el botón «Volver al directo».
+            val duration = p.duration
+            val lag = if (p.isCurrentMediaItemLive && duration != C.TIME_UNSET && duration > 0) duration - p.currentPosition else null
+            val keep = catchUp.maxDelayMs - CatchUpPolicy.WINDOW_GUARD_MS
+            if (lag != null && catchUp.maxDelayMs != Long.MAX_VALUE && lag > catchUp.maxDelayMs && keep > 0) {
+                resyncing = true
+                resyncStartedAt = SystemClock.elapsedRealtime()
+                p.setSeekParameters(SeekParameters.PREVIOUS_SYNC)
+                runCatching { p.seekTo((duration - keep).coerceAtLeast(0)) }
+                book.log("Directo", "Pausa larga: se sigue desde lo más antiguo que guarda el motor (−${keep / 1000} s)")
+            }
+            jumpGraceUntil = SystemClock.elapsedRealtime() + 4_000
             liveDelay.onInterruption(SystemClock.elapsedRealtime())
             p.play()
         }
@@ -480,11 +496,23 @@ class PlaybackController(context: Context, private val book: SourceBook) {
             .setConnectTimeoutMs(5_000)
             .setReadTimeoutMs(35_000)
             .setAllowCrossProtocolRedirects(false)
-        return ExoPlayer.Builder(app)
+        // A2: si el decodificador por hardware falla al iniciarse, Media3 prueba el siguiente disponible.
+        val renderers = DefaultRenderersFactory(app).setEnableDecoderFallback(true)
+        return ExoPlayer.Builder(app, renderers)
             .setLoadControl(lc)
             .setMediaSourceFactory(EngineMediaSource.factory(http))
             .build().also {
                 it.addListener(listener)
+                it.addAnalyticsListener(object : AnalyticsListener {
+                    override fun onVideoDecoderInitialized(
+                        eventTime: AnalyticsListener.EventTime, decoderName: String,
+                        initializedTimestampMs: Long, initializationDurationMs: Long,
+                    ) { book.log("Decodificador", "Vídeo: $decoderName (${initializationDurationMs} ms)") }
+                    override fun onAudioDecoderInitialized(
+                        eventTime: AnalyticsListener.EventTime, decoderName: String,
+                        initializedTimestampMs: Long, initializationDurationMs: Long,
+                    ) { book.log("Decodificador", "Audio: $decoderName") }
+                })
                 it.playWhenReady = true
                 player = it
             }
@@ -531,6 +559,8 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         currentSource = src
         verifyingDescriptorSince = 0
         recoverStep = 0
+        lastDownloaded = 0L
+        downloadGrewAt = SystemClock.elapsedRealtime()
         audioApplied = false
         attemptStartedAt = SystemClock.elapsedRealtime()
         lastStartError = null
@@ -692,6 +722,11 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                         controlLiveDelay(status)
                         val now = SystemClock.elapsedRealtime()
                         if (bufferingSince <= 0) cutInsight.reset()
+                        // 4r · ¿Sigue llegando vídeo al motor? (bytes recibidos que crecen). Si llega, el corte es del
+                        // reproductor esperando su turno y recargar la fuente solo tiraría lo que ya hay.
+                        status?.downloaded?.let { dl ->
+                            if (dl > lastDownloaded) { lastDownloaded = dl; downloadGrewAt = now }
+                        }
                         if (bufferingSince > 0) {
                             // 3e: un corte no cambia de fuente a los 26 s. Se salta al directo (8 s), se recarga la
                             // misma fuente (16 s y luego cada 15 s) y solo se pasa SOLA a otra tras el tiempo de
@@ -702,7 +737,11 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                                 dropped("${stalled / 1000} s sin imagen tras saltar al directo y recargar")
                                 return@launch
                             }
-                            val step = StartPolicy.recoveryStep(stalled).coerceAtMost(2)
+                            // 4r · Recargar la fuente solo si al motor no le llega nada desde hace un rato (o el corte ya es
+                            // muy largo). Antes se recargaba a los 16 s y cada 20 s aunque el vídeo siguiera llegando.
+                            val engineQuiet = status?.downloaded == null || now - downloadGrewAt >= ENGINE_QUIET_MS
+                            val mayReload = engineQuiet || stalled >= RELOAD_ANYWAY_MS
+                            val step = StartPolicy.recoveryStep(stalled).coerceAtMost(if (mayReload) 2 else 1)
                             if (step > recoverStep) recover(step, base, src)
                             else if (step == 2 && now - lastReloadAt >= RELOAD_EVERY_MS) recover(2, base, src)
                             // 4d · En un corte, decir también por qué (emisión parada, no nos llega…).
@@ -710,10 +749,18 @@ class PlaybackController(context: Context, private val book: SourceBook) {
                                 it.kind == LoadInsight.Kind.STALLED || it.kind == LoadInsight.Kind.NOT_REACHING ||
                                     it.kind == LoadInsight.Kind.NO_DATA || it.kind == LoadInsight.Kind.SIGNATURE
                             }
+                            // 4r · Fase 4: si la fuente no da para su calidad (llega menos de lo que necesita el vídeo), se dice.
+                            val short = status?.let { st ->
+                                val need = st.bitrateBps
+                                val got = (st.downloadRate ?: 0L) * 8
+                                if (need > 0 && got > 0 && got < need * 85 / 100) "Llegan ${mbps(got)} de ${mbps(need)} Mb/s" else null
+                            }
+                            // 4r · El aviso solo con un corte de verdad (≥ 4 s): los baches cortos no lo enseñan.
                             _ui.value = _ui.value.copy(
-                                recovering = (why?.let { it.status + " · " } ?: "") +
-                                    (if (recoverStep >= 2) "Recargando la fuente" else "Recuperando la imagen") +
-                                    " · ${stalled / 1000} s" + if (switchAfter != Long.MAX_VALUE) " (otra fuente a los ${switchAfter / 1000} s)" else ""
+                                recovering = if (stalled < StartPolicy.FREEZE_MIN_MS) null else
+                                    (why?.let { it.status + " · " } ?: short?.let { "$it · " } ?: "") +
+                                        (if (recoverStep >= 2) "Recargando la fuente" else "Recuperando la imagen") +
+                                        " · ${stalled / 1000} s" + if (switchAfter != Long.MAX_VALUE) " (otra fuente a los ${switchAfter / 1000} s)" else ""
                             )
                         } else if (resyncing && now - resyncStartedAt > StartPolicy.NUDGE_MS) {
                             // 3e.1: el salto al directo no volvió a dar imagen: pasa a ser un corte normal (se recarga
@@ -1203,9 +1250,12 @@ class PlaybackController(context: Context, private val book: SourceBook) {
         // descargada, en proporción al retraso y dejando un colchón aprendido. Desactivada: decide el usuario.
         val auto = book.autoLiveEdge()
         val ahead = (p.bufferedPosition - p.currentPosition).coerceAtLeast(0)
-        val action = catchUp.onTick(now, lag, ahead, target, playing && now >= jumpGraceUntil)
-        if (auto) applyCatchUp(action)
-        else if (p.playbackParameters.speed != 1f) p.setPlaybackSpeed(1f)
+        // 4r · Apagado (lo normal): no se adelanta ni se acelera solo. Lo único que se aplica siempre es la guarda de
+        // la ventana del motor (si el retraso se sale de lo que el motor guarda, se adelanta lo justo): sin ella el
+        // reproductor se sale de la ventana y hay que recargar, que es peor.
+        val action = catchUp.onTick(now, lag, ahead, target, playing && now >= jumpGraceUntil, approach = auto)
+        applyCatchUp(action)
+        if (!auto && p.playbackParameters.speed != 1f) p.setPlaybackSpeed(1f)
         val cs = catchUp.stats
         _live.value = Live(lag, ahead, cs.reserveMs, cs.state)
         val st = liveDelay.stats.copy(resyncs = cs.steps, discardedMs = cs.recoveredMs, delayMs = lag)
@@ -1216,6 +1266,9 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     }
 
     private fun mask(id: String) = AceStreamLink.masked(id)
+
+    /** 4r · Bits/s → «4,2» (Mb/s, un decimal). */
+    private fun mbps(bps: Long): String = String.format(java.util.Locale("es", "ES"), "%.1f", bps / 1_000_000.0)
 
     /** 3i · Fuente siguiente calentada mientras la primera tarda (se suelta si al final no se usa). */
     private var warmedNext: String? = null
@@ -1241,6 +1294,10 @@ class PlaybackController(context: Context, private val book: SourceBook) {
     }
 
     private companion object {
+        /** 4r · Sin bytes nuevos en el motor durante esto = al motor no le llega nada: entonces sí se recarga. */
+        const val ENGINE_QUIET_MS = 10_000L
+        /** 4r · Corte tan largo que se recarga aunque el motor siga recibiendo (por si el reproductor se ha atascado). */
+        const val RELOAD_ANYWAY_MS = 45_000L
         /** Mientras se espera a que vuelva la imagen, la misma fuente se recarga cada… (4o · 20 s, antes 15). */
         const val RELOAD_EVERY_MS = 20_000L
         /** 3i · Tras este tiempo sin imagen con la primera fuente, se calienta la siguiente. */

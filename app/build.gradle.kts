@@ -44,6 +44,10 @@ android {
         buildConfigField("String", "STREAM_DOMAIN", "\"elcano.top\"")
         buildConfigField("String", "AGENDA_URL", "\"$agendaUrl\"")
         buildConfigField("String", "OUTPACE_COMMIT", "\"${System.getenv("OUTPACE_COMMIT") ?: "desconocido"}\"")
+        // 4s · Parches de Outpace que lleva este binario (los mismos que aplica CI, por su número), para Diagnóstico.
+        val outpacePatches = rootProject.file("tools/outpace-patches").listFiles()
+            ?.filter { it.name.endsWith(".patch") }?.map { it.name.take(4) }?.sorted()?.joinToString(",") ?: ""
+        buildConfigField("String", "OUTPACE_PATCHES", "\"$outpacePatches\"")
     }
 
     buildFeatures {
